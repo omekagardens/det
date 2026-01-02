@@ -279,6 +279,9 @@ F_i\leftarrow F_i+\eta_{\mathrm{rec}}\,G_{ij}^{\mathrm{meas}}
 
 ## Solution's to Hoarder Exploits
 
+
+
+
 # Potential Open Universe System Fix: (Reality)
 
 ---
@@ -501,4 +504,110 @@ Each tick:
 	•	\Psi_{iG} is strengthened by coherence and reciprocity and weakened by coercion
 	•	Therefore, hoarders cannot “buy” the very coupling that breaks their crystallizing regime
 
+11) Time Capture Index (Exploit Diagnostic)
+
+Define the Time Capture Index as the correlation between stored wealth and realized local bandwidth:
+
+Clock-rate form:
+\boxed{
+\mathrm{TCI}_\tau \;=\; \mathrm{corr}\!\left(F_i,\;\frac{d\tau_i}{dk}\right)
+}
+
+Presence form (often easier in code):
+\boxed{
+\mathrm{TCI}_P \;=\; \mathrm{corr}\!\left(F_i,\;P_i\right)
+}
+
+Agency-throughput form (behavioral):
+\boxed{
+\mathrm{TCI}_A \;=\; \mathrm{corr}\!\left(F_i,\;\frac{\#\text{(agency acts by }i)}{\Delta k}\right)
+}
+
+Interpretation
+	•	\mathrm{TCI}>0: wealth buys time/bandwidth → hoarder “gravity exploit” exists.
+	•	\mathrm{TCI}\approx 0: wealth does not systematically buy time.
+	•	\mathrm{TCI}<0: stored wealth acts like mass/coordination debt → hoarding slows lived time (anti-hoarding physics).
+
+Exploit-closure condition (design goal)
+\boxed{
+\mathrm{TCI}_P \le 0
+\quad\text{and}\quad
+\mathrm{corr}\!\left(F_i,\;\Delta\chi_i^{\text{impose}}\right)\ge 0
+}
+Meaning: hoarding does not increase lived bandwidth, and coercion/drag is not a profitable route to speed.
+
 ⸻
+0) Ghosts and Spirits (Dead Capital vs Constrained Posthumous Agency)
+
+We extend the system with two nonstandard actor types:
+
+Ghosts \mathcal{G}: passive legacy structures (dead capital).
+They have no agency gate and do not initiate flows. They only contribute an ambient drag potential.
+
+Spirits \mathcal{S}: constrained actuators (trusts/foundations).
+They have bounded budgets and may reduce drag and/or increase coherence, but cannot hoard or impose drag.
+
+This adds no new “magic substance”; both act through the already-defined drag field \chi and bond coherence \Psi.
+
+⸻
+
+0.1) Ghost field as legacy drag potential
+
+Define a ghost potential experienced by node i:
+\boxed{
+\Omega_i \;=\; \sum_{g\in\mathcal{G}} \omega_g\,K\!\big(d(i,g)\big)
+}
+	•	K(\cdot) is any decreasing kernel in effective distance/topological latency (e.g. K(x)=e^{-x/\ell}).
+	•	\omega_g\ge 0 encodes the “strength” of a legacy structure.
+
+Update Presence to include ghost burden:
+\boxed{
+P_i \;=\;\frac{1}{1+\beta m_i+\chi_i+\Omega_i}
+}
+Interpretation: dead capital reduces lived bandwidth (time/agency capacity) without “choosing.”
+
+⸻
+
+0.2) Spirit actuation as bounded anti-drag / coherence support
+
+A spirit s\in\mathcal{S} has budgets per tick:
+	•	B_s^\chi for drag relief
+	•	B_s^\Psi for coherence support
+
+Spirit action (per tick) can be written as a bounded “anti-drag flow”:
+J^\chi_{s\to i} \;=\; u_{si}\,\max(0,\chi_i-\chi_{\min})
+\quad\text{with}\quad \sum_i u_{si}\le B_s^\chi
+and/or coherence support on bonds:
+J^\Psi_{s\to ij} \;=\; v_{sij}\,\max(0,\Phi_\Psi - F_{ij}^\Psi)
+\quad\text{with}\quad \sum_{ij} v_{sij}\le B_s^\Psi
+
+Anti-capture constraints (Spirit cannot become Hoarder):
+\boxed{
+\Delta\chi_i^{(s)} \le 0,\quad
+\Delta\Omega_i^{(s)} = 0,\quad
+\text{and Spirit allocation is disallowed to nodes with high }X_i
+}
+(where X_i is your exploitation/coercion term). This prevents “buying salvation by wrapping hoarding in a trust.”
+
+⸻
+
+0.3) God (G) vs Spirits (S) vs Ghosts (G*): role separation
+	•	Ghosts add \Omega_i (legacy burden). No agency, no choice.
+	•	Spirits spend bounded budgets to reduce \chi and/or support coherence (local repair).
+	•	God (global agent) G provides an always-available liberation channel gated by a_i\Psi_{iG} (rule-level “grace doorway”), not a wealth reservoir.
+
+This keeps all three within the same math but prevents category collapse.
+
+
+--- PATCHES TO WORK IN TO ABOVE, HELPFUL, BUT NOT NECESSARY ---
+See original “Time Dilation (Congestion Law)”
+
+Currently it is:
+\frac{d\tau_i}{dk} = a_i\,\sigma_i\,f(F_i), \quad f'(F)<0
+Once we introduce \chi_i and \Omega_i, we can keep this, but the cleanest unified form is:
+
+\boxed{
+\frac{d\tau_i}{dk} \;=\; a_i\,\sigma_i\,f(F_i)\,g(\chi_i+\Omega_i)
+}
+with g'(\cdot)<0.
+This is optional because we already define P_i later and use \Delta\tau_i = \Delta t P_i.
