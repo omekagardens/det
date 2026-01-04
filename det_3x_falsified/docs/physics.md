@@ -408,3 +408,27 @@ This unifies:
 	•	Resource layer: F_i
 	•	Social/constraint layer: \chi_i,\Omega_i
 	•	Geometric layer: \Phi_i, L_\sigma, and biased flows J_{i\to j}
+
+
+(PATCHES)
+Discrete nodes → continuous fields: The standard route
+
+Assume nodes live on (or approximate) a dense mesh of some manifold-like space, with spacing \epsilon\to 0. Let
+	•	F_i \approx \rho(x_i)\,\epsilon^d (resource density),
+	•	J_{i\to j} \approx -D(\rho)\,\nabla \rho \cdot \hat n\,\epsilon^{d-1} (constitutive law),
+	•	loss \gamma becomes a reaction term,
+	•	reservoir coupling becomes a source term.
+
+Then the node update you already have
+F_i^{(k+1)}-F_i^{(k)}=\text{(inflows)}-\text{(outflows)}-\text{loss}+\text{reservoir}
+becomes (after scaling)
+\partial_t \rho = \nabla\cdot(D(\rho)\nabla \rho) - \Gamma(\rho)\rho + S(\rho, x, t)
+So DET’s continuum limit is just “conservation + constitutive laws”—the novelty is that proper time is also a field.
+
+Proper time becomes a scalar field
+
+Your “congestion law”
+\frac{d\tau_i}{dk}=a_i\sigma_i f(F_i)
+becomes
+\partial_t \tau(x,t)=P(\rho(x,t), \chi(x,t), \Omega(x,t), \dots)
+So you get a local clock-rate field. That’s exactly what you want for emergent GR-like behavior.
