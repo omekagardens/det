@@ -1,4 +1,4 @@
-DET 3.0 — One-Page Theory Card
+Deep Existence Theory (DET) 3.0
 
 Relativistic–Quantum Emergence from Resource-Constrained Agency Networks
 December 2025 — Draft
@@ -611,3 +611,189 @@ Once we introduce \chi_i and \Omega_i, we can keep this, but the cleanest unifie
 }
 with g'(\cdot)<0.
 This is optional because we already define P_i later and use \Delta\tau_i = \Delta t P_i.
+
+--- ADDITONAL PATCHES ---
+1. No explicit curvature / frame-dragging?
+
+Upgrade “phase” to a gauge field on edges
+
+You already have bond phase \varphi_{ij}. Treat it as a discrete connection (a parallel transport element). Then curvature is the holonomy around loops:
+\mathcal{F}(\ell)=\sum_{(i\to j)\in \ell} \varphi_{ij}\quad (\mathrm{mod}\ 2\pi)
+	•	If \mathcal{F}(\ell)\neq 0, the network has curvature (path-dependent phase/time transport).
+	•	Frame-dragging corresponds to nonzero circulation of the connection around rotating “massive” subgraphs.
+
+This is how you get Lense–Thirring–like effects in a graph: rotating flows induce a circulating connection, which biases transport and clock sync.
+
+Minimal add: one extra state variable per directed edge (or antisymmetric per undirected edge) plus an update rule coupling it to circulating current.
+
+2. Spin / fermions / bosons?
+
+Minimal “spin” patch: SU(2) bond state
+
+Replace bond phase \varphi_{ij}\in U(1) with a small matrix element U_{ij}\in SU(2) (or keep U(1) but add a 2-component internal state). Then:
+	•	spin is how states transform under transport U_{ij},
+	•	curvature becomes non-commuting holonomy (non-Abelian), which is exactly where spin/gauge physics lives.
+
+Fermions vs bosons: exchange symmetry from update algebra
+
+A crisp DET-style route:
+	•	Bosons: flow quanta that add on edges (no occupancy penalty).
+	•	Fermions: flow quanta that incur an infinite (or very steep) occupancy cost for double-occupation in the same local mode.
+
+In DET language, “Pauli exclusion” is just a hard budget constraint on a mode:
+n_{i,\alpha}\in\{0,1\}\quad\text{enforced by}\quad \text{cost}\to\infty\ \text{if }n>1
+Then “fermionic statistics” emerge in the coarse-grained partitioning of flows.
+
+Below is a drop-in “DET 3.0 → v1.1 Clarifications & Extensions” section you can append verbatim to the end of the paper/README. It is written in the same declarative, math-card style as your existing text, avoids introducing new metaphysical commitments, and explicitly answers the critiques you listed.
+
+Below is a drop-in “DET 3.0 → v1.1 Clarifications & Extensions” section you can append verbatim to the end of the paper/README. It is written in the same declarative, math-card style as your existing text, avoids introducing new metaphysical commitments, and explicitly answers the critiques you listed.
+
+⸻
+
+DET 3.0 — Section 1.1
+
+Clarifications, Limits, and Minimal Extensions
+
+This section records non-breaking clarifications and minimal extensions to Deep Existence Theory (DET 3.0). No new primitives are introduced beyond nodes, bonds, flows, local clocks, and constraints. The goal is to (i) close known conceptual gaps, (ii) remove apparent backdoors (absolute time, deus ex machina), and (iii) identify concrete paths to falsifiable predictions.
+
+⸻
+
+# 1.1.1 Discrete Nodes → Continuous Fields (Hydrodynamic Limit)
+
+DET is fundamentally discrete. Continuum descriptions arise as coarse-grained limits, not new ontology.
+
+Let nodes densely sample a space with spacing \epsilon \to 0. Define:
+	•	Resource density: F_i \approx \rho(x_i)\,\epsilon^d
+	•	Flow: J_{i\to j} \to -D(\rho)\nabla\rho\cdot\hat n
+	•	Loss: \gamma \to \Gamma(\rho)
+	•	Reservoir coupling: source term S(x,t)
+
+The node update equation becomes:
+\partial_t \rho
+=
+\nabla\cdot(D(\rho)\nabla \rho)
+-
+\Gamma(\rho)\rho
++
+S(\rho,x,t)
+
+Local clock evolution likewise coarse-grains:
+\frac{d\tau_i}{dk} = a_i \sigma_i f(F_i)
+\quad\Rightarrow\quad
+\partial_t \tau(x,t)=P(\rho,\chi,\Omega,\dots)
+
+Thus proper time is a scalar field, not an external parameter. Classical field equations are emergent descriptions of averaged DET updates.
+
+⸻
+
+1.1.2 The Global Index k Is Not Time
+
+The global index k is not physical time. It is a bookkeeping device for simulation.
+
+Physical dynamics depend only on:
+	•	Local proper time \tau_i
+	•	Local state
+	•	Received messages / flows
+
+Formally, the theory is defined on a partial order of events (a causal/event poset). Any total ordering (global k) is a gauge choice used for numerical execution. All observables must be invariant under re-ordering consistent with the event partial order.
+
+⸻
+
+1.1.3 Reservoir / “Grace” Is Not a Deus Ex Machina
+
+DET systems generically collapse into crystallization (heat death) if strictly closed. The “reservoir” represents one of two equivalent interpretations:
+
+A. Open-System Boundary Condition
+The modeled universe is an open subsystem exchanging potential with a larger environment. Reservoir coupling fixes a chemical-potential-like boundary condition, analogous to solar flux or a battery terminal.
+
+B. Endogenous Dissipation Reduction
+What appears as “injection” may instead be modeled as a reduction in effective loss:
+\gamma \;\to\; \gamma_{\text{eff}}(R_i,\Psi_{ij},\text{agency})
+Here, cooperative / giving actions alter dissipation pathways rather than create energy.
+
+In both views:
+	•	Reservoir coupling is finite
+	•	Gated by agency and conductivity
+	•	Infinite coupling is a limiting regime, not a constant, as it would trivialize dynamics
+
+⸻
+
+1.1.4 Curvature and Frame-Dragging (Connection Upgrade)
+
+Scalar clock-slowing alone is insufficient to model full GR-like effects.
+
+DET 3.0 bonds already carry phase \varphi_{ij}. In v1.1 this is interpreted as a discrete connection. Curvature is defined by holonomy:
+\mathcal{F}(\ell)=\sum_{(i\to j)\in \ell}\varphi_{ij}\;(\mathrm{mod}\;2\pi)
+	•	Nonzero loop holonomy ⇒ curvature
+	•	Circulating flows induce circulating connections ⇒ frame-dragging analogues
+	•	Path-dependent clock synchronization emerges naturally
+
+This requires no new objects, only an explicit interpretation of existing bond state.
+
+⸻
+
+1.1.5 Why the Emergent Speed c_* Is Constant
+
+The emergent propagation speed
+c_* \sim \bar{\sigma}\,\bar{L}
+is not tuned by assumption.
+
+Small perturbations of (F,\theta) linearize to a discrete wave equation. Only propagation modes within a stable band:
+	•	maintain coherence over long distances
+	•	avoid rapid decoherence penalties
+
+Networks that drift away from this band lose long-range signaling capacity. Thus an effective constant speed emerges by survivorship: only near-constant-speed regimes persist observationally.
+
+⸻
+
+1.1.6 Spin, Statistics, and Internal Structure
+
+DET 3.0 does not yet resolve particle taxonomy but admits minimal extensions:
+	•	Spin: bond state upgraded from U(1) phase to a small internal transport representation (e.g. SU(2)). Spin corresponds to transformation under bond transport; curvature becomes non-commuting holonomy.
+	•	Bosons: additive flow modes with no occupancy penalty.
+	•	Fermions: flow modes with hard occupancy constraints:
+n_{i,\alpha}\in\{0,1\}
+Exclusion is enforced as an infinite or steep cost in the resource algebra.
+
+Statistics emerge from constraint structure, consistent with DET’s budget-based monogamy logic.
+
+⸻
+
+1.1.7 Entanglement, Bell, and No-Signaling
+
+Shared bond objects \Psi_{AB} encode relational state. Measurement is a local projection consuming bond coherence.
+
+To validate claims, DET must reproduce:
+	•	Bell-inequality violation in coherent regimes
+	•	No-signaling: local outcome marginals independent of distant settings
+
+Distance-dependent decoherence limits correlation range but does not explain no-signaling; no-signaling must be enforced by the local measurement update rule itself. CHSH-style simulations are required and constitute an explicit test program.
+
+⸻
+
+1.1.8 Decay and Spectra
+
+The simple decay law
+\frac{dF}{d\tau}=-\gamma F
+is a macroscopic limit.
+
+Fundamentally, unstable nodes contain internal modes and decay via state-dependent hazard functions:
+\frac{dN}{d\tau}=-h(\tau)N,
+\quad
+h=\sum_c \Gamma_c(\text{state},\text{environment})
+
+Discrete decay spectra correspond to discrete internal mode transitions. Exponential decay emerges only when h is approximately constant.
+
+⸻
+
+1.1.9 Parameters and Predictive Program
+
+DET parameters (\gamma,\kappa,\lambda,\dots) acquire meaning only after nondimensionalization against characteristic scales. Calibration targets include:
+	•	Clock-rate gradients (redshift)
+	•	Signal propagation speed
+	•	Coherence decay times
+	•	Thermalization / diffusion rates
+
+A key falsifiable prediction of DET-style resource-bounded realism is:
+
+Perfect vacuum coherence is not exact; Bell-violating correlations should degrade at a rate tied to intrinsic network latency or loss, even absent environment.
