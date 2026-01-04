@@ -71,6 +71,9 @@ c_* = \frac{\bar L}{\bar T_{\text{hop}}}
 
 **Status:** emergent, calibratable
 
+**DET 3.1 clarification:**
+While \(c_*\) may emerge via historical self‑selection or renormalization in the early network, it is treated as a *frozen fixed point* in the present epoch (\(\dot c_* \approx 0\)). DET does not posit a continuous local adaptation servo operating in laboratory conditions today.
+
 ---
 
 ### 2.2 Gravitational Constant \(G\)
@@ -132,18 +135,40 @@ Environmental parameters must never be advertised as fundamental constants.
 
 After removing gauge and environmental quantities, the remaining candidates are:
 
-### 4.1 Clock-Load Coupling (\(\beta\))
+### 4.1 Clock‑Load Coupling (β_op)
 
-Appears in:
+Appears in the *operational* clock law:
 \[
-P_i = \frac{1}{1 + \beta F_i/F_*}
+P_i = \left(1 + \beta_{\text{op}}\,\frac{F_i^{\text{op}}}{F_*}\right)^{-1}
 \]
 
-- Controls how resource load slows clocks
-- Governs emergence of mass
-- Likely **order-1** in natural units
+- Controls how *circulating / operational load* perturbs local clock rate
+- Directly constrained by precision clock universality
+- Expected to be extremely small in physical systems
 
-**Status:** core DET parameter
+**Important:**
+- \(\beta_{\text{op}}\) does **not** set gravitational strength
+- Gravity/inertia source from *structural debt* (\(M^{\text{struct}}\)), not operational congestion
+
+**Status:** core DET parameter (clock sector only)
+
+### 4.1b Structural Debt Parameters (χ, Ω, Ξ)
+
+These parameters contribute to *persistent structural coordination debt*:
+\[
+M_i^{\text{struct}} = χ_i + Ω_i + Ξ_i
+\]
+
+- \(χ_i\): bureaucracy / complexity / admin capture
+- \(Ω_i\): dead capital / legacy structure / ghost weight
+- \(Ξ_i\): optional structural density (rest‑like content)
+
+**Role:**
+- Dominant source of inertia and gravity
+- Not constrained by precision clock universality
+- Slowly varying compared to operational load
+
+**Status:** core structural variables (not tunable constants)
 
 ---
 
@@ -171,15 +196,18 @@ Appears as:
 
 Two consistent stances:
 
-#### Conservative stance
-- Set \(\lambda_0 = 0\)
-- All decoherence is environmental
-- DET matches standard QM exactly in vacuum
+#### Conservative stance (DET 3.1 default)
+- Set \(\lambda_0 = 0\) **in the core theory**
+- All decoherence is environmental or kinematic
+- DET matches standard QM exactly in clean vacuum
 
 #### Bold stance
 - \(\lambda_0 > 0\)
 - Predicts eventual decay of Bell correlations
 - Provides a clean falsification condition
+
+**DET 3.1 note:**
+The \(\lambda_0 > 0\) option is retained only as an *explicit extension*. All core derivations, field equations, and falsifiable predictions assume \(\lambda_0 = 0\) unless otherwise stated.
 
 **Status:** optional flagship parameter
 
@@ -237,9 +265,10 @@ DET does **not** claim:
 | \(c_*\) | Emergent speed | No |
 | \(G\) | Mapping constant | No |
 | \(\hbar\) | Unit conversion | No |
-| \(\beta\) | Clock-load law | Yes |
+| \(\beta_{\text{op}}\) | Clock‑load coupling (operational) | Yes (clock sector only) |
+| \(χ, Ω, Ξ\) | Structural debt variables | Yes (structural sector) |
 | \(\alpha\) | Stability curvature | Maybe |
-| \(\lambda_0\) | Vacuum decoherence | Optional |
+| \(\lambda_0\) | Vacuum decoherence | No (core = 0; extension only) |
 | \(\gamma,\lambda_{\text{env}},\eta\) | Environment | No |
 
 ---

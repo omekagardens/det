@@ -2,8 +2,8 @@
 
 Unified Mathematical Formulation
 
-Version: 3.0.2-U
-Status: Symbol-consistent, realization-level, falsifiable
+Version: 3.1-U (post-falsification patch)
+Status: Symbol-consistent, realization-level, falsifiable (DET 3.1 aligned)
 Role: Existence proof (not uniqueness claim)
 
 ⸻
@@ -66,17 +66,18 @@ II.1 Local Time Evolution (Congestion Law)
 =
 P_i
 =
-a_i \sigma_i f(F_i)\, g(\chi_i + \Omega_i)
+a_i\,\sigma_i\,f_{\text{op}}(F_i^{\text{op}})\,g(\text{overhead})
 }
+
 	•	f'(F) < 0: resource congestion slows clocks
 	•	g'(\cdot) < 0: bureaucracy / legacy drag slows clocks
 
 Define:
 
 \boxed{
-M_i \equiv P_i^{-1}
+M_i \equiv P_i^{-1} = 1 + M_i^{\text{struct}} + M_i^{\text{op}}
 }
-\quad \text{(coordination debt / mass)}
+\quad \text{(coordination debt; structural + operational)}
 
 ⸻
 
@@ -134,13 +135,14 @@ II.4 Coherence Dynamics
 
 C_{ij} = \text{clip}\!\left(\frac{F_{ij}^\Psi}{F_{\Psi,*}},0,1\right)
 
+\boxed{
 \lambda_{ij}
 =
-\lambda_0
-+
-\lambda_{\text{env}}
+\lambda_{\text{env}}(i,j;\text{fields, T, noise, coupling})
 +
 \alpha\left(\frac{v_{ij}-c_*}{c_*}\right)^2
+\quad (\lambda_0 = 0\ \text{core})
+}
 
 ⸻
 
@@ -152,6 +154,9 @@ III.1 Emergent Light Speed
 c_* = \frac{\bar L_{ij}}{\bar T_{\text{hop}}}
 = \bar L_{ij}\,\bar\sigma_{ij}
 }
+
+**DET 3.1 clarification:**
+$c_*$ may arise via early-network self-selection or renormalization, but is treated as a *frozen fixed point* in the present epoch ($\dot c_* \approx 0$). DET does not posit a continuous local adaptation servo today.
 
 Selection principle:
 Modes with v \neq c_* decohere rapidly. Only v \approx c_* persists.
@@ -188,8 +193,8 @@ IV.2 Graph Laplacian (Positive Convention)
 =
 \sum_j \sigma_{ij}(f_i - f_j)
 
-Define excess mass:
-\rho_i = M_i - \bar M,
+Define excess structural mass:
+\rho_i = M_i^{\text{struct}} - \overline{M^{\text{struct}}},
 \quad
 \bar M = \frac{\sum_i d_i M_i}{\sum_i d_i}
 
@@ -236,7 +241,7 @@ V_i \psi_i
 }
 
 with:
-m \sim \langle M_i \rangle_{\text{packet}},
+m \sim \langle M_i^{\text{struct}} \rangle_{\text{packet}},
 \quad
 V_i = \hbar \omega_i
 
@@ -270,20 +275,20 @@ Statistics arise from constraint algebra, not axioms.
 
 ⸻
 
-VII. Bell Correlations & No-Signaling
+VII. Bell Correlations & No-Signaling (DET 3.1)
 
-Bell parameter:
-\boxed{
-S(d)
-=
-2\sqrt2\,
-e^{-\alpha d/L_* - \lambda_0 d/c_*}
-}
-	•	Local marginals invariant → no-signaling
-	•	Distance affects coherence, not information transfer
+Bell correlations arise from shared bond states $\Psi_{ij}$, not signal propagation.
 
-Falsification:
-If S\to2\sqrt2 for arbitrarily large d, DET is false.
+There is **no universal vacuum distance-decay law** in DET 3.1.
+
+Coherence loss is governed by the environment-mediated rate $\lambda_{ij}$:
+\[
+\lambda_{ij} = \lambda_{\text{env}}(i,j;\text{fields, noise, coupling}) + \alpha\left(\frac{v_{ij}-c_*}{c_*}\right)^2
+\]
+
+Local marginals remain invariant (no-signaling).
+
+**Falsification:** If controlled environmental changes fail to affect coherence in regimes where coupling should occur, DET is disfavored in this sector.
 
 ⸻
 
@@ -302,15 +307,15 @@ D\nabla^2\rho
 +
 S
 
-P(\mathbf{x}) = \frac{1}{1+\beta\rho/\rho_*}
+P(\mathbf{x}) = \frac{1}{1+\beta_{\text{op}}\,\rho_{\text{op}}/\rho_*}
 
 ⸻
 
 IX. Summary (Single-Chain Logic)
 
-Resource + agency → local clock rate P
+Resource + agency → local operational clock rate P
         ↓
-Mass = coordination debt = P⁻¹
+Mass = coordination debt = 1 + M_struct + M_op
         ↓
 Throughput potential Φ = c*² ln(M/M₀)
         ↓

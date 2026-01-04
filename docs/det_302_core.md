@@ -197,7 +197,7 @@ Phase accumulates proportionally to experienced proper time.
 $$F_{ij}^Ψ(τ + Δτ) = F_{ij}^Ψ(τ) \exp\left[-\int_τ^{τ+Δτ} λ_{ij}(s) ds\right] - G_{ij}^{\text{meas}}$$
 
 **Decoherence rate:**
-$$λ_{ij} = λ_0 + λ_{\text{env}}(i,j) + α\left(\frac{v_{ij} - c_*}{c_*}\right)^2$$
+$$\boxed{λ_{ij} = λ_{\text{env}}(i,j;\text{fields, T, noise, coupling}) + α\left(\frac{v_{ij} - c_*}{c_*}\right)^2 \quad (λ_0=0\ \text{core})}$$
 
 **Normalized coherence:**
 $$C_{ij} = \text{clip}\left(\frac{F_{ij}^Ψ}{F_{Ψ,*}}, 0, 1\right)$$
@@ -451,27 +451,123 @@ Discrete spectra ↔ discrete mode transitions.
 
 ---
 
-# PART IV: FALSIFIABLE PREDICTIONS
+# PART IV: FALSIFIABLE PREDICTIONS (Updated for DET 3.1 Patch)
 
-## Primary: Bell Violation Decay
-
-$$\boxed{S(d) = 2\sqrt{2} · \exp\left[-α\frac{d}{L_*} - λ_0\frac{d}{c}\right]}$$
-
-| Distance | Predicted $S$ | Detectability |
-|----------|--------------|---------------|
-| $10^6$ km | $≈ 2.82$ | Undetectable |
-| 1 light-year | $≈ 1.55$ | Detectable! |
-
-**Falsification:** Bell violation remains $2\sqrt{2}$ at $d > 1$ light-year.
-
-## Secondary Predictions
-
-1. **Rotational decoherence:** $Δλ ∝ ω^2 R^2$
-2. **Entanglement budget:** $\sum_j C_{ij} ≤ B_i^Ψ$ (monogamy)
-3. **Frame-dragging on photons:** $Δθ ∝ J_S / r^2$
-4. **Vacuum dispersion:** $c(ω) = c_*[1 + β(ω/ω_*)^2]$
+**Patch alignment:** This Part IV removes predictions that rely on (i) a universal vacuum decoherence floor $\lambda_0>0$ and (ii) continuous present‑day local adaptation of $c_*$. It replaces them with falsifiable targets that remain compatible with precision clock and coherence constraints.
 
 ---
+
+## Primary Prediction Class A: Environment‑Driven Decoherence Scaling (Not Vacuum Distance Decay)
+
+### Statement
+In DET 3.1, coherence loss is **environment‑mediated**, not an irreducible vacuum floor. For a bond $(i,j)$,
+
+$$\boxed{\lambda_{ij} = \lambda_{\text{env}}(i,j;\text{fields, T, noise, coupling}) + \alpha\left(\frac{v_{ij}-c_*}{c_*}\right)^2}$$
+
+with **default** $\lambda_0=0$.
+
+### Testable scaling families
+DET does not hard‑code a single $\lambda_{\text{env}}$ form, but it does predict that *controlled environment knobs* induce monotone, model‑fit‑able changes in decoherence. Practical families to test:
+
+1) **EM noise / shielding:**
+$$\boxed{\lambda_{\text{env}} \sim A_{\text{EM}}\,S_{\text{EM}}^{\,p}}$$
+where $S_{\text{EM}}$ is an experimentally measurable noise proxy.
+
+2) **Temperature (phonon / blackbody / material coupling):**
+$$\boxed{\lambda_{\text{env}} \sim A_T\,T^{p_T}}$$
+
+3) **Rotation / acceleration / strain (platform coupling):**
+$$\boxed{\Delta\lambda \sim A_\Omega\,\Omega^2 + A_\epsilon\,\epsilon^2}$$
+
+### Falsification criteria (honest)
+- **If** decoherence rates remain unchanged (within experimental sensitivity) under large, controlled swings of the above environment proxies **in regimes where standard models predict sensitivity**, DET’s “environment‑dominant” stance becomes non‑informative and is disfavored.
+- **If** a reproducible, environment‑independent residual floor is established across disparate platforms and isolation levels, DET must re‑introduce a nonzero $\lambda_0$ or an equivalent intrinsic term (contrary to the patch).
+
+---
+
+## Primary Prediction Class B: Structural–Operational Separation Test
+
+### Statement
+DET 3.1 splits coordination debt (mass) into:
+
+$$\boxed{M_i = 1 + M_i^{\text{struct}} + M_i^{\text{op}}}$$
+
+- Precision clocks constrain **operational** coupling (tiny):
+$$M_i^{\text{op}} = \beta_{\text{op}}\,\frac{F_i^{\text{op}}}{F_*}$$
+- Gravity/inertia source is **structural** excess:
+$$\boxed{\rho_i = M_i^{\text{struct}} - \overline{M^{\text{struct}}}}$$
+
+### Experimental discriminant (what DET commits to)
+Construct (or identify) two systems A and B such that:
+- Their **operational load proxies** match (same power, throughput, heat, EM activity, etc.):
+$$F_A^{\text{op}} \approx F_B^{\text{op}}$$
+- Their **structural content proxies** differ (composition/density/rest‑like structure), i.e. different $M^{\text{struct}}$.
+
+DET predicts:
+- Clock universality is preserved (no measurable $\Delta P$ beyond tiny $\beta_{\text{op}}$ effects).
+- Gravitational sourcing tracks structural difference (via $\rho$).
+
+### Falsification criteria
+- **If** changing structural content while holding operational conditions fixed produces a gravity/potential change *inconsistent* with sourcing by $M^{\text{struct}}$ (or shows sourcing by operational load instead), the DET 3.1 split fails.
+- **If** operational load changes (with fixed structure) produce time‑dilation effects larger than allowed by clock universality, the operational channel as defined is ruled out.
+
+---
+
+## Secondary Prediction Class C: Graph‑Gravity Deviations in Engineered Discrete Media
+
+### Statement
+Gravity in DET is a **network equilibration law**:
+
+$$\boxed{(L_\sigma \Phi)_i = -\kappa\,\rho_i}$$
+
+On finite, anisotropic, or non‑Euclidean graphs (or metamaterial analogs), DET predicts **departures from continuum Poisson behavior**.
+
+### Observable signatures
+- Direction‑dependent (anisotropic) effective potential gradients.
+- Non‑Newtonian falloff at intermediate scales set by graph connectivity and boundary conditions.
+- Mode structure tied to the spectrum of $L_\sigma$.
+
+### Falsification criteria
+- **If** engineered networks that should have distinct Laplacian spectra produce indistinguishable potential/flow fields under identical sourcing, the Laplacian‑gravity mapping is disfavored.
+
+---
+
+## Secondary Prediction Class D: Freeze‑Out of $c_*$ (Epochal, Not Local‑Servo)
+
+### Statement
+DET 3.1 treats $c_*$ as a **frozen fixed point** in the current epoch:
+
+$$\boxed{\dot{c_*} \approx 0\ \text{today}}$$
+
+with optional threshold activation only in extreme mismatch regimes.
+
+### Testable commitment
+- Present‑day laboratory conditions should not show **environment‑dependent drift** of $c$ attributable to a local adaptation servo.
+- Any allowed variation must be **cosmological/epochal** (global history), not local experimental tuning.
+
+### Falsification criteria
+- **If** reproducible, local environment changes can tune measured $c$ beyond known systematic errors in a way consistent with a local adaptation law, DET 3.1 freeze‑out is false.
+
+---
+
+## Retired (Explicitly) — Distance‑in‑Vacuum Bell Decay
+
+The prior DET 3.0.2 “primary” prediction
+$$S(d)=2\sqrt{2}\,\exp[-\alpha d/L_* - \lambda_0 d/c]$$
+
+is **retired** under DET 3.1 because it depends on a universal vacuum floor $\lambda_0>0$ and treats distance‑decay as fundamental rather than environment‑mediated.
+
+---
+
+## Summary: What Part IV Now Claims
+
+**Primary falsifiers now live in:**
+- Environment‑driven decoherence scaling laws (across platforms and isolation regimes)
+- Structural–operational separation (gravity sourcing vs clock universality)
+
+**Secondary falsifiers:**
+- Graph‑gravity deviations in engineered discrete media
+- Freeze‑out (no present‑day local servo on $c$)
 
 # PART V: SYMBOL GLOSSARY (Canonical)
 
@@ -506,16 +602,159 @@ $$\boxed{S(d) = 2\sqrt{2} · \exp\left[-α\frac{d}{L_*} - λ_0\frac{d}{c}\right]
 $$\boxed{
 \begin{aligned}
 &\textbf{Causality: } e ≺ e' \iff \text{information path exists} \\[6pt]
-&\textbf{Time dilation: } P_i = \frac{dτ_i}{dk} = a_i σ_i f(F_i) g(χ_i + Ω_i) \\[6pt]
-&\textbf{Mass: } M_i = P_i^{-1} \\[6pt]
+&\textbf{Time dilation: } P_i = \frac{dτ_i}{dk} = a_i\,σ_i\,f_{\text{op}}(F_i^{\text{op}})\,g(\text{overhead}) \\[6pt]
+&\textbf{Mass: } M_i = P_i^{-1} = 1 + M_i^{\text{struct}} + M_i^{\text{op}} \\[6pt]
 &\textbf{Potential: } Φ_i = c_*^2 \ln(M_i / M_0) \\[6pt]
-&\textbf{Gravity: } (L_σ Φ)_i = -κρ_i \\[6pt]
+&\textbf{Gravity: } (L_σ Φ)_i = -κ\rho_i,\quad \rho_i = M_i^{\text{struct}}-\overline{M^{\text{struct}}} \\[6pt]
 &\textbf{Quantum: } iℏ∂_t ψ = \frac{ℏ^2}{2m}L_σ ψ + Vψ \\[6pt]
-&\textbf{Light speed: } c_* = \bar{L}/\bar{T}_{\text{hop}} \text{ (stable fixed point)} \\[6pt]
+&\textbf{Light speed: } c_* = \bar{L}/\bar{T}_{\text{hop}},\quad \dot{c_*}\approx 0\ \text{(freeze-out today)} \\[6pt]
 &\textbf{Measurement: } C_{ij} → 0 \;⟹\; \text{collapse to classical} \\[6pt]
-&\textbf{Prediction: } S(d) = 2\sqrt{2} e^{-αd/L_* - λ_0 d/c}
+&\textbf{Prediction: } \lambda_{ij}=\lambda_{\text{env}}(i,j)+\alpha\left(\frac{v_{ij}-c_*}{c_*}\right)^2\ (\lambda_0=0\ \text{core})
 \end{aligned}
 }$$
+
+---
+
+# PART VII: DET 3.1 — HONEST PATCH CARD (Post‑Falsification)
+
+**Purpose:** Update DET to remain compatible with existing precision constraints by removing or restructuring couplings that are not empirically allowed.
+
+**What this patch is (and is not):**
+- This is **not** parameter-tuning to hide effects; it is a **structural revision** of which couplings are fundamental.
+- This patch **removes** a few “headline” predictions that conflict with known data, and **re-anchors** falsifiability in places DET can honestly own.
+
+---
+
+## 7.1 Hard Constraints Acknowledged
+
+DET 3.0.2, as written, is incompatible with three classes of existing observations if interpreted literally:
+1) **Clock universality:** operational clock rates cannot depend strongly on local “resource load.”
+2) **High coherence in clean systems:** a universal, environment‑independent decoherence floor is extremely constrained.
+3) **Constancy of light speed today:** if $c_*$ is actively adapting locally in the current epoch, it would generically induce drifts/dispersion not observed.
+
+This patch makes the minimum changes needed to remove those failure modes while keeping the network‑agency ontology.
+
+---
+
+## 7.2 Patch A — Remove Universal Vacuum Decoherence Floor
+
+### Change
+**Default:** set
+$$\boxed{\lambda_0 \equiv 0\ \text{(core)}}$$
+
+and treat decoherence as **purely environmental / interaction‑mediated** (plus optional speed‑mismatch penalties if used):
+$$\boxed{\lambda_{ij} = \lambda_{\text{env}}(i,j;\text{fields, T, noise, coupling}) + \alpha\left(\frac{v_{ij}-c_*}{c_*}\right)^2}$$
+
+### What we give up (honestly)
+- Remove “Bell violation decays in perfect vacuum at astronomical distance” as a primary DET prediction.
+
+### What remains falsifiable
+- Environment‑dependent decoherence scalings (temperature, EM noise, rotation, strain, etc.) still yield testable signatures.
+
+---
+
+## 7.3 Patch B — Split Coordination Debt into Structural vs Operational
+
+### Motivation
+Precision clocks constrain **operational** perturbations to timekeeping, but gravity/inertia may be dominated by **persistent structural** contributions that do not appear in high‑quality clock comparisons.
+
+### Change
+Replace the single-coupling congestion law with a two-channel mass (debt) decomposition:
+
+**Total coordination debt (mass):**
+$$\boxed{M_i \equiv P_i^{-1} = 1 + M_i^{\text{struct}} + M_i^{\text{op}}}$$
+
+**Operational debt** (bounded tightly by clock universality):
+$$\boxed{M_i^{\text{op}} \equiv \beta_{\text{op}}\,\frac{F_i^{\text{op}}}{F_*}}$$
+where $F_i^{\text{op}}$ is the *active, circulating* load relevant to computation/transport, and $\beta_{\text{op}}$ is taken to be extremely small.
+
+**Structural debt** (dominant source of inertia/gravity):
+$$\boxed{M_i^{\text{struct}} \equiv \chi_i + \Omega_i + \Xi_i}$$
+where $\Xi_i$ is an optional “structural density” term (rest‑like, persistent, slowly varying) used to represent stable matter/energy content without requiring large clock‑universality‑violating $\beta$.
+
+### Revised clock law (operational only)
+Clock rate depends on operational load and local processing constraints, not on structural debt:
+$$\boxed{P_i = \frac{d\tau_i}{dk} = a_i\,\sigma_i\,f_{\text{op}}(F_i^{\text{op}})\,g(\text{overhead})}$$
+with a canonical small‑effect form:
+$$\boxed{f_{\text{op}}(F^{\text{op}}) = \left(1 + \beta_{\text{op}}\frac{F^{\text{op}}}{F_*}\right)^{-1}}$$
+
+### Revised gravity source (structural only)
+Define the gravitational source as excess structural debt:
+$$\boxed{\rho_i \equiv M_i^{\text{struct}} - \overline{M^{\text{struct}}}}$$
+and keep the same equilibration field equation:
+$$\boxed{(L_\sigma \Phi)_i = -\kappa\,\rho_i}$$
+with the same throughput potential definition:
+$$\boxed{\Phi_i \equiv c_*^2\ln\left(\frac{M_i}{M_0}\right)}$$
+
+**Interpretation:**
+- Precision clock tests constrain $M^{\text{op}}$ couplings.
+- Gravity/inertia primarily track $M^{\text{struct}}$ (persistent structure), so gravity can be strong while operational clock perturbations remain tiny.
+
+---
+
+## 7.4 Patch C — Make $c_*$ a Frozen Fixed Point in the Current Epoch
+
+### Change
+Reframe “self-tuning” of $c_*$ as an **early-universe (or early-network) renormalization** process that reaches a stable fixed point and then **freezes out**.
+
+Operationally, replace “continuous local adaptation today” with a thresholded or epoch‑dependent mechanism:
+
+- **Freeze‑out:** $\dot{c_*} \approx 0$ in the present epoch.
+- **Thresholding:** any residual adaptation activates only when mismatch exceeds a critical regime:
+$$\boxed{\dot{c_*} \propto \begin{cases}
+0, & |v-c_*|/c_* < \epsilon \\
+-\Gamma\,(c_*-c_{\text{fp}}), & |v-c_*|/c_* \ge \epsilon
+\end{cases}}$$
+
+### Consequence
+- DET no longer predicts measurable present‑day drift of $c$ from local adaptation.
+- “Self‑tuning” remains as a historical explanation, not an always‑on servo.
+
+---
+
+## 7.5 Patch D — Coarse‑Grained Event Time Scale
+
+### Change
+Make explicit that the physically meaningful coarse‑grained tick is not the Planck time. Introduce an emergent minimal operational time step $T_*$ defined by network update granularity:
+$$\boxed{\Delta\tau_i = P_i\,\Delta k,\quad \Delta k\ \text{coarse-grains to}\ T_*\ \text{for effective physics}}$$
+
+This clarifies that $k$ is an ordering index and that “micro‑ticks” below $T_*$ are not operationally resolvable.
+
+---
+
+## 7.6 Updated Falsifiable Targets (Honest)
+
+With the above patches, DET’s falsifiability moves to places it can own without contradicting precision tests:
+
+1) **Graph‑gravity deviations in discrete media:** non‑Euclidean graph structure predicts anisotropic/inhomogeneous corrections to Poisson behavior in engineered networks.
+2) **Environment‑driven decoherence scalings:** $\lambda_{\text{env}}$ should obey measurable scaling laws with controlled noise/temperature/rotation/strain in long‑baseline entanglement setups.
+3) **Structural vs operational separation tests:** systems with equal operational load but different structural “density” proxies ($\Xi_i$) should source different potentials while keeping high clock universality.
+4) **Freeze‑out hypothesis tests:** any permitted $c$ variation must be cosmological/epochal, not local‑adaptive; DET becomes testable via bounds on temporal evolution, not lab‑servo effects.
+
+---
+
+## 7.7 Summary of What Changed
+
+**Removed / demoted:**
+- $\lambda_0>0$ as a universal vacuum decoherence floor.
+- “Bell decay with distance in vacuum” as a primary prediction.
+- “Continuous present‑day local adaptation” as the mechanism enforcing $c$ constancy.
+
+**Added / clarified:**
+- Split $M_i$ into **operational** (clock‑constrained) and **structural** (gravity‑dominant) contributions.
+- Gravity sources from **structural excess** $\rho_i$.
+- $c_*$ is a **frozen fixed point** today (with optional threshold activation only in extreme regimes).
+- $k$ is ordering; effective physics uses a coarse‑grained $T_*$.
+
+**What remains the same:**
+- Primitive ontology (nodes, bonds, no background spacetime).
+- Presence $P_i$ and coordination debt $M_i$ as central variables.
+- Gravity as network equilibration: $(L_\sigma\Phi)_i=-\kappa\rho_i$.
+- Quantum structure via resource‑phase $\psi_i$ and bond state $\Psi_{ij}$.
+
+---
+
+**Patch Version Note:** This is a forward-compatible patch card. If adopted, update Part IV (Falsifiable Predictions) to remove the $\lambda_0 d/c$ term and replace the Bell-decay primary with an environment‑scaling primary.
 
 ---
 

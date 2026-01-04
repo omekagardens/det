@@ -9,18 +9,18 @@
 
 **Given:**
 - Nodes with resource $F_i$, processing rate $σ_i$, agency $a_i$
-- Time dilation law: $\frac{dτ_i}{dk} = a_i σ_i f(F_i)$
+- Time dilation law (operational): $\frac{dτ_i}{dk} = a_i σ_i f_{\text{op}}(F_i^{\text{op}})$
 - Edge conductivity $σ_{ij}$
 
 ## Step 1: Define Presence and Mass
 
 **Presence** (local clock rate):
-$$P_i ≡ \frac{dτ_i}{dk} = a_i σ_i f(F_i)$$
+$$P_i ≡ \frac{dτ_i}{dk} = a_i σ_i f_{\text{op}}(F_i^{\text{op}})$$
 
 **Mass** (coordination debt = inverse clock rate):
-$$M_i ≡ P_i^{-1} = \frac{1}{a_i σ_i f(F_i)}$$
+$$M_i ≡ P_i^{-1} = 1 + M_i^{\text{struct}} + M_i^{\text{op}}$$
 
-*Physical meaning:* Heavy nodes process slowly. Mass is "how much the network must wait for this node."
+*Physical meaning:* $M^{\text{op}}$ captures operational waiting (clock‑constrained); $M^{\text{struct}}$ captures persistent structural debt (gravity/inertia source).
 
 ## Step 2: Define Throughput Potential
 
@@ -56,7 +56,7 @@ where $d_i = \sum_j σ_{ij}$ is weighted degree.
 
 $$\bar{M} = \frac{\sum_i d_i M_i}{\sum_i d_i}$$
 
-$$ρ_i ≡ M_i - \bar{M}$$
+$$ρ_i ≡ M_i^{\text{struct}} - \overline{M^{\text{struct}}}$$
 
 **Key property:** $\sum_i d_i ρ_i = 0$ (charge neutrality)
 
@@ -99,24 +99,24 @@ $$\Phi(r) ∝ 1/r \quad ⟹ \quad g(r) = -∇Φ ∝ 1/r^2$$
 
 ## Step 8: Equivalence Principle
 
-$$m_{\text{inertial}} = m_{\text{gravitational}} = M_i = P_i^{-1}$$
+$$m_{\text{inertial}} \sim M_i^{\text{struct}},\quad m_{\text{gravitational}} \sim M_i^{\text{struct}}$$
 
-**Explanation:** Both arise from the same quantity—how much coordination debt (waiting) a node imposes on the network. There's no separate "gravitational charge."
+**Explanation:** Precision clocks constrain operational slowdowns ($M^{\text{op}}$), while inertia and gravitational sourcing track persistent structure ($M^{\text{struct}}$). The “charge” is structural excess $ρ_i$.
 
 ## Summary Chain
 
 ```
 DET Primitives
     ↓
-Time dilation: dτ/dk = a·σ·f(F)
+Time dilation: dτ/dk = a·σ·f_op(F_op)
     ↓
-Define: P = dτ/dk, M = P⁻¹
+Define: P = dτ/dk, M = 1 + M_struct + M_op
     ↓
 Define: Φ = c*² ln(M/M₀)
     ↓
 Graph Laplacian: (L_σΦ)ᵢ = Σⱼ σᵢⱼ(Φᵢ - Φⱼ)
     ↓
-Source: ρᵢ = Mᵢ - M̄ (excess mass)
+Source: ρᵢ = Mᵢ^{struct} - M̄^{struct} (excess structural mass)
     ↓
 Field equation: L_σΦ = -κρ
     ↓
@@ -196,10 +196,12 @@ is Hermitian, guaranteeing unitary evolution.
 
 The parameter $m$ controls how phase differences across bonds evolve.
 
-**DET mapping:**
-$$m ∝ P^{-1} = M \quad \text{(coordination debt)}$$
+**DET mapping (DET 3.1):**
+$$\boxed{m \propto M^{\text{struct}}\ \text{(dominant)},\qquad m \text{is not set by clock-constrained } M^{\text{op}}}$$
 
 Higher mass = harder to redistribute the wavepacket = more "inertial."
+
+**Note:** This avoids importing precision-clock bounds into the quantum mass parameter. Operational congestion ($M^{\text{op}}$) can slightly affect effective hopping/throughput, but the inertial scale in the Schrödinger sector is sourced by persistent structure.
 
 For a localized wavepacket, use representative $m$ from its support.
 
@@ -278,14 +280,10 @@ $$v_{ij} = \frac{L_{ij}}{T_{ij}^{\text{hop}}} = L_{ij} · σ_{ij}$$
 **Decoherence penalty:**
 $$λ_{\text{env}} ∝ (v - c_*)^2$$
 
-Modes with $v ≠ c_*$ decohere rapidly and lose long-range signaling ability.
+**Freeze-out framing (DET 3.1):**
+In the present epoch, $c_*$ is a frozen fixed point ($\dot{c_*}\approx 0$). Any historical “self‑tuning” is treated as early‑network renormalization, not a continuous local servo today.
 
-**Adaptation dynamics:**
-$$\frac{dσ_i}{dt} = ε\left[1 - \left(\frac{\bar{v}_i}{c_*}\right)^2\right]$$
-
-**Selection:** Only $v ≈ c_*$ survives observationally.
-
-**Result:** Universal maximum signaling speed $c_*$ emerges from network dynamics, not assumed.
+**Selection:** Observed long‑range signaling modes are those with $v\approx c_*$ because off‑speed modes decohere or fail to propagate coherently.
 
 ## Step 3: Proper Time vs Coordinate Time
 
@@ -297,7 +295,7 @@ $$\frac{dτ_i}{dτ_0} = \frac{P_i}{P_0}$$
 For a moving packet traversing edges:
 $$dτ = dτ_0 \sqrt{1 - v^2/c_*^2}$$
 
-**This IS time dilation**—derived from network congestion.
+**This IS time dilation**—operationally derived from update/transport constraints (without requiring gravity-strength coupling to precision clocks).
 
 ## Step 4: Length Contraction
 
@@ -339,37 +337,37 @@ SPECIAL RELATIVITY (derived)
 
 **Expand** what contributes to coordination debt:
 
-$$M_i = \frac{1}{a_i σ_i f(F_i) g(χ_i + Ω_i)}$$
+$$M_i = 1 + M_i^{\text{struct}} + M_i^{\text{op}}$$
 
 **Components:**
 | Term | Symbol | Meaning |
 |------|--------|---------|
-| Agency | $a_i$ | Available choice (0 = frozen) |
-| Processing | $σ_i$ | Intrinsic speed |
-| Resource load | $f(F_i)$ | Wealth-management overhead |
-| Bureaucracy | $χ_i$ | Admin capture, debt complexity |
-| Dead capital | $Ω_i$ | Legacy structure, ghost weight |
+| Structural debt | $M_i^{\text{struct}}$ | Persistent structure (rest-like content; gravity/inertia source) |
+| Operational debt | $M_i^{\text{op}}$ | Circulating load / overhead (clock‑constrained) |
+| Bureaucracy | $χ_i$ | Admin capture, debt complexity (structural) |
+| Dead capital | $Ω_i$ | Legacy structure, ghost weight (structural) |
+| Structural density | $\Xi_i$ | Optional rest-like structural term (structural) |
 
 ## Step 2: Linearized Form
 
-For small perturbations around $a=1$, $σ=1$, with $f(F) = (1+βF/F_*)^{-1}$, $g(χ) = (1+χ)^{-1}$:
+For small perturbations around $a=1$, $σ=1$:
 
-$$M_i ≈ 1 + β\frac{F_i}{F_*} + χ_i + Ω_i$$
+$$M_i \approx 1 + (χ_i + Ω_i + \Xi_i) + \beta_{\text{op}}\frac{F_i^{\text{op}}}{F_*}$$
 
 ## Step 3: Potential with All Sources
 
-$$\Phi_i = c_*^2 \ln\left(\frac{M_i}{M_0}\right) = c_*^2 \ln\left(\frac{1 + βF_i/F_* + χ_i + Ω_i}{M_0}\right)$$
+$$\boxed{\Phi_i = c_*^2 \ln\left(\frac{M_i}{M_0}\right) = c_*^2 \ln\left(\frac{1 + (χ_i + Ω_i + \Xi_i) + \beta_{\text{op}}\,F_i^{\text{op}}/F_*}{M_0}\right)}$$
 
 ## Step 4: Unified Field Equation
 
 Same form:
 $$(L_σ Φ)_i = -κρ_i$$
 
-where $ρ_i = M_i - \bar{M}$ includes *all* contributions to mass.
+where $\rho_i = M_i^{\text{struct}}-\overline{M^{\text{struct}}}$ (structural excess) sources the potential.
 
 ## Step 5: Physical Consequences
 
-$$χ_i ↑ \;⟹\; M_i ↑ \;⟹\; P_i ↓ \;⟹\; Φ_i ↑$$
+$$χ_i ↑ \;⟹\; M_i^{\text{struct}} ↑ \;⟹\; ρ_i ↑ \;⟹\; Φ_i ↑$$
 
 **Bureaucracy acts like mass:**
 - Deepens potential wells
@@ -377,14 +375,14 @@ $$χ_i ↑ \;⟹\; M_i ↑ \;⟹\; P_i ↓ \;⟹\; Φ_i ↑$$
 - Attracts flows (capture)
 - Eventually freezes dynamics ($P → 0$)
 
-**Event horizon analogue:** $χ → ∞$ gives $P → 0$, $Φ → ∞$.
+**Event horizon analogue:** $χ \to \infty$ makes structural debt dominate ($\rho\to\infty$) and deepens the potential well; operational freezing ($P\to 0$) is a separate, clock-constrained effect.
 
 ## Summary
 
 ```
 Multiple drag sources: F, χ, Ω
     ↓
-All enter mass: M = P⁻¹
+All enter mass: M = 1 + M_struct + M_op
     ↓
 Same potential definition: Φ = c*² ln(M/M₀)
     ↓
@@ -407,10 +405,10 @@ $$C_{ij} = \text{clip}\left(\frac{F_{ij}^Ψ}{F_{Ψ,*}}, 0, 1\right)$$
 
 ## Step 2: Decoherence Dynamics
 
-$$\frac{dF_{ij}^Ψ}{dτ} = -λ_{ij} F_{ij}^Ψ - \dot{G}_{ij}^{\text{meas}}$$
+$$\boxed{\frac{dF_{ij}^Ψ}{dτ_{\text{op}}} = -λ_{ij} F_{ij}^Ψ - \dot{G}_{ij}^{\text{meas}}}\qquad (dτ_{\text{op}} = P_i\,dk\ \text{for the local operational clock})$$
 
 **Decoherence rate:**
-$$λ_{ij} = λ_0 + λ_{\text{env}}(T, \text{noise}) + α\left(\frac{v_{ij} - c_*}{c_*}\right)^2$$
+$$\boxed{λ_{ij} = λ_{\text{env}}(i,j;\text{fields, T, noise, coupling}) + α\left(\frac{v_{ij} - c_*}{c_*}\right)^2 \quad (λ_0=0\ \text{core})}$$
 
 ## Step 3: Measurement Process
 
@@ -463,19 +461,15 @@ $$S = E(a,b) - E(a,b') + E(a',b) + E(a',b')$$
 **Classical bound:** $|S| ≤ 2$
 **Quantum maximum:** $|S| = 2\sqrt{2}$
 
-## Step 4: DET Prediction: Distance Decay
+## Step 4: DET 3.1 Prediction: Environment-Mediated Decoherence (No Vacuum Distance Law)
 
-Coherence decays over separation:
-$$C(d) = C_0 \exp\left[-\frac{αd}{L_*} - \frac{λ_0 d}{c}\right]$$
+Coherence loss is modeled by the environment-driven rate $λ_{ij}$ (with $λ_0=0$ core). There is no universal vacuum “distance law” in DET 3.1.
 
-Bell parameter:
-$$\boxed{S(d) = 2\sqrt{2} \cdot e^{-αd/L_* - λ_0 d/c}}$$
+## Step 5: Falsification Condition (DET 3.1)
 
-## Step 5: Falsification Condition
+DET 3.1 is falsified (in this sector) if controlled environmental changes (temperature, EM noise, strain/rotation proxies) do **not** produce measurable, model-fit-able changes in coherence loss in regimes where such coupling should be present.
 
-**If** $S$ remains $2\sqrt{2}$ for arbitrarily large $d$ **then** DET is falsified.
-
-Current bounds: $λ_0 < 5×10^{-47}$ s$^{-1}$, $α < 10^{-38}$.
+Conversely, if a reproducible, environment-independent residual decoherence floor is established across disparate high-isolation platforms, DET must re-introduce a nonzero intrinsic term (contrary to the 3.1 core).
 
 ---
 
