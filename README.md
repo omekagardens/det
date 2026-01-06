@@ -489,4 +489,147 @@ BH-F2 — Evaporation without agency recovery
 BH-F3 — Instability without structural cause
 BH-F4 — Dark-matter behavior reproducible without a=0
 
-Any violation falsifies the DET black-hole interpretation.
+		Any violation falsifies the DET black-hole interpretation.
+
+Below is a drop-in correction patch designed to be appended verbatim to the end of the DET 4.2 Gravity Card.
+It is written in the same technical tone, introduces no retroactive rewrites, and clearly marks what is corrected, added, and falsifiable.
+
+Appendix G — Gravity Source Correction (DET 4.2a)
+
+(Monopole Preservation & Baseline-Referenced Gravity)
+
+⸻
+
+G.1 Motivation
+
+Numerical testing of the DET 4.2 gravity sector in 3D discrete networks reveals a structural issue with the original gravity source definition when applied to compact mass distributions.
+
+The prior definition,
+\rho_i \equiv q_i - \bar q_{\mathcal N(i)},
+acts as a near-field high-pass filter.
+In three spatial dimensions, this construction generically enforces:
+\sum_i \rho_i \approx 0
+for any sufficiently smooth or compact region of elevated q.
+
+As a consequence, the emergent gravitational potential lacks a monopole term and fails to produce a long-range 1/r far field, yielding instead a short-range or multipolar decay.
+
+Since a nonzero monopole is required for Newtonian-like gravity in 3D, this behavior constitutes a physical failure mode, not a numerical artifact.
+
+⸻
+
+G.2 Corrected Principle (Clarification)
+
+Corrected statement:
+
+Emergent gravity in DET is sourced by deviations from a local environmental baseline, not by deviations from an agent’s immediate neighborhood mean.
+
+Uniform or slowly varying background structure does not gravitate; contrast relative to baseline does.
+
+This preserves the original DET intuition (“uniform structure does not curve”) while restoring physical viability in three dimensions.
+
+⸻
+
+G.3 Baseline Field Definition (New Primitive)
+
+Introduce a baseline structural field b_i, defined locally by a Helmholtz-type smoothing equation:
+
+\boxed{
+(L_\sigma b)_i - \alpha\,b_i = -\alpha\,q_i
+}
+
+where:
+	•	L_\sigma is the weighted graph Laplacian,
+	•	\alpha > 0 sets the baseline smoothing scale,
+	•	the characteristic baseline length is \ell_b \sim \alpha^{-1/2}.
+
+Interpretation:
+b_i represents the locally accessible “environmental background” of accumulated structure q, computed strictly through local interactions and lawful diffusion.
+No global averages are introduced.
+
+⸻
+
+G.4 Corrected Gravity Source
+
+Replace the previous source definition with:
+
+\boxed{
+\rho_i \equiv q_i - b_i
+}
+
+This construction:
+	•	preserves locality,
+	•	allows compact sources to retain a nonzero monopole,
+	•	prevents uniform background structure from sourcing gravity.
+
+⸻
+
+G.5 Emergent Gravity Equation (Updated)
+
+The gravity field equation becomes:
+
+\boxed{
+(L_\sigma \Phi)_i = -\kappa\,\rho_i
+}
+\quad\text{with}\quad
+\rho_i = q_i - b_i
+
+All subsequent uses of \rho_i in DET 4.2 should be understood in this corrected sense.
+
+⸻
+
+G.6 3D Viability Criterion (Explicit)
+
+For a physically viable 3D gravity sector, DET requires:
+
+\boxed{
+\sum_i \rho_i \neq 0
+\quad\Rightarrow\quad
+\Phi(r) \sim -\frac{A}{r}
+\;\;\text{in the far field}
+}
+
+The former neighborhood-mean definition (q_i-\bar q_{\mathcal N}) generically violates this condition for compact sources and is therefore disallowed as a universal gravity source in 3D.
+
+⸻
+
+G.7 Empirical Status
+
+Numerical tests using:
+	•	dynamically formed q (not injected),
+	•	locally computed b,
+	•	and the corrected source \rho=q-b,
+
+demonstrate:
+	•	recovery of a 1/r far-field potential in 3D,
+	•	linear scaling of the monopole with total accumulated structure,
+	•	monotone clock-rate behavior consistent with gravitational redshift under the DET clock–presence mapping.
+
+Details of these tests are provided in the DET 4.2 numerical validation suite.
+
+⸻
+
+G.8 Falsifiability (New)
+
+DET 4.2a gravity is falsified if:
+	1.	No local choice of \alpha yields a stable monopole in 3D networks.
+	2.	The corrected source \rho=q-b fails to produce a 1/r far field for compact bodies.
+	3.	Baseline subtraction introduces nonlocal dependencies or requires global normalization.
+	4.	Dynamic q formation combined with baseline referencing systematically destroys long-range gravity.
+
+⸻
+
+G.9 Status
+
+This appendix does not alter:
+	•	the definition of agency a,
+	•	the presence–mass relation M=P^{-1},
+	•	the clock-rate interpretation,
+	•	or the boundary coupling logic.
+
+It corrects only the gravity source term to ensure physical consistency in three dimensions.
+
+⸻
+
+End Appendix G
+
+⸻
