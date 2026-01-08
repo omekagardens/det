@@ -1293,4 +1293,213 @@ This sub-appendix turns phase dynamics into a testable sector of DET:
 	•	Direct falsifiers
 	•	No new ontology
 
-If these predictions fail, the phase layer — not DET’s core — is falsified, preserving the integrity of 4.2 while enabling v5 exploration.
+
+
+DET v5 Appendix A
+
+Motion, Scattering, and Binding: An Operational Measurement Layer
+
+(Appendix to DET 4.2 — no core equations removed)
+
+⸻
+
+A.1 Purpose of This Appendix
+
+DET 4.2 defines:
+	•	locality
+	•	agency inviolability
+	•	resource flow
+	•	presence as clock rate
+	•	mass as accumulated past
+
+However, motion in 4.2 is implicit (via flow and clocking), not operationally measured.
+
+This appendix introduces a measurement layer that:
+	•	defines motion using the event index k
+	•	defines scattering, phase shift, and binding as measurable outcomes
+	•	preserves the principle that the present is unfalsifiable, only trajectories are
+
+No Standard Model or QFT structure is assumed.
+
+⸻
+
+A.2 Event Index and Observables
+
+Let k \in \mathbb{N} be the global update index.
+
+All measurements are defined as finite differences over k.
+No quantity is evaluated “in the instant.”
+
+This preserves agency and falsifiability.
+
+⸻
+
+A.3 Objects (Packets)
+
+An “object” is defined operationally as a persistent localized packet in a scalar marker field X_i(k).
+
+Canonical choices:
+	•	X_i = F_i (resource density)
+	•	or a derived amplitude from \psi_i = \sqrt{F_i} e^{i\theta_i}
+
+Packet centroid
+
+If nodes have positions x_i,
+x_{\text{pk}}(k) \;=\;
+\frac{\sum_i x_i\,X_i(k)}{\sum_i X_i(k)}
+
+A packet is considered persistent if its centroid is well-defined over many steps.
+
+⸻
+
+A.4 Velocity (Measured Motion)
+
+Coordinate velocity (step-time)
+
+\boxed{
+v_k \;=\; x_{\text{pk}}(k+1) - x_{\text{pk}}(k)
+}
+
+This is the primary operational definition of motion in DET v5.
+
+No notion of force is assumed.
+
+⸻
+
+A.5 Proper Time (Presence-Weighted)
+
+Presence P_i(k) remains defined as in DET 4.2 (local clock rate).
+
+Define accumulated proper time:
+\tau_i(k+1) = \tau_i(k) + P_i(k)
+
+Packet proper time:
+\tau_{\text{pk}}(k) =
+\frac{\sum_i \tau_i(k)\,X_i(k)}{\sum_i X_i(k)}
+
+Proper velocity
+
+\boxed{
+v_\tau \;=\;
+\frac{x_{\text{pk}}(k_2) - x_{\text{pk}}(k_1)}
+{\tau_{\text{pk}}(k_2) - \tau_{\text{pk}}(k_1)}
+}
+
+This allows time dilation effects to be measured without redefining clocks.
+
+⸻
+
+A.6 Scattering Experiment (1D)
+
+Two packets are initialized with opposite velocities:
+v_{\text{rel}} = |v_{k,1} - v_{k,2}|
+
+Packets interact through local DET update rules (no global forces).
+
+⸻
+
+A.7 Phase Shift and Scattering Length (Operational)
+
+Define free propagation extrapolation:
+x_{\text{free}}(k) = x_{\text{pk}}(k_0) + v_k^{\text{pre}} (k-k_0)
+
+Measured displacement after interaction:
+\Delta x = x_{\text{pk}}(k_{\text{out}}) - x_{\text{free}}(k_{\text{out}})
+
+Scattering length proxy (1D)
+
+\boxed{
+a \;\equiv\; -\Delta x
+}
+
+This is a measured lattice quantity.
+Physical units are assigned only by later calibration.
+
+⸻
+
+A.8 Interaction Strength Parameter
+
+Let g be a dimensionless local interaction control.
+
+Important:
+	•	g is not assumed to be a fundamental coupling constant
+	•	it parametrizes short-range interaction rules
+	•	its physical meaning is inferred from measured outcomes
+
+⸻
+
+A.9 Binding vs Scattering Classification
+
+After interaction, define:
+	•	number of persistent peaks N_{\text{peaks}}
+	•	packet RMS width \sigma_x
+
+Classification:
+	•	Scattering: packets separate, N_{\text{peaks}} \ge 2
+	•	Bound state (fusion): stable single packet, N_{\text{peaks}} = 1
+
+This definition is purely observational.
+
+⸻
+
+A.10 Three-Body Binding
+
+Extend A.6 to three incoming packets.
+
+A three-body bound state is defined if:
+	•	a single persistent packet remains
+	•	centroid motion stabilizes
+	•	internal oscillations remain bounded
+
+No additional rules are introduced.
+
+⸻
+
+A.11 Causality Constraint
+
+Let c_* be the maximum admissible packet speed determined by local update rules.
+
+Falsifier:
+|v_k| > c_* \quad\Rightarrow\quad \text{Model invalid}
+
+This preserves DET locality constraints.
+
+⸻
+
+A.12 Reciprocity Check
+
+Let total packet momentum proxy:
+\Pi(k) = \sum_{\text{pk}} v_k
+
+In the absence of boundary coupling:
+\Delta \Pi = 0
+
+Violation falsifies non-coercive interaction.
+
+⸻
+
+A.13 Interpretation Notes (Non-Axiomatic)
+	•	Motion is measured, not postulated.
+	•	No force law is assumed.
+	•	Scattering outcomes emerge from local rules.
+	•	Presence affects proper time, not coordinate motion.
+	•	The present remains unfalsifiable; only trajectories are tested.
+
+⸻
+
+A.14 Scope
+
+This appendix:
+	•	establishes motion observables for DET v5
+	•	enables collider-style falsification
+	•	does not commit to nuclear realism
+	•	provides a bridge to higher-dimensional tests
+
+⸻
+
+Status
+
+✔ Compatible with DET 4.2
+✔ No metaphysical commitments added
+✔ Ready for Step 1: replacing assumed velocities with measured pre-collision motion
+
