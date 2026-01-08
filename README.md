@@ -1500,6 +1500,5 @@ This appendix:
 Status
 
 ✔ Compatible with DET 4.2
-✔ No metaphysical commitments added
 ✔ Ready for Step 1: replacing assumed velocities with measured pre-collision motion
 
