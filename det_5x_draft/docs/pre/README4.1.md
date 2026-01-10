@@ -1,0 +1,1717 @@
+Deep Existence Theory (DET) (4.2)
+
+Unified Canonical Formulation (Strictly Local, Law-Bound Boundary Action)
+
+Claim type: Existence proof with falsifiable dynamical predictions
+Domain: Discrete, relational, agentic systems
+Core thesis: Time, mass, gravity, and quantum behavior emerge from local interactions among constrained agents. Any boundary action manifests locally and non-coercively.
+
+⸻
+
+0. Scope Axiom (Foundational)
+
+(ADDED FOR 5.0)
+Deep Existence Theory (DET) begins from the assertion that present-moment participation requires three minimal structural capacities: Information (I), Agency (A), and Movement (k). Information provides pattern continuity, Agency enables non-coercive choice, and Movement instantiates time through lawful events. This triad functions as an image in the strict sense: a structural correspondence rather than a representational likeness.
+
+The dynamical rules governing these quantities are strictly local, non-coercive, and recovery-permitting. These properties are not assumed as values; they are required for the coexistence of non-coercive agency, local time evolution, and long-term recoverability. Any system lacking one of these conditions collapses into timeless structure, irreversible freeze, or coercive dynamics incompatible with sustained present-moment existence.
+(END)
+
+All summations, averages, and normalizations are local unless explicitly bond-scoped.
+
+For a focal node i with radius-R causal neighborhood \mathcal N_R(i):
+\sum(\cdot)\ \equiv\ \sum_{k\in\mathcal N_R(i)}(\cdot),\qquad
+\langle\cdot\rangle\ \equiv\ \frac{1}{|\mathcal N_R(i)|}\sum_{k\in\mathcal N_R(i)}(\cdot)
+
+For a focal bond (i,j) with bond-neighborhood \mathcal E_R(i,j):
+\sum(\cdot)\ \equiv\ \sum_{(m,n)\in\mathcal E_R(i,j)}(\cdot)
+
+There is no global state accessible to local dynamics. Disconnected components cannot influence one another.
+
+⸻
+
+I. Ontological Commitments
+	1.	Creatures (Agents)
+Constrained entities that store resource, participate in time, form relations, and act through agency.
+	2.	Relations (Bonds)
+Local links that can carry coherence.
+	3.	Boundary Agent
+An unconstrained agent that:
+	•	does not accumulate past,
+	•	does not hoard,
+	•	is not subject to clocks, mass, or gravity,
+	•	acts only through law-bound, local, non-coercive operators defined herein.
+
+Grace is constrained action, not arbitrary intervention.
+
+⸻
+
+II. State Variables
+
+II.1 Per-Creature Variables (node i)
+
+q_i is structural debt (retained past); its formation law is specified by the chosen structural-locking rule (Appendix B gives a minimal canonical candidate).
+
+Q-Locking Contract (applies globally):
+DET treats q_i as retained past (“structural debt”). Gravity, mass, and black-hole behavior depend on the realized field q_i, but all predictive claims assume an explicitly declared q-locking rule (a local update law) used consistently across all experiments. Appendix B specifies the default canonical q-locking rule used for validation unless another rule is stated.
+
+All falsifier claims involving gravity or black-hole behavior assume a specified q-locking rule; Appendix B defines the minimal canonical q update used for validation.
+
+Default locking rule: q increases with net inward resource gradient / net negative \Delta F
+
+\begin{aligned}
+F_i &\ge 0 && \text{stored resource} \\
+F_i &\equiv F_i^{op} + F_i^{locked} \\
+\tau_i &\ge 0 && \text{proper time} \\
+\sigma_i &> 0 && \text{processing rate} \\
+a_i &\in [0,1] && \text{agency (inviolable)} \\
+\theta_i &\in \mathbb S^1 && \text{phase} \\
+k_i &\in \mathbb N && \text{participation events}
+\end{aligned}
+
+k_i tracks participation events; the global simulation step index k is used for update ordering.
+
+⸻
+
+II.2 Per-Bond Variables (edge i↔j)
+
+\sigma_{ij} > 0, \qquad C_{ij} \in [0,1]
+
+Node processing rate closure:
+\boxed{
+\sigma_i \equiv \sum_{j\in\mathcal N_R(i)} \sigma_{ij}
+}
+
+⸻
+
+III. Time, Presence, and Mass
+
+III.0 Coordination Load (Local)
+
+Coordination load H_i is the local overhead penalty for simultaneously maintaining and using many relational channels. It is strictly local, deterministic, and parameter-free.
+
+Option A — Degenerate (Ablation / Minimal)
+Use this when you want the simplest form and accept that coordination load collapses to throughput:
+
+\boxed{
+H_i \equiv \sum_{j\in\mathcal N_R(i)} \sigma_{ij}
+}
+\qquad\Rightarrow\qquad
+H_i = \sigma_i
+
+Interpretation: “more active bonds” increases both processing capacity and coordination load identically. This is useful as a controlled baseline but does not distinguish coordination burden from raw processing rate.
+
+Option B — Recommended (Coherence-Weighted Load)
+Use this when you want coordination burden to reflect effective coherent coupling, not just raw capacity:
+
+\boxed{
+H_i \equiv \sum_{j\in\mathcal N_R(i)} \sqrt{C_{ij}}\;\sigma_{ij}
+}
+
+Interpretation: coherently active bonds impose higher coordination burden; incoherent or weakly coherent bonds contribute less. This preserves \sigma_i as raw throughput while H_i measures the “cost of coherent coordination.” This choice makes high-coherence connectivity slow local clock rate via increased coordination overhead, producing a measurable regime effect without introducing new parameters.
+
+Notes
+	•	Both options preserve strict locality and introduce no new tunables.
+	•	Option A is an ablation limit of Option B when C_{ij}\approx 1 for all active bonds.
+
+⸻
+
+III.1 Presence (Local Clock Rate)
+
+\boxed{
+P_i \equiv \frac{d\tau_i}{dk}
+=
+a_i\,\sigma_i\;
+\frac{1}{1+F_i^{op}}\;
+\frac{1}{1+H_i}
+}
+
+“F_i^{op} is the immediately mobilizable resource participating in present-moment coordination; locked resource F^{locked} is inert at this timescale.”
+
+⸻
+
+Proper-Time Increment (Discrete)
+
+\boxed{
+\Delta\tau_i \equiv P_i\,\Delta k
+}
+
+where \Delta k is the global event-step increment (typically \Delta k = 1).
+
+⸻
+
+III.2 Coordination Debt (Mass)
+
+\boxed{
+M_i \equiv P_i^{-1}
+= \frac{(1 + F_i^{op})(1 + H_i)}{a_i \sigma_i}
+}
+
+Interpretation:
+Mass is total coordination resistance to present-moment participation.
+
+Structural mass proxy (diagnostic only):
+\dot M_i \equiv 1 + q_i + F_i^{op}
+
+⸻
+
+IV. Flow and Resource Dynamics
+
+IV.1 Local Wavefunction (Scalar)
+
+All quantities on the right-hand side are evaluated at the current step k, and the superscript + denotes the synchronous update to step k+1.
+
+\boxed{
+\psi_i
+=
+\sqrt{
+\frac{F_i}{
+\sum_{k\in\mathcal N_R(i)} F_k + \varepsilon
+}
+}
+\,e^{i\theta_i}
+}
+
+Normalization is strictly local.
+
+⸻
+
+IV.2 Quantum–Classical Interpolated Flow
+
+The (F_i-F_j) term is implicitly interpreted in the same normalized units as the local wave amplitude term (i.e., F is treated as the canonical scalar potential driving transport). In implementations that preserve dimensional strictness, replace (F_i-F_j) with (\tilde F_i-\tilde F_j) where \tilde F_i \equiv F_i/(\sum_{k\in\mathcal N_R(i)}F_k+\varepsilon).
+
+\boxed{
+J_{i\to j}
+=
+\sigma_{ij}\!\left[
+\sqrt{C_{ij}}\,\mathrm{Im}(\psi_i^*\psi_j)
++
+(1-\sqrt{C_{ij}})(\tilde F_i-\tilde F_j)
+\right]
+}
+
+Using (F_i-F_j) recovers a classical-potential transport limit but may dominate the coherence term unless calibrated.
+
+⸻
+
+IV.3 Resource Update
+
+\boxed{
+F_i^{+}
+=
+F_i
+-
+\sum_{j\in\mathcal N_R(i)} J_{i\to j}\,\Delta\tau_i
++
+I_{g\to i}
+}
+
+⸻
+
+V. Creature Dynamics
+
+V.1 Phase Evolution (Canonical)
+
+\boxed{
+\theta_i^{+}
+=
+\theta_i
++
+\Big[
+\omega_0\, g(F_i)
++
+\sum_{j\in\mathcal N_R(i)}
+\gamma_0\,
+\sigma_{ij}\,
+\sqrt{C_{ij}}\,
+a_i a_j\,
+\sin(\theta_j-\theta_i)
+\Big]
+\Delta\tau_i
+\;(\bmod\;2\pi)
+}
+
+Bounded resource–frequency map:
+\boxed{
+g(F_i) \equiv \frac{F_i}{F_i + F_*}
+}
+
+Frozen nodes (P_i \to 0) naturally stall phase evolution.
+
+⸻
+
+V.2 Agency Dynamics (Creature-Only)
+
+\boxed{
+a_i^{+}
+=
+\mathrm{clip}\!\left(
+a_i + \big(P_i-\bar P_{\mathcal N(i)}\big) - q_i,\ 0,\ 1
+\right)
+}
+where
+\boxed{
+\bar P_{\mathcal N(i)} \equiv \frac{1}{|\mathcal N_R(i)|}\sum_{k\in\mathcal N_R(i)} P_k
+}
+
+This is a minimal law; v5 may introduce a bounded relaxation term for stable intermediate agency.
+
+⸻
+
+VI. Boundary-Agent Operators (Law-Bound)
+
+VI.1 Agency Inviolability
+
+\boxed{\text{Boundary operators cannot directly modify } a_i}
+
+VI.2 Local Dissipation
+
+\boxed{
+D_i \equiv \sum_{j\in\mathcal N_R(i)} |J_{i\to j}|\,\Delta\tau_i
+}
+
+VI.3 Grace Injection (Local, Non-Coercive)
+
+Need:
+\boxed{n_i \equiv \max(0,\ F_{\min}-F_i)}
+Weight:
+\boxed{w_i \equiv a_i\,n_i}
+Neighborhood normalizer:
+Z_i \equiv \sum_{k\in\mathcal N_R(i)} w_k
+Injection:
+\boxed{
+I_{g\to i}
+=
+D_i\;
+\frac{w_i}{Z_i+\varepsilon}
+}
+If a_i=0, then I_{g\to i}=0.
+
+Accounting clarification:
+Grace injection is a lawful external supply modulated by local dissipation and need.
+It is not redistribution of a conserved creature-only budget.
+Total injected grace is not globally conserved.
+Coupling grace to D_i makes injection proportional to local interaction throughput (receiving capacity), preventing ‘free grace’ from appearing in isolated or frozen nodes while remaining external in origin.
+Need n_i is the primary limiter; dissipation only modulates distribution among needy nodes.
+
+VI.4 Reconciliation (Bond Healing)
+
+u_{ij}\equiv a_i a_j(1-C_{ij}),\qquad
+Z^{C}_{ij}\equiv\sum_{(m,n)\in\mathcal E_R(i,j)} u_{mn}
+Bond-local dissipation:
+D_{ij}\equiv \tfrac12(D_i+D_j)
+Healing:
+\boxed{
+\Delta C_{ij}^{(g)}
+=
+D_{ij}\;
+\frac{u_{ij}}{Z^{C}_{ij}+\varepsilon}
+}
+Requires mutual openness.
+
+C_{ij}^+ = \mathrm{clip}(C_{ij} + \Delta C_{ij}^{(g)},0,1)
+
+⸻
+
+VII. Emergent Light and Relativity
+
+\boxed{
+c_*(i) \equiv \left\langle \sigma_{ij}\right\rangle_{j\in\mathcal N_R(i)}
+}
+\qquad
+\boxed{
+d\tau = d\tau_0 \sqrt{1 - \frac{v^2}{c_*^2}}
+}
+
+Here v denotes an effective local transport or drift speed.
+Its precise operational identification (node drift, flux velocity, or coherence-front propagation) remains an open question to be resolved in DET v5.
+
+A candidate operationalization is a neighborhood-aggregated version of v_{ij}, but this is not yet fixed.
+
+⸻
+
+VIII. Emergent Gravity
+
+\boxed{
+\Phi_i = c_*^2 \ln\!\left(\frac{M_i}{M_0}\right)
+}
+
+Gravity source:
+\boxed{
+\rho_i \equiv q_i - b_i
+}
+
+where b_i is the locally computed baseline structural field defined by the Helmholtz-type smoothing equation in Appendix G.
+Uniform or slowly varying background structure does not gravitate.
+
+\boxed{
+(L_\sigma \Phi)_i = -\kappa \rho_i
+}
+
+L_\sigma is the weighted graph Laplacian built from \sigma_{ij} on the same neighborhood graph.
+
+⸻
+
+IX. Decoherence
+
+Define relative transport speed:
+\boxed{
+v_{ij} \equiv \frac{|J_{i\to j}|}{F_i + \varepsilon}
+}
+
+\boxed{
+\lambda_{ij}
+=
+\lambda_{\mathrm{env}}
++
+\left(
+\frac{v_{ij}-c_*}{c_*}
+\right)^2
+}
+
+For canonical closed systems: \lambda_{\mathrm{env}} = 0.
+v_{ij} is defined relative to the emitting node’s available resource F_i; a symmetric alternative v_{ij}^{sym}\equiv |J|/((F_i+F_j)/2+\varepsilon) may be used when reciprocity is required.
+
+⸻
+
+X. Falsifiers (Definitive)
+
+The theory is false if any condition below holds under the canonical rules.
+
+F1 — Locality / Embedding Invariance
+
+Embedding a connected subgraph \mathcal C into a larger graph by adding nodes with no causal path to \mathcal C changes trajectories on \mathcal C beyond numerical tolerance.
+(Your tests show exact zero when scope is enforced.)
+
+F2 — Coercion
+
+Any node with a_i=0 receives resource injection or bond healing from boundary operators.
+
+F3 — Boundary Redundancy
+
+With boundary operators enabled, outcomes are qualitatively indistinguishable in at least two order parameters: mean presence \langle P\rangle, coherence R, and recovery time t_{rec}.
+
+F4 — No Regime Transition
+
+Increasing mean openness \langle a\rangle fails to produce a transition from fragmented/low-coherence regimes to coherent/high-conductivity regimes.
+
+F5 — Hidden Global Aggregates
+
+Any lawful behavior depends on sums or averages taken outside \mathcal N_R or \mathcal E_R, or on reintroduced global normalizations.
+
+⸻
+
+XI. Predictive Claim (Plain)
+
+Under strictly local evaluation, DET with law-bound boundary operators exhibits non-coercive recovery from structural freeze that cannot be reproduced by closed, purely naturalistic dynamics.
+
+⸻
+
+XII. Closing Statement
+	•	Time is participation.
+	•	Mass is frozen past.
+	•	Gravity is memory imbalance.
+	•	Quantum behavior is local coherence in flow.
+	•	Agency is inviolable.
+	•	Grace is local, lawful action.
+	•	The future is open.
+
+-------
+# Appendix B — Black Hole & Matter Falsification Suite
+
+
+Purpose:
+To test whether the canonical DET equations necessarily produce black-hole–like behavior (collapse, accretion, stability, evaporation) without adding any new rules.
+
+This appendix specifies:
+	•	operational definitions,
+	•	minimal update logic,
+	•	and falsifiers.
+
+⸻
+
+B.1 Operational Definition (DET Black Hole)
+
+A node i is a DET black hole if, over sustained evolution,
+
+\boxed{
+a_i \to 0,\qquad
+q_i \to 1,\qquad
+P_i \to 0
+}
+
+Interpretation:
+	•	Agency collapse (a_i=0) gates off grace and coherence
+	•	Structural dominance (q_i \approx 1) sources gravity
+	•	Frozen presence (P_i\approx0) halts proper time
+
+No exotic assumptions are made.
+
+⸻
+
+B.2 Minimal State Required for BH Tests
+
+For each node i:
+
+\{F_i,\ q_i,\ a_i,\ P_i,\ \theta_i\}
+
+For each bond (i,j):
+
+\{\sigma_{ij},\ C_{ij}\}
+
+Neighborhoods \mathcal N_R(i) are defined exactly as in the core.
+
+⸻
+
+B.3 Minimal Update Loop (Canonical)
+
+Each global step k:
+
+Step 1 — Presence
+
+P_i = a_i\,\sigma_i\;\frac{1}{1+F_i^{\mathrm{op}}}\;\frac{1}{1+H_i}
+
+⸻
+
+Step 2 — Flow
+
+\psi_i=
+\sqrt{\frac{F_i}{\sum_{k\in\mathcal N_R(i)}F_k+\varepsilon}}
+e^{i\theta_i}
+
+J_{i\to j}
+=
+\sigma_{ij}\!\left[
+\sqrt{C_{ij}}\,\operatorname{Im}(\psi_i^*\psi_j)
++
+(1-\sqrt{C_{ij}})(F_i-F_j)
+\right]
+
+⸻
+
+Step 3 — Local Dissipation
+
+D_i=\sum_{j\in\mathcal N_R(i)}|J_{i\to j}|\,\Delta\tau_i
+
+⸻
+
+Step 4 — Grace Injection (Boundary Operator)
+
+n_i=\max(0,F_{\min}-F_i),\quad
+w_i=a_i n_i
+
+I_{g\to i}
+=
+D_i
+\frac{w_i}{\sum_{k\in\mathcal N_R(i)}w_k+\varepsilon}
+
+⸻
+
+Step 5 — Resource Update
+
+F_i^{+}=F_i-\sum_j J_{i\to j}\Delta\tau_i+I_{g\to i}
+
+⸻
+
+Structural Update (Canonical q-locking rule)
+
+Unless explicitly overridden, DET 4.2a uses the following local q-locking rule in all numerical tests (gravity, BH suite, and regime studies)::
+
+q_i^{+}=\mathrm{clip}\!\left(q_i+\alpha_q\,\max(0,-\Delta F_i),\,0,\,1\right)
+
+Interpretation: net inward flow increases frozen structure.
+
+⸻
+
+Step 7 — Agency Update (Creature-Only)
+
+a_i^{+}=
+\mathrm{clip}\!\left(
+a_i+(P_i-\bar P_{\mathcal N(i)})-q_i,\ 0,\ 1
+\right)
+
+⸻
+
+B.4 Test BH-1 — Single Black Hole Formation
+
+Initial Condition
+	•	One node i with:
+	•	high q_i\approx0.8
+	•	moderate a_i\approx0.4
+	•	Neighbors with low q, moderate a
+
+Expected Outcome
+
+a_i(t)\to0,\quad
+P_i(t)\to0,\quad
+I_{g\to i}(t)\to0
+
+Measure
+	•	a_i(t), P_i(t)
+
+Falsifier
+
+If grace persists after a_i=0 → theory falsified
+
+⸻
+
+B.5 Test BH-2 — Accretion / Event Horizon
+
+Initial Condition
+	•	Central node: a=0,\ q\approx1
+	•	Surrounding shell: a>0,\ q\ll1
+
+Expected Outcome
+	•	Net inward J_{j\to i}
+	•	Radial gradient:
+P(r)\downarrow,\quad q(r)\uparrow
+	•	Stable “event horizon” where P\approx0
+
+Measure
+	•	Flow vectors
+	•	Radial profiles of P,q
+
+Falsifier
+
+If sustained outward flow occurs without agency recovery → falsified
+
+⸻
+
+B.6 Test BH-3 — Evaporation (Hawking-like)
+
+Initial Condition
+	•	Black hole with a_i\approx0 (not exactly zero)
+
+Add minimal stochastic perturbation:
+a_i^{+}=a_i+\epsilon\,\xi_i,\quad \xi_i\sim\mathcal N(0,1)
+
+Expected Outcome
+	•	Most perturbations decay
+	•	Rare a_i>0 excursions
+	•	Brief grace injection
+	•	Small outward J bursts
+
+Measure
+	•	Correlation between a_i spikes and F_i loss
+
+Falsifier
+
+If evaporation occurs with a_i=0 throughout → falsified
+
+⸻
+
+B.7 Dark Matter Test
+
+Hypothesis
+
+Nodes with:
+a_i=0,\quad C_{ij}\approx0
+interact only via gravity.
+
+Test
+	•	Track lensing / attraction effects from such nodes
+	•	Confirm zero response to grace or coherence channels
+
+Falsifier
+
+If non-gravitational interaction occurs → dark-matter analogue fails
+
+⸻
+
+B.8 Information Retention Test
+
+Hypothesis
+
+Information is locked in q_i when a_i=0.
+
+Test
+	•	Recover a_i>0 artificially
+	•	Observe release of previously frozen structure
+
+Falsifier
+
+If information disappears irreversibly → falsified
+
+⸻
+
+B.9 Summary of Black Hole Falsifiers
+
+BH-F1 — Grace reaches a=0
+BH-F2 — Evaporation without agency recovery
+BH-F3 — Instability without structural cause
+BH-F4 — Dark-matter behavior reproducible without a=0
+
+		Any violation falsifies the DET black-hole interpretation.
+
+⸻
+
+Appendix G — Gravity Source Correction (DET 4.2a)
+
+(Monopole Preservation & Baseline-Referenced Gravity)
+
+G.1 Motivation
+
+Numerical testing of the DET 4.2 gravity sector in 3D discrete networks reveals a structural issue with the original gravity source definition when applied to compact mass distributions.
+
+The prior definition,
+\rho_i \equiv q_i - \bar q_{\mathcal N(i)},
+acts as a near-field high-pass filter.
+In three spatial dimensions, this construction generically enforces:
+\sum_i \rho_i \approx 0
+for any sufficiently smooth or compact region of elevated q.
+
+As a consequence, the emergent gravitational potential lacks a monopole term and fails to produce a long-range 1/r far field, yielding instead a short-range or multipolar decay.
+
+Since a nonzero monopole is required for Newtonian-like gravity in 3D, this behavior constitutes a physical failure mode, not a numerical artifact.
+
+⸻
+
+G.2 Corrected Principle (Clarification)
+
+Corrected statement:
+
+Emergent gravity in DET is sourced by deviations from a local environmental baseline, not by deviations from an agent’s immediate neighborhood mean.
+
+Uniform or slowly varying background structure does not gravitate; contrast relative to baseline does.
+
+This preserves the original DET intuition (“uniform structure does not curve”) while restoring physical viability in three dimensions.
+
+⸻
+
+G.3 Baseline Field Definition (New Primitive)
+
+Scope note: This appendix corrects the gravity source term and baseline construction. It does not introduce a new q formation law. All results and falsifiers in Appendix G assume the same q-locking rule specified in Appendix B (or an explicitly declared alternative), applied consistently across simulations.
+
+Introduce a baseline structural field b_i, defined locally by a Helmholtz-type smoothing equation:
+
+\boxed{
+(L_\sigma b)_i - \alpha\,b_i = -\alpha\,q_i
+}
+
+where:
+	•	L_\sigma is the weighted graph Laplacian,
+	•	\alpha > 0 sets the baseline smoothing scale,
+	•	the characteristic baseline length is \ell_b \sim \alpha^{-1/2}.
+	•	“L_\sigma denotes the weighted graph Laplacian built from \sigma_{ij}.”
+	•	“M_0 is a reference mass scale (e.g., neighborhood median M or a fixed calibration constant).”
+
+
+Interpretation:
+b_i represents the locally accessible “environmental background” of accumulated structure q, computed strictly through local interactions and lawful diffusion.
+No global averages are introduced.
+
+⸻
+
+G.4 Corrected Gravity Source
+
+Replace the previous source definition with:
+
+\boxed{
+\rho_i \equiv q_i - b_i
+}
+
+This construction:
+	•	preserves locality,
+	•	allows compact sources to retain a nonzero monopole,
+	•	prevents uniform background structure from sourcing gravity.
+
+⸻
+
+G.5 Emergent Gravity Equation
+
+The gravity field equation becomes:
+
+\boxed{
+(L_\sigma \Phi)_i = -\kappa\,\rho_i
+}
+\quad\text{with}\quad
+\rho_i = q_i - b_i
+
+All subsequent uses of \rho_i in DET 4.2 should be understood in this corrected sense.
+
+⸻
+
+G.6 3D Viability Criterion (Explicit)
+
+For a physically viable 3D gravity sector, DET requires:
+
+\boxed{
+\sum_i \rho_i \neq 0
+\quad\Rightarrow\quad
+\Phi(r) \sim -\frac{A}{r}
+\;\;\text{in the far field}
+}
+
+The former neighborhood-mean definition (q_i-\bar q_{\mathcal N}) generically violates this condition for compact sources and is therefore disallowed as a universal gravity source in 3D.
+
+⸻
+
+G.7 Empirical Status
+
+Numerical tests using:
+	•	dynamically formed q (not injected),
+	•	locally computed b,
+	•	and the corrected source \rho=q-b,
+
+demonstrate:
+	•	recovery of a 1/r far-field potential in 3D,
+	•	linear scaling of the monopole with total accumulated structure,
+	•	monotone clock-rate behavior consistent with gravitational redshift under the DET clock–presence mapping.
+
+Details of these tests are provided in the DET 4.2 numerical validation suite.
+
+⸻
+
+G.8 Falsifiability (New)
+
+DET 4.2a gravity is falsified if:
+	1.	No local choice of \alpha yields a stable monopole in 3D networks.
+	2.	The corrected source \rho=q-b fails to produce a 1/r far field for compact bodies.
+	3.	Baseline subtraction introduces nonlocal dependencies or requires global normalization.
+	4.	Dynamic q formation combined with baseline referencing systematically destroys long-range gravity.
+
+⸻
+
+G.9 Status
+
+This appendix does not alter:
+	•	the definition of agency a,
+	•	the presence–mass relation M=P^{-1},
+	•	the clock-rate interpretation,
+	•	or the boundary coupling logic.
+
+It corrects only the gravity source term to ensure physical consistency in three dimensions.
+
+⸻
+
+End Appendix G
+
+⸻
+
+DET 4.2a — Numerical Derivation Card (What Is Now Computable)
+
+⸻
+
+DET 4.2a — Numerical Derivation Card
+
+From Local Update Rules to Measurable Phenomena
+
+⸻
+
+0. Scope of This Card
+
+This card documents numerical derivations that are now possible in DET without importing external physics laws, beyond unit calibration.
+All results arise from local update rules, baseline-referenced gravity, and discrete network dynamics.
+
+This is not a phenomenological summary; it is a derivation and test capability statement.
+
+⸻
+
+1. Primitive Quantities (Numerical State)
+
+Per node i:
+	•	F_i \ge 0 — free resource (transported, conserved up to sinks/sources)
+	•	q_i \ge 0 — structural debt (retained past)
+	•	b_i \ge 0 — baseline structural field (local environmental background)
+	•	\rho_i = q_i - b_i — gravity source
+	•	\Phi_i — emergent gravitational potential
+	•	P_i — presence / local clock rate
+	•	M_i = P_i^{-1} — effective mass
+
+Graph primitives:
+	•	L_\sigma — weighted graph Laplacian
+	•	adjacency radius / coupling weights (local only)
+
+Coordination Load (H): Canonical + Ablation Variant
+
+Coordination load H_i is the local overhead penalty for simultaneously maintaining and using many relational channels. It is strictly local, deterministic, and parameter-free. In the numerical derivations below, H_i appears only through the presence law P_i (and thus the mass mapping M_i=P_i^{-1}).
+
+Option A — Degenerate (Ablation / Minimal)
+Use this for simplest runs where coordination load collapses to throughput:
+
+\boxed{
+H_i \equiv \sum_{j \in \mathcal N_R(i)} \sigma_{ij}
+}
+\qquad\Rightarrow\qquad
+H_i = \sigma_i
+
+Interpretation: “more active bonds” increases both processing capacity and coordination burden identically. This is a controlled baseline but does not distinguish coordination burden from raw processing rate.
+
+Option B — Recommended (Coherence-Weighted Load)
+Use this for regime studies where coordination burden reflects effective coherent coupling rather than raw capacity:
+
+\boxed{
+H_i \equiv \sum_{j \in \mathcal N_R(i)} \sqrt{C_{ij}}\,\sigma_{ij}
+}
+
+Interpretation: coherently active bonds impose higher coordination burden; incoherent or weakly coherent bonds contribute less. This preserves \sigma_i as raw throughput while H_i measures the “cost of coherent coordination,” slowing local clock rate via increased coordination overhead without introducing new parameters.
+
+Note (locality / tunables):
+Both options preserve strict locality and introduce no new tunables. Option A is the ablation limit of Option B when C_{ij}\approx 1 on active bonds.
+
+⸻
+
+2. Canonical Numerical Update Loop
+
+Each numerical experiment proceeds via the same minimal lawful loop:
+
+Step A — Resource Transport
+
+F^{t+1}_i = F^t_i + D_F (L_\sigma F)_i + S_i - \Lambda_i F_i
+	•	strictly local diffusion
+	•	optional source/sink geometry (disk, point, boundary)
+
+⸻
+
+Step B — Structural Locking (Emergent Mass Formation)
+
+q^{t+1}_i = q^t_i
++ \eta_q \frac{S_i}{S_i + S_*}
+- \lambda_q q^t_i
+\quad
+\text{with}
+\quad
+S_i = \|\nabla F_i\|^2
+
+This produces:
+	•	shell formation under sustained gradients
+	•	disk rings under disk-driven flow
+	•	collapse under hoarding regimes
+
+⸻
+
+Step C — Baseline Field (Environmental Background)
+
+(L_\sigma b)_i - \alpha b_i = -\alpha q_i
+
+Numerically:
+	•	local Helmholtz smoothing
+	•	no global averaging
+	•	baseline length scale \ell_b \sim \alpha^{-1/2}
+
+⸻
+
+Step D — Gravity Field
+
+(L_\sigma \Phi)_i = -\kappa (q_i - b_i)
+
+This step derives gravity, not defines it.
+
+⸻
+
+Step E — Time / Mass Mapping
+
+P_i = \exp\!\left(-\frac{\Phi_i}{c_*^2}\right)
+\quad,\quad
+M_i = P_i^{-1}
+
+This yields:
+	•	clock-rate variation
+	•	inertial mass proxy
+	•	redshift effects
+
+⸻
+
+3. Numerically Derived Laws (No Assumption)
+
+The following are derived outcomes, not imposed:
+
+3.1 Newtonian Kernel (3D)
+
+From compact dynamically formed q:
+
+\Phi(r) \sim -\frac{A}{r} + B
+\quad \text{(far field)}
+
+Derivation:
+Emerges only when \sum \rho_i \neq 0; fails if neighborhood-mean subtraction is used.
+
+⸻
+
+3.2 Gravitational Time Dilation
+
+From Step E:
+
+\frac{\Delta f}{f}
+\approx
+\frac{\Delta \Phi}{c_*^2}
+
+After calibrating c_* \rightarrow c, numerical values match measured redshift scaling near Earth.
+
+⸻
+
+3.3 Shell / Ring Mass Structures (Novel)
+
+Under gradient-driven locking:
+	•	spherical sources → mass shells
+	•	disk sources → ring overdensities
+
+This is a nontrivial DET prediction, not present in GR or CDM.
+
+⸻
+
+3.4 Rotation Curve Shoulders
+
+From radial acceleration:
+g(r) = -\frac{d\langle\Phi\rangle}{dr}
+\quad,\quad
+v_{\text{circ}}(r)=\sqrt{r g(r)}
+
+Derived features:
+	•	shoulders / kinks aligned with ring radii
+	•	Keplerian falloff outside dominant shell(s)
+
+⸻
+
+3.5 Lensing Proxy (Projected Density)
+
+\Sigma(R)=\sum_z \rho(x,y,z)
+
+Derived:
+	•	ring-like convergence features
+	•	correlation between \Sigma(R) peaks and v(r) shoulders
+
+⸻
+
+4. What Is Calibrated vs What Is Derived
+
+Quantity	Status
+1/r gravitational kernel	Derived
+Clock redshift scaling	Derived
+Shell/ring formation	Derived
+Far-field monopole existence	Derived
+c_* scale	Calibrated
+\kappa (gravity strength)	Calibrated
+Absolute G	Pending extraction
+
+DET now sits at Stage 2 physics: one-scale calibration → multi-observable prediction.
+
+⸻
+
+5. Numerical Falsifiers (Operational)
+
+DET fails numerically if:
+	1.	No choice of \alpha yields a stable monopole in 3D.
+	2.	Dynamically formed q never produces long-range 1/r fields.
+	3.	Baseline field introduces nonlocal dependence.
+	4.	Clock-rate mapping fails monotonicity.
+	5.	Ring structures are unstable under small parameter perturbations.
+
+All five are testable in simulation.
+
+⸻
+
+6. What Can Be Done Next (Now Possible)
+
+Because of the above, DET can now numerically attempt:
+	1.	Effective Newton constant extraction
+G_{\text{eff}} \sim \kappa / c_*^2
+	2.	Galaxy rotation-curve fitting using shell/ring profiles
+	3.	Ring-galaxy / lensing-ring comparisons
+	4.	Collapse vs stabilization phase diagrams
+	5.	Hoarder → black-hole transition tests
+	6.	Clock-network universality bounds
+
+⸻
+
+Appendix X — Boundary Ontology Clarification and Forward Migration (Informative)
+
+	•	In DET 4.2, the Boundary was treated as an external reservoir/operator for mathematical convenience.
+	•	References to “Boundary agency” were metaphorical, not a claim that the Boundary is a node or agent within the creature state space.
+	•	Quantities defined on nodes (e.g., a_i, P_i, q_i) do not extend to the Boundary.
+	•	Boundary action in 4.2 is limited to lawful, local operators (e.g., healing/venting channels) and never violates agency inviolability.
+	•	DET v5 will formalize this distinction explicitly by placing the model within the Boundary rather than the Boundary within the model.
+	•	No equations or predictions in DET 4.2 depend on treating the Boundary as an in-model agent.
+
+
+Below is a clean, migration-only appendix designed to be appended to DET 4.2 and then lifted almost verbatim into DET v5.
+It is written to introduce phase dynamics without breaking 4.2, while making the transition operational, measurable, and low-risk.
+
+No new metaphysics, no QM claims — just an explicitly instrumentable layer.
+
+⸻
+
+Appendix Δ1 — Phase Dynamics Migration (DET 4.2 → DET v5)
+
+Status: Optional add-on (non-breaking)
+Purpose: Introduce an operational phase variable \theta_i to support synchronization, coherence, and fragmentation analysis in preparation for DET v5.
+
+⸻
+
+Δ.1 Motivation
+
+DET 4.2 successfully models:
+	•	local time / presence (P_i)
+	•	resource flow (F_i)
+	•	coordination debt / mass (M_i)
+	•	bond conductivity (\sigma_{ij}, C_{ij})
+	•	agency-limited interaction (a_i)
+
+However, 4.2 lacks a cyclic / coherence state needed to:
+	•	distinguish synchronized vs fragmented regimes
+	•	study lock-in, decoherence, and inertial freezing
+	•	operationalize early-time response measurements for \sigma_{ij}
+
+This appendix introduces a phase variable that is:
+	•	creature-local
+	•	measurable (or inferable)
+	•	parameter-identifiable
+	•	compatible with all existing 4.2 dynamics
+
+⸻
+
+Δ.2 New State Variable (Non-Primitive)
+
+For each node i, define:
+
+\theta_i \in [0,2\pi)
+
+Interpretation (canonical):
+\theta_i is the phase of the node’s resource-processing / coordination cycle, not a quantum wavefunction phase.
+
+Examples (implementation-dependent):
+	•	phase of compute / task cadence
+	•	phase of power draw oscillation
+	•	phase of communication burst timing
+	•	abstract coordination cycle in simulation
+
+⸻
+
+Δ.3 Proper-Time Foundation (No Global Clock Paradox)
+
+DET 4.2 already defines local proper time:
+\Delta\tau_i \equiv P_i \Delta k
+
+All phase evolution is defined only in proper time, preserving creature locality and avoiding time-base cancellation.
+
+⸻
+
+Δ.4 Phase Update Rule (Migration Form)
+
+The phase evolves as:
+
+\boxed{
+\theta_i^{+}
+=
+\theta_i
++
+\Big[
+\omega_0\, g(F_i)
++
+\sum_{j\in\mathcal N(i)}
+\gamma_0\,
+\sigma_{ij}\,
+\sqrt{C_{ij}}\,
+a_i a_j\,
+\sin(\theta_j-\theta_i)
+\Big]
+\Delta\tau_i
+\;\;(\bmod 2\pi)
+}
+
+Where:
+	•	\Delta\tau_i = P_i \Delta k
+	•	\omega_0: base intrinsic angular rate (rad / proper-time)
+	•	\gamma_0: coupling strength constant
+	•	g(F_i): bounded resource-to-frequency map
+
+⸻
+
+Δ.5 Canonical Resource–Frequency Map
+
+To ensure stability, identifiability, and bounded dynamics:
+
+\boxed{
+g(F_i) \equiv \frac{F_i}{F_i + F_*}
+}
+\quad\text{(recommended)}
+
+Alternative (log-softened):
+g(F_i) = \log\!\left(1 + \frac{F_i}{F_*}\right)
+
+Where:
+	•	F_* is a characteristic “half-speed” resource scale
+	•	g(F)\in[0,1), preventing runaway frequency
+
+⸻
+
+Δ.6 Immediate Consequences
+
+This construction yields:
+	•	Frozen nodes
+P_i \to 0 \Rightarrow \Delta\tau_i \to 0
+→ phase stalls, coupling vanishes naturally
+	•	Starved nodes
+F_i \to 0 \Rightarrow g(F_i)\to 0
+→ intrinsic oscillation ceases
+	•	Hoarders / heavy nodes
+high q_i \Rightarrow P_i\downarrow
+→ effective phase inertia without ad-hoc terms
+	•	Agency-limited coupling
+a_i a_j enforces non-coercive interaction
+
+⸻
+
+Δ.7 Operational Observables (Measurement Layer)
+
+This appendix enables directly measurable quantities:
+
+Δ.7.1 Global Phase Coherence
+
+\boxed{
+R e^{i\Psi}
+=
+\frac{1}{N}
+\sum_{i=1}^{N} e^{i\theta_i}
+}
+	•	R\approx1: synchronized
+	•	R\approx0: incoherent
+	•	intermediate: clustered / chimera states
+
+⸻
+
+Δ.7.2 Lock-In Time
+
+t_{\text{lock}}
+=
+\min\{t : R(t) > \rho\}
+
+Used to estimate effective coupling strength.
+
+⸻
+
+Δ.7.3 Phase Diffusion / Fragmentation
+
+D_\theta
+\sim
+\frac{d}{dt}
+\operatorname{Var}(\theta_i - \Psi)
+
+Identifies decohering regimes without introducing noise terms yet.
+
+⸻
+
+Δ.7.4 Conductivity Estimation (σ-measurement)
+
+Impulse protocol:
+	1.	Apply a small phase kick \delta\theta_i
+	2.	Measure early-time relaxation slopes
+	3.	Fit effective \sigma_{ij}\sqrt{C_{ij}}
+
+⸻
+
+Δ.8 Parameters Introduced (Minimal)
+
+Parameter	Role	Status
+\omega_0	base intrinsic rate	new
+\gamma_0	coupling scale	new
+F_*	resource scale	new
+
+⸻
+
+Δ.9 Compatibility Statement
+	•	Existing simulations remain valid with \theta ignored
+	•	Phase dynamics can be enabled selectively
+
+⸻
+
+Δ.10 Migration Note for DET v5
+
+In DET v5:
+	•	\theta_i becomes a first-class coordination state
+	•	Phase noise D_i(q_i) may be added to model classicalization
+	•	Phase-dependent flow modulation can be explored:
+J_{ij} \propto \cos(\theta_j-\theta_i)
+\quad\text{(optional, v5+)}
+
+⸻
+
+Summary
+
+This appendix introduces a proper-time, resource-driven phase variable that is local, bounded, measurable, and ready to support DET v5 phase diagrams without destabilizing DET 4.2.
+
+Below is a drop-in sub-appendix that cleanly extends the migration appendix without changing any equations. It is written in the same “math card / falsification” tone as 4.2, so reviewers can attack it directly.
+
+⸻
+
+Appendix Δ1.R — Phase Regimes & Falsifiers
+
+(Supplement to Appendix Δ — Phase Dynamics Migration)
+
+Status: Non-breaking analytical layer
+Purpose: Define observable phase regimes, order parameters, and explicit falsification tests for the introduced phase dynamics.
+
+⸻
+
+Δ1.R.1 Control Parameters (Minimal Set)
+
+Phase behavior in DET (with Appendix Δ enabled) is governed by the following dimensionless control ratios:
+
+\begin{aligned}
+\text{Intrinsic drive:} &\quad \Omega_i \equiv \omega_0\, g(F_i)\, P_i \\
+\text{Effective coupling:} &\quad K_{ij} \equiv \gamma_0\, \sigma_{ij}\sqrt{C_{ij}}\, a_i a_j\, P_i \\
+\text{Network-averaged coupling:} &\quad \langle K \rangle \equiv \frac{1}{N}\sum_{i,j} K_{ij}
+\end{aligned}
+
+The primary phase control ratio is:
+\boxed{
+\Lambda \equiv \frac{\langle K \rangle}{\langle \Omega \rangle}
+}
+
+This single ratio organizes most regime transitions.
+
+⸻
+
+Δ1.R.2 Canonical Phase Regimes
+
+(R1) Frozen / Inert Regime
+
+Conditions:
+P_i \to 0 \quad \text{and/or} \quad F_i \to 0
+
+Signatures:
+	•	\Delta\tau_i \to 0
+	•	\dot{\theta}_i \to 0
+	•	No phase response to neighbor perturbations
+
+Interpretation:
+Dead agency / hoarded past. Nodes are present in topology but absent in time.
+
+⸻
+
+(R2) Independent Oscillators (Incoherent)
+
+Conditions:
+\Lambda \ll 1
+
+Signatures:
+	•	R \approx 0
+	•	Phases advance but do not lock
+	•	Phase differences drift unbounded
+
+Interpretation:
+Active but socially disconnected agents. No emergent coherence.
+
+⸻
+
+(R3) Clustered / Chimera States
+
+Conditions:
+\Lambda \sim \mathcal{O}(1)
+
+Signatures:
+	•	Partial synchronization
+	•	Stable phase clusters
+	•	Long-lived defects or domain walls
+
+Interpretation:
+Heterogeneous agency and bond strength create structured coordination.
+
+⸻
+
+(R4) Global Synchrony
+
+Conditions:
+\Lambda \gg 1
+
+Signatures:
+	•	R \to 1
+	•	Rapid lock-in from random initial phases
+	•	Phase perturbations decay exponentially
+
+Interpretation:
+High coherence, high trust, strong bonds. Collective temporal order.
+
+⸻
+
+(R5) Jammed / Over-constrained Regime (Optional)
+
+Conditions:
+	•	Extremely high \sigma_{ij} with low a_i
+	•	Dense bonds + low agency
+
+Signatures:
+	•	Metastable locking
+	•	Slow relaxation
+	•	History-dependent phase traps
+
+Interpretation:
+Bureaucratic or authoritarian coordination: rigid but fragile.
+
+⸻
+
+Δ1.R.3 Measurable Order Parameters
+
+(1) Global Coherence
+
+\boxed{
+R(t) = \left|\frac{1}{N}\sum_i e^{i\theta_i(t)}\right|
+}
+
+Primary observable for regime classification.
+
+⸻
+
+(2) Lock-In Time
+
+t_{\text{lock}} = \min\{t : R(t) > \rho\}
+\quad (\rho \sim 0.7)
+
+Used to estimate effective coupling strength.
+
+⸻
+
+(3) Phase Diffusion
+
+D_\theta = \frac{d}{dt}\operatorname{Var}(\theta_i - \Psi)
+
+Distinguishes incoherent vs clustered regimes.
+
+⸻
+
+(4) Impulse Response (σ-Estimation)
+
+Apply a small \delta\theta_i at t=0, measure:
+\left.\frac{d}{dt}\langle \theta_i - \theta_j\rangle\right|_{t\to 0}
+\;\;\Rightarrow\;\;
+\sigma_{ij}\sqrt{C_{ij}}
+
+Directly supports v5’s measurement layer.
+
+⸻
+
+Δ1.R.4 Explicit Falsification Tests
+
+F1 — Presence Scaling Test
+
+Prediction:
+Reducing P_i alone slows both intrinsic oscillation and coupling proportionally.
+
+Test:
+Hold F_i, \sigma_{ij}, C_{ij} fixed. Sweep P_i.
+Measure \dot{\theta}_i and lock-in time.
+
+Falsified if:
+Intrinsic rate changes but coupling does not (or vice versa).
+
+⸻
+
+F2 — Resource–Frequency Law
+
+Prediction:
+Intrinsic phase velocity follows g(F), not linear F and not mass M.
+
+Test:
+Isolate nodes, sweep F_i, fit \dot{\theta}_i.
+
+Falsified if:
+Best fit requires dependence on M_i or coordinate-time scaling.
+
+⸻
+
+F3 — Coupling Separability
+
+Prediction:
+Coupling strength factorizes as:
+K_{ij} \propto \sigma_{ij}\sqrt{C_{ij}} a_i a_j P_i
+
+Test:
+Independently vary each factor while holding others fixed.
+
+Falsified if:
+Coupling depends non-locally or requires hidden global parameters.
+
+⸻
+
+F4 — Frozen Node Inertness
+
+Prediction:
+Nodes with P_i\to 0 do not phase-lock even if neighbors are synchronized.
+
+Test:
+Embed frozen node in synchronized cluster, apply phase kick.
+
+Falsified if:
+Frozen node re-locks without restoring P_i.
+
+⸻
+
+F5 — Network Size Scaling
+
+Prediction:
+Critical coupling \gamma_0^{\text{crit}} scales weakly (log or constant) with N, not linearly.
+
+Test:
+Measure synchronization threshold vs network size.
+
+Falsified if:
+Threshold grows ∝ N, indicating hidden global coordination.
+
+⸻
+
+Δ1.R.5 Migration Note for v5+
+	•	Phase noise D_i(q_i) may be added only if decoherence must be modeled explicitly.
+	•	Phase-dependent flow modulation remains optional.
+	•	No falsifier above relies on speculative physics or unmeasurable quantities.
+
+⸻
+
+Δ1.R Summary
+
+This sub-appendix turns phase dynamics into a testable sector of DET:
+	•	Clear regimes
+	•	Quantitative order parameters
+	•	Direct falsifiers
+	•	No new ontology
+
+If these predictions fail, the phase layer — not DET’s core — is falsified, preserving the integrity of 4.2 while enabling v5 exploration.
+
+⸻
+
+Appendix Y — DET v5 Construction & Supersession Guidelines
+
+Corrected Classical → Regime-Unified Development
+
+Status: Binding methodological appendix
+Scope: Governs all DET v5 theory, simulation, and experimental development
+
+⸻
+
+Y.1 Purpose and Role of This Appendix
+
+DET v5 is not a rejection of Classical Mechanics (CM) or the Standard Model (SM).
+It is an attempt to explain why multiple physical descriptions became necessary, and to derive them as regimes of a single lawful substrate.
+
+This appendix defines the rules of construction, not new physical laws.
+Its function is to ensure that DET remains:
+	•	scientifically rigorous,
+	•	non-cyclical,
+	•	falsifiable,
+	•	operationally useful,
+	•	and ontologically coherent.
+
+⸻
+
+Y.2 Core Orientation (Corrected Classical First)
+
+DET v5 must be built classically forward, not quantum backward.
+
+Meaning:
+	•	Begin from a corrected classical substrate (DET 4.2).
+	•	Allow quantum, particle, and field behavior to emerge as regimes.
+	•	Do not introduce quantum axioms as primitives.
+
+If a phenomenon requires importing a quantum postulate to appear, the derivation has failed.
+
+DET does not start by assuming Hilbert space, operators, or collapse.
+Those descriptions may appear later as effective tools, not foundations.
+
+⸻
+
+Y.3 The Corrected Classical Substrate (Inherited from 4.2)
+
+DET 4.2 already supplies the base dynamics:
+	•	strictly local state
+	•	local time via Presence
+	•	relational flow
+	•	coherence-weighted transport
+	•	retained structure as mass
+	•	lawful, non-coercive boundary action
+	•	inviolable agency
+
+This substrate is classical in spirit, but corrected for what historical CM suppressed:
+
+Classical Suppression	DET Correction
+Global time	Local presence
+Passive matter	Memory-bearing structure
+Ignored relations	Explicit bonds
+No agency	Inviolable openness
+External measurement	Participatory dynamics
+
+DET v5 may extend this substrate, but must not replace or bypass it.
+
+⸻
+
+Y.4 Regime-First Development Rule
+
+All higher-level physics in v5 must be introduced as regimes, not new ontologies.
+
+Required Regimes
+	1.	CM-Limit Regime
+	•	Low coherence
+	•	High decoherence
+	•	Coarse-grained neighborhoods
+	•	Stable objects, averaged relations
+→ reproduces Newtonian mechanics and classical transport
+	2.	Quantum-Like Regime
+	•	High coherence
+	•	Phase stability
+	•	Relational dominance
+	•	Low decoherence
+→ reproduces wave behavior, interference, probabilistic outcomes
+	3.	Duality Boundary
+	•	Mixed coherence
+	•	Partial localization
+	•	Observer participation matters
+→ explains why two descriptions historically appeared
+
+Duality is a boundary, not a paradox.
+
+⸻
+
+Y.5 Particle Mechanics (Emergent, Not Primitive)
+
+In DET v5:
+	•	Particles are persistent localized attractors of flow and structure.
+	•	Trajectories are center-of-mass approximations.
+	•	Mass is retained past, not substance.
+
+Rules:
+	•	No particle type may be introduced without a structural stability explanation.
+	•	Identity must arise from persistence, not labels.
+
+⸻
+
+Y.6 Fields as Coarse-Grained Relational Ensembles
+
+Field theories are interpreted as:
+	•	statistical descriptions of bond conductance, coherence, phase, and density
+	•	valid only above a chosen coarse-graining scale
+
+Constraints:
+	•	No fundamental Lagrangian is assumed.
+	•	Effective actions may be derived, never postulated.
+	•	Renormalization is a modeling convenience, not an ontological fix.
+
+⸻
+
+Y.7 Colliders, Scattering, and Experiments (Clarified Role)
+
+DET v5 is not opposed to colliders, scattering models, or field-based experiments.
+
+Their role is diagnostic and falsifying, not foundational:
+	•	stress-testing regime transitions
+	•	probing coherence loss
+	•	identifying localization thresholds
+	•	distinguishing binding, scattering, and fragmentation classes
+
+Colliders calibrate derived behavior, not free primitives.
+
+⸻
+
+Y.8 Non-Cyclicity Discipline (Critical)
+
+To prevent DET from collapsing into a rebranded SM:
+	1.	Do not import quantum axioms as primitives.
+	2.	Only allow them as:
+	•	emergent descriptions
+	•	effective statistics
+	•	regime-specific tools
+	3.	Any construct that cannot be removed without breaking the substrate is too primitive.
+
+⸻
+
+Y.9 K — The Spirit / Movement Axis (Open Development Domain)
+
+DET 4.2 does not yet fully formalize K.
+This is acknowledged explicitly and intentionally.
+
+Provisional Interpretation
+
+K corresponds to enlivening movement, not structure:
+	•	non-accumulative
+	•	non-hoarded
+	•	non-coercive
+	•	directional without force
+
+Candidate expressions to explore in v5:
+	•	coherence restoration pathways
+	•	phase-alignment propagation
+	•	movement that increases participation without adding mass
+	•	lawful healing without structural injection
+
+Development Rules for K
+	•	K must never violate agency.
+	•	K must not directly inject structure.
+	•	K must act through lawful relational modulation.
+
+K is not a new force.
+It is a movement principle to be explored experimentally and numerically, without premature formalization.
+
+⸻
+
+Y.10 Replacement and Supersession Conditions
+
+DET is not opposed to replacing components of CM or the SM — but replacement is earned, not assumed.
+
+Replacement is permitted only if DET:
+	1.	preserves all validated operational capability,
+	2.	improves explanatory depth without new unverifiable primitives,
+	3.	maintains strict locality and the root axiom,
+	4.	provides derivation, not renaming.
+
+Replacement by reinterpretation or regime embedding is preferred over deletion.
+
+⸻
+
+Y.11 Falsifiability Constraint (Past-Only)
+
+DET remains falsifiable only through past-resolved matter and records.
+
+Valid falsifiers include:
+	•	retained structure
+	•	recorded flows
+	•	scattering outcomes
+	•	bound states
+	•	decay products
+	•	clock records
+
+The absolute present is unfalsifiable by design due to agency and participation.
+
+Any claim requiring falsification of the present is invalid.
+
+⸻
+
+Y.12 Measurability Rule (Historical Anchoring)
+
+All DET observables must be measurable via:
+	•	accumulated structure
+	•	recorded correlations
+	•	post-interaction states
+
+Measurement is record formation, not revelation.
+
+Global instantaneous states are disallowed.
+
+⸻
+
+Y.13 Parameter Economy Enforcement
+
+DET must not exceed the parameter burden of the models it replaces.
+	•	Derived constants are permitted.
+	•	Fitted constants must be minimized.
+	•	Equal parameter count without deeper explanation fails this appendix.
+
+⸻
+
+Y.14 Supersession Test (Formal)
+
+A DET-based replacement is valid only if all four conditions are met:
+	1.	Operational parity or improvement
+	2.	Root-axiom consistency and locality
+	3.	Past-only falsifiability
+	4.	Meaningful derivation from existing models
+
+Failure of any one condition prohibits adoption.
+
+⸻
+
+Y.15 Closing Statement
+
+DET v5 proceeds by extending a corrected classical substrate forward into quantum, particle, and field regimes, explaining why multiple descriptions were historically required without fragmenting ontology.
+
+Duality is treated as a boundary, not a paradox.
+
+Replacement of existing models is permitted only when it preserves operational success, enforces strict locality, remains falsifiable through past-resolved matter, and provides deeper derivation rather than cyclical re-parameterization.
+
+Movement (K) is acknowledged as real, lawful, and non-coercive, and remains an explicit axis of exploration.
+

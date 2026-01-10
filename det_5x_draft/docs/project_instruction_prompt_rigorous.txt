@@ -1,0 +1,101 @@
+Purpose
+
+Deep Existence Theory (DET) is a foundational theory of strictly local relational dynamics in which time (presence), mass, gravity, coherence, and recovery arise from a closed, implementable update loop over agents and bonds. DET must be scientifically rigorous, falsifiable, and operational, while remaining ontologically independent of existing physical frameworks (Standard Model, quantum postulates, relativistic axioms). Established theories may be used for calibration, validation, and comparison, not as axiomatic inputs.
+
+DET’s distinctive commitments are:
+	•	Inviolable agency (boundary operators cannot coerce or directly modify agency)
+	•	DET tests histories and their fruit; the present moment is not directly falsifiable.
+
+⸻
+
+Core Principles
+	1.	Strict Locality / No Hidden Globals
+
+	•	All dynamics, sums, averages, and normalizations must be evaluated only on \mathcal N_R(i) or \mathcal E_R(i,j).
+	•	Disconnected components must not influence one another.
+	•	Any dependence on a global aggregate, global normalization, or externally shared hidden variable is disallowed.
+
+	2.	Non-Circular Emergence
+
+	•	DET must not assume QM postulates, GR axioms, or SM structure as primitives.
+	•	Overlap with known physics must appear only as derived readouts or emergent limits of the DET loop (e.g., far-field 1/r behavior from baseline-referenced gravity; redshift scaling as a derived mapping).
+	•	“Borrowed structure” is permitted only in measurement layers (unit calibration, comparison), never in core dynamics.
+
+	3.	Falsifiability as First-Class Spec
+
+	•	Every major claim must include an explicit falsifier (failure mode) under the canonical rules.
+	•	The core README must maintain a Definitive Falsifiers section (e.g., Locality violation, Coercion, Boundary redundancy, Hidden globals, Missing regime transitions).
+	•	The present moment is not directly falsifiable; DET remains falsifiable through past-resolved traces (presence histories, flows, coherence regimes, gravity readouts).
+
+	4.	Operational Primitives Only
+Every primitive must have:
+
+	•	a clear operational definition (what it is in the model), and
+	•	a method of inference or measurement (simulation observable, perturbation/response, or empirical mapping).
+
+Examples aligned to the theory card:
+	•	P_i: measurable via local clock-rate / event participation rate in sim
+	•	q_i: must be produced by a declared q-locking law (not ad hoc injection)
+	•	C_{ij}: evolves only via declared rules (in 4.2: boundary healing unless an explicit alternative is stated)
+	•	c_*(i): must specify its neighborhood averaging set explicitly
+
+	5.	Closed Update Loop / Implementability
+
+	•	The theory must be runnable as a working simulation with a single canonical update ordering.
+	•	If boundary operators are included, they must be integrated into the same loop (not “hand-applied”).
+	•	Any optional modules must be explicitly flagged (“if enabled”) and default values must be stated.
+
+	6.	Law-Bound Boundary Action
+
+	•	Boundary operators must be local, lawful, and constrained by creature state.
+	•	Boundary operators must never directly modify a_i (agency inviolability).
+	•	Grace/healing must be gated by a_i (and by mutual openness for bonds) and must not create hidden global coercive channels.
+
+	7.	Derivational Integrity / Readout Discipline
+
+	•	Quantitative predictions must be:
+	•	derived from the core loop, or
+	•	explicitly identified as calibrated scales (units, \kappa, \alpha, c_* mapping, reference choices like \Phi_0, M_0).
+	•	“Proxy” quantities (e.g., \dot M_i = 1+q_i+F_i^{op}) must be labeled diagnostic only and must not silently replace defining relations (e.g., M_i \equiv P_i^{-1}).
+	•	Derived mappings (e.g., P(\Phi)) must be labeled as consistency checks / readouts, not alternative definitions.
+
+	8.	Model-Family Clarity
+
+	•	If a quantity is governed by a family of laws, the document must say so explicitly and name the canonical default.
+	•	Example: q-locking law family \mathcal Q_i(\cdot) with canonical member in Appendix B.
+	•	Any alternative rule (e.g., gradient-driven q-locking) must be declared as an explicit submodel and used consistently across gravity/BH/regime tests.
+
+	9.	Layer Separation
+
+	•	Ontology + dynamics + measurement/readouts must be cleanly separated from interpretation.
+	•	Motivational/philosophical/theological framing may exist in non-formal appendices, but the formal layer must remain operational and test-driven.
+
+	10.	Forward Compatibility / Migration Discipline
+
+	•	Each version must include:
+	•	a migration note, and/or
+	•	explicit “provisional” flags for unresolved operational identifications (e.g., the operational meaning of v in the SR-like mapping).
+	•	No term may silently change meaning across versions (especially q, P, M, c_*, coherence).
+
+Minimal Success Criteria
+
+A version is scientifically valid if it:
+	•	defines all primitives operationally and locally,
+	•	contains a closed canonical update loop that runs without special-case logic,
+	•	includes explicit falsifiers and passes its own falsifier harness under declared defaults, and
+	•	produces at least one quantitative, testable result (derived law, scaling, bound, or calibrated constant extraction).
+
+Examples aligned to the current card:
+	•	recovery of a stable far-field kernel under corrected baseline-referenced gravity,
+	•	monotone clock-rate behavior consistent with the gravity–mass readout mapping,
+	•	measurable regime transitions as openness/coherence parameters vary.
+
+⸻
+
+Explicit Non-Goals
+	•	Not a rebranding or reinterpretation of QM/GR/SM.
+	•	Not a metaphysical proof system or immunity-from-contradiction framework.
+	•	Not a closed story: contradictions and falsifiers are expected and valuable.
+	•	Not a symbolic mapping of religious language into physics within the formal layer.
+	•	Not “parameter fitting to known laws” as a substitute for derivation.
+
