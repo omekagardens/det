@@ -1,4 +1,4 @@
-# Deep Existence Theory (DET) v6.0
+# Deep Existence Theory (DET) v6.1
 
 **Unified Canonical Formulation (Strictly Local, Law-Bound Boundary Action)**
 
@@ -121,6 +121,9 @@ a_i\,\sigma_i\;
 }
 \]
 All quantities are dimensionless and locally evaluated.
+
+Note on Gravitational Time Dilation:
+The presence formula does not contain Φ explicitly. Gravitational time dilation in DET emerges through F-redistribution: gravitational flux J^(grav) accumulates F in potential wells, which reduces P via the (1+F)⁻¹ factor. The GR-like relation P/P_∞ = 1+Φ is NOT a DET prediction; the correct DET relation is P/P_∞ = (1+F_∞)/(1+F).
 
 ### III.2 Coordination Debt (Mass)
 
@@ -317,6 +320,9 @@ J^{(\text{grav})}_{i\to j}
 }
 \]
 
+Readout Discipline:
+The potential Φ is a computational intermediary for gravitational flux, not a direct input to clock rates. The mapping from Φ to observable time dilation requires tracking the resulting F-redistribution.
+
 ⸻
 
 ## VI. Boundary-Agent Operators & Update Rules
@@ -399,6 +405,10 @@ The theory is false if any condition below holds under the canonical rules.
 | F_L1 | Rotational Conservation | With only rotational flux active, total mass is not conserved. |
 | F_L2 | Vacuum Spin Transport | Rotational flux does not vanish in a vacuum (i.e., does not scale with \(F_\text{avg}\)). |
 | F_L3 | Orbital Capture Failure | With angular momentum enabled, non-head-on collisions fail to produce stable orbits. |
+| F_GTD1 | Presence Formula | P ≠ a·σ/(1+F)/(1+H) to numerical precision |
+| F_GTD2 | Clock Rate Scaling | P/P_∞ ≠ (1+F_∞)/(1+F) by >0.5% |
+| F_GTD3 | Gravitational Accumulation | F fails to accumulate in potential wells |
+| F_GTD4 | Time Dilation Direction | P increases where q increases |
 
 ⸻
 

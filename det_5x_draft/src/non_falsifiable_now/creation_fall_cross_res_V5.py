@@ -40,8 +40,17 @@ MU_PI = 0.22
 PI_MAX = 2.5
 
 # "I" channel (lawful recovery): injection + bond healing (local, gated)
+# These are intentionally "event-tunable" in this toy (Resurrection widens I/k channels).
 I_INJECT_GAIN = 1.00
 I_HEAL_GAIN = 0.85
+
+# Agency (A) dynamics tuning (kept gentle; avoid saturating to 0/1 too easily)
+BETA_A = 0.65      # neighborhood-presence feedback
+GAMMA_Q = 0.18     # debt drag on openness
+RHO_A = 0.12       # neighbor-agency diffusion (imitation / discipleship)
+
+# q recovery (forgiveness / unburdening) — local, requires openness and local healing/injection
+ETA_Q_HEAL = 0.08
 
 # -----------------------------
 # Helpers
@@ -143,13 +152,14 @@ class DET5System:
         """Compute H_i, P_i, M_i strictly locally."""
         n = len(self.nodes)
         for i in range(n):
-            # local coordination load
+            # local coordination load (now: incoherence load)
             H = 0.0
             for j in range(n):
                 if i == j:
                     continue
                 if self.sigma[i, j] > 0:
-                    H += np.sqrt(self.C[i, j]) * self.sigma[i, j]
+                    # Coordination burden rises with *incoherence* (healed bonds become easier to carry).
+                    H += (1.0 - np.sqrt(self.C[i, j])) * self.sigma[i, j]
 
             # local node processing (sigma_i)
             sigma_i = float(np.sum(self.sigma[i]))
@@ -342,21 +352,51 @@ class DET5System:
                 weights = np.array([self.sigma[i, j] for j in nbrs], dtype=float)
                 Pbar = local_mean(Ps[nbrs], weights=weights)
 
-            # canonical drift: a += (P_i - Pbar) - q
+            # DET5-ish openness drift (local):
+            #   - presence relative to neighborhood tends to open/close
+            #   - debt drags openness
+            #   - neighbor agency diffuses (non-coercive: models imitation/discipleship)
             a = self.nodes[i]["a"]
             q = self.nodes[i]["q"]
-            a_new = a + (self.nodes[i]["P"] - Pbar) - q
-            self.nodes[i]["a"] = clip01(a_new)
+
+            # neighbor agency diffusion
+            if len(nbrs) == 0:
+                a_nbr = a
+            else:
+                a_vals = np.array([self.nodes[j]["a"] for j in nbrs], dtype=float)
+                a_nbr = local_mean(a_vals, weights=weights)
+
+            da = (
+                BETA_A * (self.nodes[i]["P"] - Pbar)
+                - GAMMA_Q * q
+                + RHO_A * (a_nbr - a)
+            )
+            self.nodes[i]["a"] = clip01(a + da)
 
     # -----------------------------
     # q-locking (I / memory)
     # -----------------------------
 
-    def _update_q(self, F_old, F_new):
+    def _update_q(self, F_old, F_new, I_inj, dC):
         n = len(self.nodes)
         for i in range(n):
             loss = max(0.0, F_old[i] - F_new[i])
-            self.nodes[i]["q"] = clip01(self.nodes[i]["q"] + ALPHA_Q * loss)
+
+            # local healing drive: received injection + incident bond healing
+            inj_drive = float(I_inj[i])
+            heal_drive = 0.0
+            for j in range(n):
+                if i == j or self.sigma[i, j] <= 0:
+                    continue
+                heal_drive += self.sigma[i, j] * max(0.0, dC[i, j])
+
+            # q increases with loss (memory of fracture), decreases with local healing when open
+            a = self.nodes[i]["a"]
+            F = self.nodes[i]["F"]
+            q = self.nodes[i]["q"]
+
+            q_new = q + (ALPHA_Q * loss) - (ETA_Q_HEAL * a * (inj_drive + heal_drive) / (1.0 + F))
+            self.nodes[i]["q"] = clip01(q_new)
 
     # -----------------------------
     # Step
@@ -395,8 +435,8 @@ class DET5System:
         # (5) momentum update (uses J_diff)
         self._update_momentum(J_diff, dtau)
 
-        # (6) q-locking from loss
-        self._update_q(F_old, F_new)
+        # (6) q dynamics: locking from loss + local unburdening via I-channel
+        self._update_q(F_old, F_new, I_inj, dC)
 
         # (7) agency update
         self._update_agency()
@@ -492,7 +532,7 @@ def apply_fall(sim):
 
 
 def apply_cross(sim):
-    sim.log.append(f"t={sim.t}: CROSS (A-centered costly contact with fracture field)")
+    sim.log.append(f"t={sim.t}: CROSS (A enters fracture: catalytic contact, no coercion)")
     # In DET terms: agency remains inviolable, but the Anointed opens maximal mutual-contact
     # with the hoarder field, increasing dissipation locally which powers I-channel healing.
     for k in range(NUM_HUMANS):
@@ -501,21 +541,31 @@ def apply_cross(sim):
     # Direct bond between Anointed and Hoarder becomes strong (contact with the debt sink)
     sim.set_bond("Anointed", "Hoarder", sigma=1.0, coherence=0.55)
 
-    # Symbolic forsakenness: the Anointed takes a local agency hit (not to zero)
+    # Symbolic forsakenness: costly contact, but do NOT annihilate agency.
+    # We model cost as a temporary resource drain + modest debt uptake.
     idx = sim.name_to_id["Anointed"]
-    sim.nodes[idx]["a"] = clip01(sim.nodes[idx]["a"] - 0.35)
-    sim.nodes[idx]["F"] = max(0.0, sim.nodes[idx]["F"] - 0.55)
-    sim.nodes[idx]["q"] = clip01(sim.nodes[idx]["q"] + 0.25)
+    sim.nodes[idx]["a"] = clip01(max(0.25, sim.nodes[idx]["a"] - 0.25))
+    sim.nodes[idx]["F"] = max(0.0, sim.nodes[idx]["F"] - 0.75)
+    sim.nodes[idx]["q"] = clip01(sim.nodes[idx]["q"] + 0.12)
 
 
 def apply_resurrection(sim):
-    global MOMENTUM_ENABLED
-    sim.log.append(f"t={sim.t}: RESURRECTION (k widened: directed motion memory + phase coherence)")
+    global MOMENTUM_ENABLED, I_HEAL_GAIN, I_INJECT_GAIN, ETA_Q_HEAL, GAMMA_PHASE
+    sim.log.append(f"t={sim.t}: RESURRECTION (I/A/k widened: healing, forgiveness, coherence, motion)")
 
-    # Restore Anointed openness (agency is not forced for others; only his own state here)
+    # Widen the lawful recovery channel (I) and unburdening rate (local, still agency-gated)
+    I_HEAL_GAIN = 1.25
+    I_INJECT_GAIN = 1.10
+    ETA_Q_HEAL = 0.13
+
+    # Increase phase-coherence pull (k expressed as shared motion coherence)
+    GAMMA_PHASE = 0.055
+
+    # Restore the Anointed (self-restoration; no coercion of others)
     idx = sim.name_to_id["Anointed"]
-    sim.nodes[idx]["a"] = 0.99
-    sim.nodes[idx]["F"] = max(sim.nodes[idx]["F"], 1.0)
+    sim.nodes[idx]["a"] = 0.995
+    sim.nodes[idx]["q"] = 0.01
+    sim.nodes[idx]["F"] = max(sim.nodes[idx]["F"], 1.10)
 
     # Hoarder bonds weaken (fracture loses hold)
     for k in range(NUM_HUMANS):
