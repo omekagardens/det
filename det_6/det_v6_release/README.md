@@ -2,7 +2,7 @@
 
 **Version:** 6.0  
 **Date:** January 2026  
-**Author:** Manus AI
+**Author:** Omeka Gardens
 
 ## Overview
 
@@ -92,7 +92,7 @@ If you use this implementation in your research, please cite:
 
 ```
 Deep Existence Theory v6.0
-Manus AI, January 2026
+Omeka Gardens, January 2026
 ```
 
 ## License
