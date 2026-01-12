@@ -134,8 +134,8 @@ The v6.2 release includes tests for the following falsifiers:
 The following falsifiers are defined but not yet implemented:
 
 - **F1 (Locality Violation):** Requires multi-graph embedding tests
-- **F2 (Coercion):** Requires boundary operator implementation
-- **F3 (Boundary Redundancy):** Requires boundary operator implementation
+~~- **F2 (Coercion):** Requires boundary operator implementation~~
+~~- **F3 (Boundary Redundancy):** Requires boundary operator implementation~~
 - **F4 (No Regime Transition):** Requires parameter sweep studies
 - **F5 (Hidden Global Aggregates):** Requires code audit
 - **F6 (Binding Failure):** Requires gravity implementation
@@ -144,9 +144,9 @@ The following falsifiers are defined but not yet implemented:
 
 ## Recommendations
 
-1. **Implement Gravity Module:** The gravity module is fully specified but not implemented in any collider. This is the highest priority for achieving binding dynamics (F6).
+~~1. **Implement Gravity Module:** The gravity module is fully specified but not implemented in any collider. This is the highest priority for achieving binding dynamics (F6).~~~
 
-2. **Implement Boundary Operators:** Grace injection and bond healing are specified but not implemented. Required for F2, F3 tests.
+~~2. **Implement Boundary Operators:** Grace injection and bond healing are specified but not implemented. Required for F2, F3 tests.~~
 
 3. **Complete Falsifier Suite:** Implement remaining falsifiers, particularly F1 (locality) and F5 (hidden globals) which are foundational.
 
