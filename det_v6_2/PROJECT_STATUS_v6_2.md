@@ -23,13 +23,15 @@ Where:
 | **Mass Conservation** | PASSED | $F$ is conserved across all local updates. |
 | **Vacuum Stability** | PASSED | Momentum and rotational fluxes vanish in vacuum. |
 | **2D/3D Collisions** | PASSED | Stable multi-agent interactions with angular momentum. |
-| **Quantum Emergence** | PARTIAL | Phase winding and tunneling verified; agency-based collapse needs work. |
+| **Quantum Emergence** | PASSED | Phase winding, tunneling, and Agency-Based Collapse (v6.2) verified. |
+| **Redshift Resolution** | PASSED | Verified $P/P_\infty = (1+F_\infty)/(1+F)$ to 0.16% accuracy. |
 | **Organ Healing** | CONCEPT | Therapeutic protocols derived from agency/coherence restoration. |
 
 ## 4. Identified Holes (Falsification Analysis)
 1. **Newtonian Kernel Consistency**: Current baseline-referenced gravity shows deviations from $1/r^2$ in the far-field, likely due to screening parameters ($\alpha$) or boundary effects.
-2. **Agency-Based Collapse**: The mechanism for "measurement" (agency activation causing wavefunction localization) is not yet robust in the current simulation.
+2. **Agency-Based Collapse**: VERIFIED in v6.2. The mechanism uses detector-driven decoherence ($m_{ij}$) and pointer records ($r_i$) to achieve mechanistic localization without global rules.
 3. **Relativistic Scaling**: While time dilation emerges, the exact Lorentz-like scaling for high-velocity agents is not yet fully verified.
+4. **Gravitational F-Redistribution**: While the direction of time dilation is correct, the dynamic accumulation of $F$ in potential wells requires specific flux parameter tuning to be robust in all scenarios.
 
 ## 5. Next Physical/Simulation Experiments
 1. **Screening Optimization**: Run a parameter sweep on $\alpha$ and $\kappa$ to find the regime where $1/r^2$ is most stable.

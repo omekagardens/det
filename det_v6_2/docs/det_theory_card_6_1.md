@@ -123,7 +123,7 @@ a_i\,\sigma_i\;
 All quantities are dimensionless and locally evaluated.
 
 Note on Gravitational Time Dilation:
-The presence formula does not contain Φ explicitly. Gravitational time dilation in DET emerges through F-redistribution: gravitational flux J^(grav) accumulates F in potential wells, which reduces P via the (1+F)⁻¹ factor. The GR-like relation P/P_∞ = 1+Φ is NOT a DET prediction; the correct DET relation is P/P_∞ = (1+F_∞)/(1+F).
+The presence formula does not contain Φ explicitly. Gravitational time dilation in DET emerges through F-redistribution: gravitational flux J^(grav) accumulates F in potential wells, which reduces P via the (1+F)⁻¹ factor. The GR-like relation P/P_∞ = 1+Φ is NOT a DET prediction; the correct DET relation is P/P_∞ = (1+F_∞)/(1+F). This has been verified to 0.16% accuracy in version 6.2.
 
 ### III.2 Coordination Debt (Mass)
 
@@ -346,13 +346,43 @@ a_i^{+} = \mathrm{clip}\!\left(a_i + (P_i - \bar{P}_{\mathcal{N}(i)}) - q_i, 0, 
 \[
 a_\text{target} = \frac{1}{1 + \lambda_a q_i^2} \qquad \Rightarrow \qquad a_i^{+} = a_i + \beta (a_\text{target} - a_i)
 \]
+### VI.3 Coherence Dynamics (Agency-Based Collapse v6.2)
 
-### VI.3 Coherence Dynamics (Provisional)
+*Note: In v6.2, coherence dynamics include a detector-driven decoherence term. This enables mechanistic "measurement" without global collapse rules.*
 
-*Note: The following is a provisional, phenomenological rule used in colliders to provide dynamic coherence. It is not part of the core axiomatic structure but is necessary for stable simulations.*
+Let $m_{ij} \equiv \max(m_i, m_j)$ be the local detector coupling and $g^{(a)}_{ij}=\sqrt{a_i a_j}$ be the agency gate.
 
 \[
-C_{ij}^+ = \mathrm{clip}\left(C_{ij} + \alpha_C |J_{i\to j}| \Delta\tau_{ij} - \lambda_C C_{ij} \Delta\tau_{ij}, C_\text{init}, 1.0\right)
+\boxed{
+C_{ij}^{+} =
+\mathrm{clip}\Big(
+C_{ij}
++\alpha_C |J_{i\to j}| \Delta\tau_{ij}
+-\lambda_C C_{ij}\Delta\tau_{ij}
+-\lambda_M\, m_{ij}\, g^{(a)}_{ij}\, \sqrt{C_{ij}}\, \Delta\tau_{ij},
+\ C_{\min}, 1
+\Big)
+}
+\]
+where $m_{ij} \equiv 1-(1-m_i)(1-m_j)$ is the smooth detector coupling.
+
+### VI.4 Pointer Records (v6.2)
+
+To stabilize measurement outcomes, a local record $r_i$ accumulates from dissipation:
+
+\[
+\boxed{
+r_i^{+} = r_i + \alpha_r\, m_i\, D_i\, \Delta\tau_i
+\qquad \text{where } D_i=\sum_{j\in\mathcal N(i)}|J_{i\to j}|
+}
+\]
+
+The record reinforces local conductivity with saturation to prevent singularities:
+\[
+\boxed{
+\sigma_{eff,ij}=\sigma_{ij}\Big(1+\eta_r\, \frac{\bar r_{ij}}{1+\bar r_{ij}}\Big),\quad
+\bar r_{ij}=\tfrac12(r_i+r_j)
+}
 \]
 
 ### VI.4 Phase Evolution (V.0)

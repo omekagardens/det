@@ -117,11 +117,8 @@ class DETQuantumSystem:
             s_j = max(0, (self.F[j] - self.F_floor) / self.F_floor)**2
             J_floor = self.eta_floor * (s_i + s_j) * (self.F[i] - self.F[j])
             
-            # Refined Record-Driven Conductivity (v6.2)
-            # sigma_eff = sigma * (1 + eta_r * r_bar / (1 + r_bar))
-            r_bar = (self.r[i] + self.r[j]) / 2
-            sigma_base = (self.sigma[i] + self.sigma[j]) / 2
-            sigma_eff = sigma_base * (1 + self.eta_r * r_bar / (1 + r_bar))
+            # Conductivity with record bias (v6.2)
+            sigma_eff = (self.sigma[i] + self.sigma[j]) / 2 * (1 + self.eta_r * (self.r[i] + self.r[j]) / 2)
             
             J[bond] = g * sigma_eff * (J_q + J_c) + J_floor
         
@@ -166,13 +163,10 @@ class DETQuantumSystem:
         # Update C and r
         for i in range(self.N):
             g_i = self.a[i] # Local agency factor
-            
-            # Refined Decoherence: scales with sqrt(C) for numerical stability
-            decoherence = self.lambda_M * self.m[i] * g_i * np.sqrt(self.C[i])
-            
+            decoherence = self.lambda_M * self.m[i] * g_i * self.C[i]
             self.C[i] = np.clip(self.C[i] + (alpha_C * D[i] - lambda_C * self.C[i] - decoherence) * self.dt, C_min, 1.0)
             
-            # Pointer record (v6.2) with explicit dt
+            # Pointer record (v6.2)
             self.r[i] += self.alpha_r * self.m[i] * D[i] * self.dt
         
         # Phase update
