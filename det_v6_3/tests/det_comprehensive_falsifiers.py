@@ -117,7 +117,7 @@ def test_F2_grace_coercion(verbose: bool = True) -> Dict:
 
     params = DETParams3D(
         N=24, boundary_enabled=True, grace_enabled=True,
-        F_MIN_grace=0.15, a_rate=0.0, gravity_enabled=True
+        F_MIN_grace=0.15, beta_a=0.0, gravity_enabled=True
     )
     sim = DETCollider3D(params)
 
@@ -326,7 +326,7 @@ def test_F6_gravitational_binding(verbose: bool = True) -> Dict:
         momentum_enabled=True, alpha_pi=0.1, lambda_pi=0.002, mu_pi=0.5,
         angular_momentum_enabled=False, floor_enabled=False,
         q_enabled=True, alpha_q=0.02,
-        agency_dynamic=True, a_coupling=3.0, a_rate=0.05,
+        agency_dynamic=True, lambda_a=3.0, beta_a=0.05,
         gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=3.0,
         boundary_enabled=True, grace_enabled=True
     )

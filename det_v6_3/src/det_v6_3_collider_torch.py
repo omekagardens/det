@@ -80,9 +80,12 @@ class DETParamsTorch:
     alpha_q: float = 0.02
 
     # Agency
+    # Agency dynamics - v6.4 update
     agency_dynamic: bool = True
-    a_rate: float = 0.2
-    a_coupling: float = 30.0
+    lambda_a: float = 30.0      # Structural ceiling coupling
+    beta_a: float = 0.2         # Relaxation rate toward ceiling
+    gamma_a_max: float = 0.15   # Max relational drive strength
+    gamma_a_power: float = 2.0  # Coherence gating exponent
 
     # Coherence dynamics
     coherence_dynamic: bool = True
@@ -463,8 +466,33 @@ class DETColliderTorch:
 
         # STEP 9: Agency update
         if p.agency_dynamic:
-            a_target = 1.0 / (1.0 + p.a_coupling * self.q**2)
-            self.a = self.a + p.a_rate * (a_target - self.a)
+            # v6.4 Agency Law: Structural Ceiling + Relational Drive
+
+            # Step 1: Structural ceiling (matter law)
+            a_max = 1.0 / (1.0 + p.lambda_a * self.q**2)
+
+            # Step 2: Relational drive (life law)
+            # Compute local average presence
+            P_local = self.P.clone()
+            for d in range(dim):
+                P_local = P_local + torch.roll(self.P, 1, dims=d) + torch.roll(self.P, -1, dims=d)
+            P_local = P_local / (1 + 2 * dim)
+
+            # Average coherence at each node
+            C_sum = torch.zeros_like(self.F)
+            for d in range(dim):
+                C_sum = C_sum + self.C[d] + torch.roll(self.C[d], 1, dims=d)
+            C_avg = C_sum / (2 * dim)
+
+            # Coherence-gated drive: γ(C) = γ_max * C^n
+            gamma = p.gamma_a_max * (C_avg ** p.gamma_a_power)
+
+            # Relational drive
+            delta_a_drive = gamma * (self.P - P_local)
+
+            # Unified update
+            self.a = self.a + p.beta_a * (a_max - self.a) + delta_a_drive
+            self.a = torch.clamp(self.a, 0.0, a_max)
 
         # STEP 10: Coherence dynamics
         if p.coherence_dynamic:

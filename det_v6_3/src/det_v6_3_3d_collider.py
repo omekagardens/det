@@ -67,10 +67,12 @@ class DETParams3D:
     q_enabled: bool = True
     alpha_q: float = 0.012
 
-    # Agency dynamics (VI.2B)
+    # Agency dynamics (VI.2B) - v6.4 update
     agency_dynamic: bool = True
-    a_coupling: float = 30.0
-    a_rate: float = 0.2
+    lambda_a: float = 30.0      # Structural ceiling coupling (was a_coupling)
+    beta_a: float = 0.2         # Relaxation rate toward ceiling (was a_rate)
+    gamma_a_max: float = 0.15   # Max relational drive strength
+    gamma_a_power: float = 2.0  # Coherence gating exponent (n >= 2)
 
     # Sigma dynamics
     sigma_dynamic: bool = True
@@ -659,8 +661,38 @@ class DETCollider3D:
 
         # STEP 9: Agency update
         if p.agency_dynamic:
-            a_target = 1.0 / (1.0 + p.a_coupling * self.q**2)
-            self.a = self.a + p.a_rate * (a_target - self.a)
+            # v6.4 Agency Law: Structural Ceiling + Relational Drive
+
+            # Step 1: Structural ceiling (matter law)
+            # a_max = 1 / (1 + λ_a * q²) - what the system permits
+            a_max = 1.0 / (1.0 + p.lambda_a * self.q**2)
+
+            # Step 2: Relational drive (life law)
+            # Δa_drive = γ(C) * (P_i - P̄_neighbors)
+            # where γ(C) = γ_max * C^n (coherence-gated)
+
+            # Compute local average presence
+            P_local = self.P.copy()
+            for d in range(3):
+                P_local = P_local + np.roll(self.P, 1, axis=d) + np.roll(self.P, -1, axis=d)
+            P_local = P_local / 7.0  # Self + 6 neighbors
+
+            # Compute average coherence at each node
+            C_avg = (self.C_X + np.roll(self.C_X, 1, axis=2) +
+                     self.C_Y + np.roll(self.C_Y, 1, axis=1) +
+                     self.C_Z + np.roll(self.C_Z, 1, axis=0)) / 6.0
+
+            # Coherence-gated drive strength: γ(C) = γ_max * C^n
+            gamma = p.gamma_a_max * (C_avg ** p.gamma_a_power)
+
+            # Relational drive: seeks presence gradients
+            delta_a_drive = gamma * (self.P - P_local)
+
+            # Step 3: Unified update with ceiling relaxation + drive
+            self.a = self.a + p.beta_a * (a_max - self.a) + delta_a_drive
+
+            # Clip to [0, a_max]
+            self.a = np.clip(self.a, 0.0, a_max)
 
         # STEP 10: Coherence and sigma dynamics
         J_mag = (np.abs(J_Xp_lim) + np.abs(J_Yp_lim) + np.abs(J_Zp_lim)) / 3.0

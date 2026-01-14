@@ -58,9 +58,11 @@ class DETParams1D:
     q_enabled: bool = True
     alpha_q: float = 0.015
 
-    # Agency dynamics (VI.2B)
-    a_coupling: float = 30.0
-    a_rate: float = 0.2
+    # Agency dynamics (VI.2B) - v6.4 update
+    lambda_a: float = 30.0      # Structural ceiling coupling
+    beta_a: float = 0.2         # Relaxation rate toward ceiling
+    gamma_a_max: float = 0.15   # Max relational drive strength
+    gamma_a_power: float = 2.0  # Coherence gating exponent (n >= 2)
 
     # Floor repulsion (IV.6)
     floor_enabled: bool = True
@@ -385,9 +387,26 @@ class DETCollider1D:
         else:
             self.last_healing = np.zeros(N)
 
-        # STEP 9: Agency update
-        a_target = 1.0 / (1.0 + p.a_coupling * self.q**2)
-        self.a = self.a + p.a_rate * (a_target - self.a)
+        # STEP 9: Agency update - v6.4 Law
+        # Step 1: Structural ceiling (matter law)
+        a_max = 1.0 / (1.0 + p.lambda_a * self.q**2)
+
+        # Step 2: Relational drive (life law)
+        # Local average presence (self + 2 neighbors)
+        P_local = (self.P + R(self.P) + L(self.P)) / 3.0
+
+        # Average coherence at each node
+        C_avg = (self.C_R + L(self.C_R)) / 2.0
+
+        # Coherence-gated drive: γ(C) = γ_max * C^n
+        gamma = p.gamma_a_max * (C_avg ** p.gamma_a_power)
+
+        # Relational drive: seeks presence gradients
+        delta_a_drive = gamma * (self.P - P_local)
+
+        # Step 3: Unified update
+        self.a = self.a + p.beta_a * (a_max - self.a) + delta_a_drive
+        self.a = np.clip(self.a, 0.0, a_max)
 
         self._clip()
         self.time += dk
@@ -486,7 +505,7 @@ def test_v6_3_binding(verbose: bool = True) -> bool:
         C_init=0.5,
         momentum_enabled=True, alpha_pi=0.2, lambda_pi=0.002, mu_pi=1.0,
         q_enabled=True, alpha_q=0.02,
-        a_coupling=3.0, a_rate=0.05,
+        lambda_a=3.0, beta_a=0.05,
         floor_enabled=False,
         gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=5.0,
         beta_g=25.0,  # v6.3 gravity-momentum coupling
@@ -583,7 +602,7 @@ def test_v6_3_option_b_coherence_weighted_H(verbose: bool = True) -> bool:
         C_init=0.5,
         momentum_enabled=True, alpha_pi=0.2, lambda_pi=0.002, mu_pi=1.0,
         q_enabled=True, alpha_q=0.02,
-        a_coupling=3.0, a_rate=0.05,
+        lambda_a=3.0, beta_a=0.05,
         floor_enabled=False,
         gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=5.0,
         beta_g=25.0,
