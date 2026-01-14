@@ -20,7 +20,16 @@
 6. **Gravitational Coherence:** F-redistribution mechanism for time dilation
 7. **Particle Simulation:** Complete 3D particle dynamics demonstration
 
-### All v6.2 Falsifiers Verified: 15/15 PASS
+### v6.4 Agency Law (In-Place Update):
+8. **Two-Component Agency Model:** Separated structural ceiling (matter law) from relational drive (life law)
+   - Structural ceiling: a_max = 1/(1 + λ_a·q²) — what matter permits
+   - Relational drive: Δa_drive = γ(C)·(P - P̄) — where life chooses
+   - Coherence gating: γ(C) = γ_max·C^n (n ≥ 2)
+9. **New Parameters:** γ_a_max (drive strength), γ_a_power (coherence exponent)
+10. **Agency Falsifiers:** F_A1 (Zombie Test), F_A2 (Ceiling Violation), F_A3 (Drive Without Coherence)
+11. **Option B Coherence-Weighted Load:** H_i = Σ√C_ij·σ_ij now available as optional mode
+
+### All v6.2 Falsifiers Verified: 15/15 PASS (+ 3 Agency Tests)
 
 ---
 
@@ -107,7 +116,7 @@ $$\boxed{H_i \equiv \sum_{j \in \mathcal{N}_R(i)} \sigma_{ij}} \qquad \Rightarro
 **Option B — Recommended (Coherence-Weighted Load):**
 $$\boxed{H_i \equiv \sum_{j \in \mathcal{N}_R(i)} \sqrt{C_{ij}} \sigma_{ij}}$$
 
-*Note: Current collider implementations use Option A for simplicity. Option B is recommended for future work.*
+*Note: Option A is the default. Option B is available via `coherence_weighted_H=True` parameter in all colliders.*
 
 ### III.1 Presence (Local Clock Rate)
 
@@ -251,13 +260,32 @@ $$G_{\text{physical}} = \frac{1}{\eta} \times \frac{\kappa}{4\pi}$$
 
 $$\boxed{\text{Boundary operators cannot directly modify } a_i}$$
 
-### VI.2 Agency Update Rule
+### VI.2 Agency Update Rule (v6.4)
 
-**A. Canonical Rule (Theory Card):**
-$$a_i^{+} = \text{clip}(a_i + (P_i - \bar{P}_{\mathcal{N}(i)}) - q_i, 0, 1)$$
+Agency dynamics are governed by two distinct components reflecting the matter/life duality:
 
-**B. Target-Tracking Rule (Collider Implementation):**
-$$\boxed{a_{\text{target}} = \frac{1}{1 + \lambda_a q_i^2} \qquad \Rightarrow \qquad a_i^{+} = a_i + \beta (a_{\text{target}} - a_i)}$$
+**A. Structural Ceiling (Matter Law):**
+$$\boxed{a_{\max,i} = \frac{1}{1 + \lambda_a q_i^2}}$$
+
+This is the **ceiling** that structure permits—what matter allows. High structural debt (q→1) forces a_max→0 regardless of other factors. This is not a target but an upper bound.
+
+**B. Relational Drive (Life Law):**
+$$\boxed{\Delta a_{\text{drive},i} = \gamma(C_i) \cdot (P_i - \bar{P}_{\mathcal{N}(i)})}$$
+
+where the coherence-gated drive coefficient is:
+$$\boxed{\gamma(C) = \gamma_{\max} \cdot C^n \qquad (n \geq 2)}$$
+
+This is the **will** of the creature—where life chooses to go within the structural constraint. The drive is coherence-gated: only high-C entities can actively steer their agency.
+
+**C. Unified Update (Canonical v6.4):**
+$$\boxed{a_i^{+} = \text{clip}\left(a_i + \beta_a (a_{\max,i} - a_i) + \Delta a_{\text{drive},i}, \; 0, \; a_{\max,i}\right)}$$
+
+**Properties:**
+- Structural ceiling is inviolable: a ≤ a_max always holds
+- High-q entities are constrained regardless of coherence (Zombie Test)
+- Only high-C entities can exercise relational drive
+- Low-C entities passively relax toward a_max
+- With C=0, reduces to pure target-tracking: a → a_max
 
 ### VI.3 Coherence Dynamics (Agency-Based Collapse)
 
@@ -316,7 +344,7 @@ where n_i = max(0, F_min - F_i) and w_i = a_i · n_i.
 | Bucket | Definition | Examples |
 |--------|------------|----------|
 | **A (Unit/Scale)** | Define units or baseline scale | DT, N, R, F_VAC, F_MIN, π_max, L_max |
-| **B (Physical Law)** | Control physical couplings, must be measured | α_π, λ_π, μ_π, α_L, λ_L, μ_L, η_f, F_core, κ, μ_g, α_C, λ_C, α_q, λ_a, β |
+| **B (Physical Law)** | Control physical couplings, must be measured | α_π, λ_π, μ_π, α_L, λ_L, μ_L, η_f, F_core, κ, μ_g, α_C, λ_C, α_q, λ_a, β_a, γ_a_max, γ_a_power |
 | **C (Numerical)** | Control stability, should not affect physics | outflow_limit, R_boundary, toggles |
 
 ### VII.2 Default Parameter Values
@@ -354,8 +382,10 @@ where n_i = max(0, F_min - F_i) and w_i = a_i · n_i.
 | λ_C | 0.002 | Coherence decay rate |
 | **Structure/Agency** | | |
 | α_q | 0.012 | Q-locking rate |
-| λ_a | 30.0 | Agency coupling |
-| β | 0.2 | Agency rate |
+| λ_a | 30.0 | Structural ceiling coupling |
+| β_a | 0.2 | Agency relaxation rate |
+| γ_a_max | 0.15 | Max relational drive strength |
+| γ_a_power | 2.0 | Coherence gating exponent (n ≥ 2) |
 | **Boundary** | | |
 | F_MIN_grace | 0.05 | Grace threshold |
 | R_boundary | 2 | Boundary radius |
@@ -412,6 +442,17 @@ The theory is false if any condition below holds under the canonical rules.
 | F_G6 | Double Counting | Donor taxed more than d_i in one step |
 | F_G7 | High-C Leakage | Grace flows across high-C boundary |
 
+### VIII.5 Agency Falsifiers (v6.4)
+
+| ID | Name | Description |
+|:---|:-----|:------------|
+| F_A1 | Zombie Test | High-debt node (q≈1) with forced high-C (C=1) exceeds structural ceiling a_max |
+| F_A2 | Ceiling Violation | Agency ever exceeds a_max = 1/(1+λ_a*q²) |
+| F_A3 | Drive Without Coherence | Relational drive Δa_drive > ε when C ≈ 0 |
+
+**Zombie Test Interpretation:**
+The Zombie Test verifies that "gravity trumps will"—structural debt imposes an inviolable ceiling on agency regardless of coherence. A high-debt entity (q=0.8) forced to maximum coherence (C=1.0) cannot exceed a_max ≈ 0.05. This ensures the matter/life duality: structure constrains, coherence enables choice within constraints.
+
 ---
 
 ## IX. Canonical Update Order
@@ -453,9 +494,11 @@ STEP 7: Update angular momentum L (if enabled)
 STEP 8: Update structure q (q-locking)
         q^+ = clip(q + α_q max(0, -ΔF), 0, 1)
 
-STEP 9: Update agency a
-        a_target = 1 / (1 + λ_a q²)
-        a^+ = a + β(a_target - a)
+STEP 9: Update agency a (v6.4 two-component)
+        a_max = 1 / (1 + λ_a q²)           # Structural ceiling
+        γ = γ_a_max * C^γ_a_power          # Coherence-gated drive
+        Δa_drive = γ * (P - P̄_neighbors)   # Relational drive
+        a^+ = clip(a + β_a*(a_max - a) + Δa_drive, 0, a_max)
 
 STEP 10: Update coherence C (if enabled)
         C^+ = C + α_C |J| Δτ - λ_C C Δτ - λ_M m g^{(a)} √C Δτ
@@ -487,6 +530,7 @@ STEP 11: Update pointer records r (if detectors present)
 | F_L3 | ✅ PASS | 15.16 revolutions achieved |
 | F_GTD1 | ✅ PASS | Formula correctly implemented |
 | F_GTD2 | ✅ PASS | Dilation factor: 205.7 |
+| F_A1 | ✅ PASS | Zombie Test: a < a_max with forced C=1.0, q=0.8 |
 
 ---
 
@@ -567,8 +611,9 @@ DET permits any q-locking law satisfying:
 - `det_v6_3_3d_collider.py` - 3D unified collider
 
 ### Tests (/tests)
-- `det_comprehensive_falsifiers.py` - Full falsifier suite
+- `det_comprehensive_falsifiers.py` - Full falsifier suite (includes v6.4 agency tests)
 - `det_3d_particle_simulation.py` - Particle dynamics demo
+- `test_kepler_standard_candle.py` - Kepler's Third Law emergence test
 
 ### Documentation (/docs)
 - `det_theory_card_6_3.md` - This document
