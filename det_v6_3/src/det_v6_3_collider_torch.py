@@ -95,6 +95,10 @@ class DETParamsTorch:
     # Numerical
     outflow_limit: float = 0.2
 
+    # v6.3: Option B - Coherence-weighted load
+    # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+    coherence_weighted_H: bool = False
+
 
 def compute_lattice_correction(N: int, dim: int) -> float:
     """
@@ -310,6 +314,29 @@ class DETColliderTorch:
         if self.L is not None:
             self.L = torch.clamp(self.L, -p.L_max, p.L_max)
 
+    def _compute_coherence_weighted_H(self) -> torch.Tensor:
+        """Compute Option B coherence-weighted load.
+
+        H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+
+        Sum over 2*dim neighbors.
+        """
+        dim = self.p.dim
+        H = torch.zeros_like(self.F)
+
+        for d in range(dim):
+            # Positive direction: C[d] is coherence on bond (i, i+d)
+            sqrt_C_p = torch.sqrt(self.C[d])
+            sigma_p = 0.5 * (self.sigma + torch.roll(self.sigma, shifts=-1, dims=d))
+            H = H + sqrt_C_p * sigma_p
+
+            # Negative direction: C[d] at (i-1) is coherence on bond (i-1, i)
+            sqrt_C_m = torch.sqrt(torch.roll(self.C[d], shifts=1, dims=d))
+            sigma_m = 0.5 * (self.sigma + torch.roll(self.sigma, shifts=1, dims=d))
+            H = H + sqrt_C_m * sigma_m
+
+        return H
+
     def step(self):
         """Execute one canonical DET update step."""
         p = self.p
@@ -320,7 +347,11 @@ class DETColliderTorch:
         self._solve_gravity()
 
         # STEP 1: Presence
-        H = self.sigma
+        # Option B: Coherence-weighted load H_i = Σ_{j} √C_ij * σ_ij
+        if p.coherence_weighted_H:
+            H = self._compute_coherence_weighted_H()
+        else:
+            H = self.sigma
         self.P = self.a * self.sigma / (1.0 + self.F) / (1.0 + H)
         self.Delta_tau = self.P * dk
         self.accumulated_proper_time = self.accumulated_proper_time + self.Delta_tau
@@ -717,7 +748,40 @@ def test_pytorch_raytracer(verbose: bool = True) -> bool:
     return passed
 
 
-def run_pytorch_test_suite():
+def test_pytorch_option_b_coherence_weighted_H(verbose: bool = True) -> bool:
+    """Test Option B: Coherence-weighted load H_i = Σ √C_ij σ_ij."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: PyTorch Option B - Coherence-Weighted Load")
+        print("="*60)
+
+    params = DETParamsTorch(
+        N=32, dim=3,
+        gravity_enabled=True, q_enabled=True, boundary_enabled=True,
+        coherence_weighted_H=True  # Enable Option B
+    )
+    sim = DETColliderTorch(params)
+
+    sim.add_packet((16, 16, 10), mass=8.0, width=2.5, momentum=(0, 0, 0.1), initial_q=0.3)
+    sim.add_packet((16, 16, 22), mass=8.0, width=2.5, momentum=(0, 0, -0.1), initial_q=0.3)
+
+    for t in range(100):
+        sim.step()
+        if verbose and t % 20 == 0:
+            H_mean = sim._compute_coherence_weighted_H().mean().item()
+            print(f"  t={t}: H_mean={H_mean:.4f}, PE={sim.potential_energy():.3f}")
+
+    max_g = torch.max(torch.abs(sim.g)).item()
+    passed = max_g > 0.01
+
+    if verbose:
+        print(f"  Final max|g|: {max_g:.4f}")
+        print(f"  Option B {'PASSED' if passed else 'FAILED'}")
+
+    return passed
+
+
+def run_pytorch_test_suite(include_option_b: bool = False):
     """Run PyTorch test suite."""
     print("="*70)
     print("DET v6.3 PYTORCH COLLIDER - TEST SUITE")
@@ -729,6 +793,9 @@ def run_pytorch_test_suite():
     results['mass_conservation'] = test_pytorch_mass_conservation(verbose=True)
     results['binding'] = test_pytorch_binding(verbose=True)
     results['raytracer'] = test_pytorch_raytracer(verbose=True)
+
+    if include_option_b:
+        results['option_b_coherence_weighted_H'] = test_pytorch_option_b_coherence_weighted_H(verbose=True)
 
     print("\n" + "="*70)
     print("PYTORCH TEST SUMMARY")

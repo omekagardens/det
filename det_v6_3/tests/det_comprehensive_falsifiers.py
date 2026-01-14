@@ -906,13 +906,181 @@ def test_F_GTD2_accumulated_proper_time(verbose: bool = True) -> Dict:
 
 
 # ============================================================
+# OPTION B SPECIFIC TESTS
+# ============================================================
+
+def test_option_b_binding(verbose: bool = True) -> Dict:
+    """Test gravitational binding with Option B coherence-weighted H."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: Option B Gravitational Binding")
+        print("="*60)
+
+    params = DETParams3D(
+        N=32, DT=0.02, F_VAC=0.001, F_MIN=0.0,
+        gravity_enabled=True, q_enabled=True,
+        momentum_enabled=True, angular_momentum_enabled=False,
+        boundary_enabled=True, grace_enabled=True,
+        coherence_weighted_H=True  # Enable Option B
+    )
+
+    sim = DETCollider3D(params)
+
+    initial_sep = 12
+    center = params.N // 2
+    sim.add_packet((center, center, center - initial_sep//2), mass=8.0, width=2.5,
+                   momentum=(0, 0, 0.1), initial_q=0.3)
+    sim.add_packet((center, center, center + initial_sep//2), mass=8.0, width=2.5,
+                   momentum=(0, 0, -0.1), initial_q=0.3)
+
+    min_sep = initial_sep
+
+    for t in range(1000):
+        sep, _ = sim.separation()
+        min_sep = min(min_sep, sep)
+
+        if verbose and t % 200 == 0:
+            H_mean = np.mean(sim._compute_coherence_weighted_H())
+            print(f"  t={t}: sep={sep:.1f}, H_mean={H_mean:.4f}, PE={sim.potential_energy():.3f}")
+
+        sim.step()
+
+    passed = min_sep < initial_sep * 0.6
+
+    result = {
+        'passed': passed,
+        'initial_sep': initial_sep,
+        'min_sep': min_sep
+    }
+
+    if verbose:
+        print(f"\n  Initial sep: {initial_sep:.1f}")
+        print(f"  Min sep: {min_sep:.1f}")
+        print(f"  Option B Binding {'PASSED' if passed else 'FAILED'}")
+
+    return result
+
+
+def test_option_b_time_dilation(verbose: bool = True) -> Dict:
+    """Test time dilation with Option B coherence-weighted H."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: Option B Time Dilation")
+        print("="*60)
+
+    params = DETParams3D(
+        N=32, DT=0.02,
+        gravity_enabled=True, q_enabled=True,
+        boundary_enabled=False,
+        agency_dynamic=False,
+        sigma_dynamic=False,
+        coherence_weighted_H=True  # Enable Option B
+    )
+    sim = DETCollider3D(params)
+
+    center = params.N // 2
+    sim.add_packet((center, center, center), mass=20.0, width=3.0, initial_q=0.5)
+
+    for _ in range(100):
+        sim.step()
+
+    F_center = sim.F[center, center, center]
+    F_edge = sim.F[center, center, center + 10]
+    P_center = sim.P[center, center, center]
+    P_edge = sim.P[center, center, center + 10]
+
+    time_dilated = P_center < P_edge
+
+    # With Option B, H uses coherence-weighted load
+    H_center = sim._compute_coherence_weighted_H()[center, center, center]
+    H_edge = sim._compute_coherence_weighted_H()[center, center, center + 10]
+
+    a_center = sim.a[center, center, center]
+    sigma_center = sim.sigma[center, center, center]
+    predicted_P = a_center * sigma_center / (1 + F_center) / (1 + H_center)
+    formula_error = abs(P_center - predicted_P) / (predicted_P + 1e-10)
+
+    passed = time_dilated and formula_error < 0.01
+
+    result = {
+        'passed': passed,
+        'F_center': F_center,
+        'F_edge': F_edge,
+        'P_center': P_center,
+        'P_edge': P_edge,
+        'H_center': H_center,
+        'H_edge': H_edge,
+        'time_dilated': time_dilated,
+        'formula_error': formula_error
+    }
+
+    if verbose:
+        print(f"  F at center: {F_center:.4f}, H: {H_center:.4f}")
+        print(f"  F at edge: {F_edge:.4f}, H: {H_edge:.4f}")
+        print(f"  P at center: {P_center:.6f}")
+        print(f"  P at edge: {P_edge:.6f}")
+        print(f"  Time dilation: {time_dilated}")
+        print(f"  Formula error: {formula_error*100:.4f}%")
+        print(f"  Option B Time Dilation {'PASSED' if passed else 'FAILED'}")
+
+    return result
+
+
+def test_option_b_mass_conservation(verbose: bool = True) -> Dict:
+    """Test mass conservation with Option B."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: Option B Mass Conservation")
+        print("="*60)
+
+    params = DETParams3D(
+        N=24, F_MIN=0.0,
+        gravity_enabled=True, boundary_enabled=True,
+        coherence_weighted_H=True
+    )
+    sim = DETCollider3D(params)
+    sim.add_packet((8, 8, 8), mass=10.0, width=3.0, momentum=(0.2, 0.2, 0.2))
+    sim.add_packet((16, 16, 16), mass=10.0, width=3.0, momentum=(-0.2, -0.2, -0.2))
+
+    initial_mass = sim.total_mass()
+
+    for t in range(500):
+        sim.step()
+
+    final_mass = sim.total_mass()
+    grace_added = sim.total_grace_injected
+    effective_drift = abs(final_mass - initial_mass - grace_added) / initial_mass
+
+    passed = effective_drift < 0.10
+
+    result = {
+        'passed': passed,
+        'initial_mass': initial_mass,
+        'final_mass': final_mass,
+        'grace_added': grace_added,
+        'effective_drift': effective_drift
+    }
+
+    if verbose:
+        print(f"  Initial mass: {initial_mass:.4f}")
+        print(f"  Final mass: {final_mass:.4f}")
+        print(f"  Grace added: {grace_added:.4f}")
+        print(f"  Effective drift: {effective_drift*100:.4f}%")
+        print(f"  Option B Mass Conservation {'PASSED' if passed else 'FAILED'}")
+
+    return result
+
+
+# ============================================================
 # MAIN TEST SUITE
 # ============================================================
 
-def run_comprehensive_test_suite():
+def run_comprehensive_test_suite(include_option_b: bool = False):
     """Run the complete falsifier test suite for DET v6.3."""
     print("="*70)
     print("DET v6.3 COMPREHENSIVE FALSIFIER SUITE")
+    if include_option_b:
+        print("(Including Option B: Coherence-Weighted Load Tests)")
     print("="*70)
 
     start_time = time.time()
@@ -938,6 +1106,15 @@ def run_comprehensive_test_suite():
     # Gravitational time dilation falsifiers
     results['F_GTD1'] = test_F_GTD1_time_dilation(verbose=True)
     results['F_GTD2'] = test_F_GTD2_accumulated_proper_time(verbose=True)
+
+    # Option B tests
+    if include_option_b:
+        print("\n" + "="*70)
+        print("OPTION B: COHERENCE-WEIGHTED LOAD TESTS")
+        print("="*70)
+        results['OptionB_Binding'] = test_option_b_binding(verbose=True)
+        results['OptionB_TimeDilation'] = test_option_b_time_dilation(verbose=True)
+        results['OptionB_MassConservation'] = test_option_b_mass_conservation(verbose=True)
 
     elapsed = time.time() - start_time
 
@@ -965,4 +1142,9 @@ def run_comprehensive_test_suite():
 
 
 if __name__ == "__main__":
-    results = run_comprehensive_test_suite()
+    import argparse
+    parser = argparse.ArgumentParser(description='DET v6.3 Comprehensive Falsifier Suite')
+    parser.add_argument('--option-b', action='store_true', help='Include Option B tests')
+    args = parser.parse_args()
+
+    results = run_comprehensive_test_suite(include_option_b=args.option_b)

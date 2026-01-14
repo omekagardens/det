@@ -109,6 +109,10 @@ class DETParams2D:
     # v6.3: Lattice correction factor
     eta_lattice: float = 0.94
 
+    # v6.3: Option B - Coherence-weighted load
+    # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+    coherence_weighted_H: bool = False
+
     # Numerical stability
     outflow_limit: float = 0.20
 
@@ -207,6 +211,36 @@ class DETCollider2D:
         Phi_k = -self.p.kappa_grav * self.p.eta_lattice * source_k / self.L_k_poisson
         Phi_k[0, 0] = 0
         return np.real(ifft2(Phi_k))
+
+    def _compute_coherence_weighted_H(self) -> np.ndarray:
+        """Compute Option B coherence-weighted load.
+
+        H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+
+        In 2D, sum over 4 neighbors (E, W, S, N).
+        """
+        E = lambda x: np.roll(x, -1, axis=1)
+        W = lambda x: np.roll(x, 1, axis=1)
+        S = lambda x: np.roll(x, -1, axis=0)
+        Nb = lambda x: np.roll(x, 1, axis=0)
+
+        # Bond coherences
+        sqrt_C_E = np.sqrt(self.C_E)
+        sqrt_C_W = np.sqrt(W(self.C_E))  # C_W[i] = C_E[i-1] in x
+        sqrt_C_S = np.sqrt(self.C_S)
+        sqrt_C_N = np.sqrt(Nb(self.C_S))  # C_N[i] = C_S[i-1] in y
+
+        # Bond-averaged sigma
+        sigma_E = 0.5 * (self.sigma + E(self.sigma))
+        sigma_W = 0.5 * (self.sigma + W(self.sigma))
+        sigma_S = 0.5 * (self.sigma + S(self.sigma))
+        sigma_N = 0.5 * (self.sigma + Nb(self.sigma))
+
+        # Coherence-weighted load: sum over 4 neighbors
+        H = (sqrt_C_E * sigma_E + sqrt_C_W * sigma_W +
+             sqrt_C_S * sigma_S + sqrt_C_N * sigma_N)
+
+        return H
 
     def _compute_gravity(self):
         """Compute gravitational fields from q."""
@@ -327,7 +361,11 @@ class DETCollider2D:
         self._compute_gravity()
 
         # STEP 1: Presence (III.1)
-        H = self.sigma
+        # Option B: Coherence-weighted load H_i = Σ_{j} √C_ij * σ_ij
+        if p.coherence_weighted_H:
+            H = self._compute_coherence_weighted_H()
+        else:
+            H = self.sigma
         self.P = self.a * self.sigma / (1.0 + self.F) / (1.0 + H)
         self.Delta_tau = self.P * dk
 
@@ -736,7 +774,55 @@ def test_v6_3_angular_momentum(verbose: bool = True) -> bool:
     return passed
 
 
-def run_v6_3_test_suite():
+def test_v6_3_option_b_coherence_weighted_H(verbose: bool = True) -> bool:
+    """Test Option B: Coherence-weighted load H_i = Σ √C_ij σ_ij."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: Option B - Coherence-Weighted Load")
+        print("="*60)
+
+    # Test with Option B enabled
+    params_b = DETParams2D(
+        N=64, DT=0.02, F_VAC=0.001, F_MIN=0.0,
+        gravity_enabled=True, q_enabled=True,
+        momentum_enabled=True, angular_momentum_enabled=False,
+        boundary_enabled=True, grace_enabled=True,
+        coherence_weighted_H=True  # Enable Option B
+    )
+
+    sim_b = DETCollider2D(params_b)
+
+    initial_sep = 24
+    center = params_b.N // 2
+    sim_b.add_packet((center, center - initial_sep//2), mass=8.0, width=3.0,
+                     momentum=(0, 0.1), initial_q=0.3)
+    sim_b.add_packet((center, center + initial_sep//2), mass=8.0, width=3.0,
+                     momentum=(0, -0.1), initial_q=0.3)
+
+    min_sep_b = initial_sep
+
+    for t in range(1000):
+        sep = sim_b.separation()
+        min_sep_b = min(min_sep_b, sep)
+
+        if verbose and t % 200 == 0:
+            H_mean = np.mean(sim_b._compute_coherence_weighted_H())
+            print(f"  t={t}: sep={sep:.1f}, H_mean={H_mean:.4f}, PE={sim_b.potential_energy():.3f}")
+
+        sim_b.step()
+
+    # Option B should still show binding behavior
+    passed = min_sep_b < initial_sep * 0.6
+
+    if verbose:
+        print(f"\n  Initial sep: {initial_sep:.1f}")
+        print(f"  Min sep (Option B): {min_sep_b:.1f}")
+        print(f"  Option B {'PASSED' if passed else 'FAILED'}")
+
+    return passed
+
+
+def run_v6_3_test_suite(include_option_b: bool = False):
     """Run v6.3 2D test suite."""
     print("="*70)
     print("DET v6.3 2D COLLIDER - TEST SUITE")
@@ -747,6 +833,9 @@ def run_v6_3_test_suite():
     results['vacuum_gravity'] = test_v6_3_gravity_vacuum(verbose=True)
     results['binding'] = test_v6_3_binding(verbose=True)
     results['angular_momentum'] = test_v6_3_angular_momentum(verbose=True)
+
+    if include_option_b:
+        results['option_b_coherence_weighted_H'] = test_v6_3_option_b_coherence_weighted_H(verbose=True)
 
     print("\n" + "="*70)
     print("v6.3 2D TEST SUMMARY")

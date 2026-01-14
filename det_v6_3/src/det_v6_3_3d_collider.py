@@ -98,6 +98,10 @@ class DETParams3D:
     # v6.3: Lattice correction factor
     eta_lattice: float = 0.965  # for N=64, scales with grid size
 
+    # v6.3: Option B - Coherence-weighted load
+    # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+    coherence_weighted_H: bool = False
+
     # Numerical stability
     outflow_limit: float = 0.2
 
@@ -228,6 +232,43 @@ class DETCollider3D:
         Phi_k = -self.p.kappa_grav * self.p.eta_lattice * source_k / self.L_k_poisson
         Phi_k[0, 0, 0] = 0
         return np.real(ifftn(Phi_k))
+
+    def _compute_coherence_weighted_H(self) -> np.ndarray:
+        """Compute Option B coherence-weighted load.
+
+        H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+
+        In 3D, sum over 6 neighbors (±X, ±Y, ±Z).
+        """
+        Xp = lambda arr: np.roll(arr, -1, axis=2)
+        Xm = lambda arr: np.roll(arr, 1, axis=2)
+        Yp = lambda arr: np.roll(arr, -1, axis=1)
+        Ym = lambda arr: np.roll(arr, 1, axis=1)
+        Zp = lambda arr: np.roll(arr, -1, axis=0)
+        Zm = lambda arr: np.roll(arr, 1, axis=0)
+
+        # Bond coherences
+        sqrt_C_Xp = np.sqrt(self.C_X)           # C(i, i+X)
+        sqrt_C_Xm = np.sqrt(Xm(self.C_X))       # C(i-X, i)
+        sqrt_C_Yp = np.sqrt(self.C_Y)           # C(i, i+Y)
+        sqrt_C_Ym = np.sqrt(Ym(self.C_Y))       # C(i-Y, i)
+        sqrt_C_Zp = np.sqrt(self.C_Z)           # C(i, i+Z)
+        sqrt_C_Zm = np.sqrt(Zm(self.C_Z))       # C(i-Z, i)
+
+        # Bond-averaged sigma
+        sigma_Xp = 0.5 * (self.sigma + Xp(self.sigma))
+        sigma_Xm = 0.5 * (self.sigma + Xm(self.sigma))
+        sigma_Yp = 0.5 * (self.sigma + Yp(self.sigma))
+        sigma_Ym = 0.5 * (self.sigma + Ym(self.sigma))
+        sigma_Zp = 0.5 * (self.sigma + Zp(self.sigma))
+        sigma_Zm = 0.5 * (self.sigma + Zm(self.sigma))
+
+        # Coherence-weighted load: sum over 6 neighbors
+        H = (sqrt_C_Xp * sigma_Xp + sqrt_C_Xm * sigma_Xm +
+             sqrt_C_Yp * sigma_Yp + sqrt_C_Ym * sigma_Ym +
+             sqrt_C_Zp * sigma_Zp + sqrt_C_Zm * sigma_Zm)
+
+        return H
 
     def _compute_gravity(self):
         """Compute gravitational fields from structure q.
@@ -363,8 +404,11 @@ class DETCollider3D:
         self._compute_gravity()
 
         # STEP 1: Presence and proper time (III.1)
-        # P = a*sigma / (1+F) / (1+H), where H = sigma (coordination load)
-        H = self.sigma
+        # Option B: Coherence-weighted load H_i = Σ_{j} √C_ij * σ_ij
+        if p.coherence_weighted_H:
+            H = self._compute_coherence_weighted_H()
+        else:
+            H = self.sigma
         self.P = self.a * self.sigma / (1.0 + self.F) / (1.0 + H)
         self.Delta_tau = self.P * dk
 
@@ -848,7 +892,55 @@ def test_v6_3_time_dilation(verbose: bool = True) -> bool:
     return passed
 
 
-def run_v6_3_test_suite():
+def test_v6_3_option_b_coherence_weighted_H(verbose: bool = True) -> bool:
+    """Test Option B: Coherence-weighted load H_i = Σ √C_ij σ_ij."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: Option B - Coherence-Weighted Load")
+        print("="*60)
+
+    # Test with Option B enabled
+    params_b = DETParams3D(
+        N=32, DT=0.02, F_VAC=0.001, F_MIN=0.0,
+        gravity_enabled=True, q_enabled=True,
+        momentum_enabled=True, angular_momentum_enabled=False,
+        boundary_enabled=True, grace_enabled=True,
+        coherence_weighted_H=True  # Enable Option B
+    )
+
+    sim_b = DETCollider3D(params_b)
+
+    initial_sep = 12
+    center = params_b.N // 2
+    sim_b.add_packet((center, center, center - initial_sep//2), mass=8.0, width=2.5,
+                     momentum=(0, 0, 0.1), initial_q=0.3)
+    sim_b.add_packet((center, center, center + initial_sep//2), mass=8.0, width=2.5,
+                     momentum=(0, 0, -0.1), initial_q=0.3)
+
+    min_sep_b = initial_sep
+
+    for t in range(1000):
+        sep, _ = sim_b.separation()
+        min_sep_b = min(min_sep_b, sep)
+
+        if verbose and t % 200 == 0:
+            H_mean = np.mean(sim_b._compute_coherence_weighted_H())
+            print(f"  t={t}: sep={sep:.1f}, H_mean={H_mean:.4f}, PE={sim_b.potential_energy():.3f}")
+
+        sim_b.step()
+
+    # Option B should still show binding behavior
+    passed = min_sep_b < initial_sep * 0.6
+
+    if verbose:
+        print(f"\n  Initial sep: {initial_sep:.1f}")
+        print(f"  Min sep (Option B): {min_sep_b:.1f}")
+        print(f"  Option B {'PASSED' if passed else 'FAILED'}")
+
+    return passed
+
+
+def run_v6_3_test_suite(include_option_b: bool = False):
     """Run v6.3 test suite."""
     print("="*70)
     print("DET v6.3 3D COLLIDER - TEST SUITE")
@@ -859,6 +951,9 @@ def run_v6_3_test_suite():
     results['vacuum_gravity'] = test_v6_3_gravity_vacuum(verbose=True)
     results['binding'] = test_v6_3_gravitational_binding(verbose=True)
     results['time_dilation'] = test_v6_3_time_dilation(verbose=True)
+
+    if include_option_b:
+        results['option_b_coherence_weighted_H'] = test_v6_3_option_b_coherence_weighted_H(verbose=True)
 
     print("\n" + "="*70)
     print("v6.3 TEST SUMMARY")

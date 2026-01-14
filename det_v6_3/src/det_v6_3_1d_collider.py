@@ -86,6 +86,10 @@ class DETParams1D:
     # v6.3: Lattice correction factor
     eta_lattice: float = 0.92
 
+    # v6.3: Option B - Coherence-weighted load
+    # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+    coherence_weighted_H: bool = False
+
     # Numerical stability
     outflow_limit: float = 0.25
 
@@ -169,6 +173,29 @@ class DETCollider1D:
         Phi_k[0] = 0
         return np.real(ifft(Phi_k))
 
+    def _compute_coherence_weighted_H(self) -> np.ndarray:
+        """Compute Option B coherence-weighted load.
+
+        H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
+
+        where C_ij is coherence on bond (i,j) and σ_ij is bond-averaged sigma.
+        """
+        R = lambda x: np.roll(x, -1)
+        L = lambda x: np.roll(x, 1)
+
+        # Bond coherences: C_R[i] = C(i, i+1), L(C_R)[i] = C(i-1, i)
+        sqrt_C_R = np.sqrt(self.C_R)
+        sqrt_C_L = np.sqrt(L(self.C_R))
+
+        # Bond-averaged sigma
+        sigma_R = 0.5 * (self.sigma + R(self.sigma))
+        sigma_L = 0.5 * (self.sigma + L(self.sigma))
+
+        # Coherence-weighted load: sum over neighbors
+        H = sqrt_C_R * sigma_R + sqrt_C_L * sigma_L
+
+        return H
+
     def _compute_gravity(self):
         """Compute gravitational fields from q."""
         if not self.p.gravity_enabled:
@@ -242,7 +269,11 @@ class DETCollider1D:
         self._compute_gravity()
 
         # STEP 1: Presence (III.1)
-        H = self.sigma
+        # Option B: Coherence-weighted load H_i = Σ_{j} √C_ij * σ_ij
+        if p.coherence_weighted_H:
+            H = self._compute_coherence_weighted_H()
+        else:
+            H = self.sigma
         self.P = self.a * self.sigma / (1.0 + self.F) / (1.0 + H)
         self.Delta_tau = self.P * dk
 
@@ -539,7 +570,58 @@ def test_v6_3_time_dilation(verbose: bool = True) -> bool:
     return passed
 
 
-def run_v6_3_test_suite():
+def test_v6_3_option_b_coherence_weighted_H(verbose: bool = True) -> bool:
+    """Test Option B: Coherence-weighted load H_i = Σ √C_ij σ_ij."""
+    if verbose:
+        print("\n" + "="*60)
+        print("TEST: Option B - Coherence-Weighted Load")
+        print("="*60)
+
+    # Test with Option B enabled
+    params_b = DETParams1D(
+        N=200, DT=0.02, F_VAC=0.001, F_MIN=0.0,
+        C_init=0.5,
+        momentum_enabled=True, alpha_pi=0.2, lambda_pi=0.002, mu_pi=1.0,
+        q_enabled=True, alpha_q=0.02,
+        a_coupling=3.0, a_rate=0.05,
+        floor_enabled=False,
+        gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=5.0,
+        beta_g=25.0,
+        boundary_enabled=True, grace_enabled=True,
+        coherence_weighted_H=True  # Enable Option B
+    )
+
+    sim_b = DETCollider1D(params_b)
+
+    initial_sep = 60
+    center = params_b.N // 2
+    sim_b.add_packet(center - initial_sep//2, mass=8.0, width=5.0, momentum=0.1, initial_q=0.3)
+    sim_b.add_packet(center + initial_sep//2, mass=8.0, width=5.0, momentum=-0.1, initial_q=0.3)
+
+    min_sep_b = initial_sep
+
+    for t in range(2000):
+        sep = sim_b.separation()
+        min_sep_b = min(min_sep_b, sep)
+
+        if verbose and t % 400 == 0:
+            H_mean = np.mean(sim_b._compute_coherence_weighted_H())
+            print(f"  t={t}: sep={sep:.1f}, H_mean={H_mean:.4f}, PE={sim_b.potential_energy():.3f}")
+
+        sim_b.step()
+
+    # Option B should still show binding behavior
+    passed = min_sep_b < initial_sep * 0.6
+
+    if verbose:
+        print(f"\n  Initial sep: {initial_sep:.1f}")
+        print(f"  Min sep (Option B): {min_sep_b:.1f}")
+        print(f"  Option B {'PASSED' if passed else 'FAILED'}")
+
+    return passed
+
+
+def run_v6_3_test_suite(include_option_b: bool = False):
     """Run v6.3 1D test suite."""
     print("="*70)
     print("DET v6.3 1D COLLIDER - TEST SUITE")
@@ -550,6 +632,9 @@ def run_v6_3_test_suite():
     results['vacuum_gravity'] = test_v6_3_gravity_vacuum(verbose=True)
     results['binding'] = test_v6_3_binding(verbose=True)
     results['time_dilation'] = test_v6_3_time_dilation(verbose=True)
+
+    if include_option_b:
+        results['option_b_coherence_weighted_H'] = test_v6_3_option_b_coherence_weighted_H(verbose=True)
 
     print("\n" + "="*70)
     print("v6.3 1D TEST SUMMARY")
