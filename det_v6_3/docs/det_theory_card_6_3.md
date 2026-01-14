@@ -44,6 +44,13 @@
 16. **DETUnifiedParams Class:** New dataclass with automatic derivation and legacy conversion
 17. **Verified Compatibility:** All 15/15 falsifiers pass with unified parameter derivation
 
+### SI Unit Conversion Layer:
+18. **DETUnitSystem Class:** Complete bidirectional conversion between DET lattice units and SI
+    - Key insight: choosing ONE scale (length a) determines all conversions via c and G constraints
+    - Pre-defined systems: Planck, Laboratory, Solar System, Galactic
+19. **Verified Against:** Solar system planetary orbits, Kepler's Third Law
+20. **Quantum-Scale Property:** ℏ_lattice ≈ 2.6 at Planck scale (order unity as expected)
+
 ### All v6.2 Falsifiers Verified: 15/15 PASS (+ Kepler Test)
 
 ---
@@ -811,7 +818,85 @@ $$\boxed{\text{KEPLER'S THIRD LAW VERIFIED}}$$
 
 ---
 
-## Appendix E: File Manifest
+## Appendix E: SI Unit Conversion
+
+### E.1 Dimensionless Formulation
+
+DET operates in natural "lattice units" where all quantities are dimensionless:
+- Length: cells
+- Time: steps (= DT in simulation)
+- Mass/Resource: F units
+
+### E.2 Mapping to SI
+
+**Fundamental Insight:** DET has two built-in physical constraints:
+1. **Locality bound:** c_DET = 1 cell/step (maximum information propagation)
+2. **Gravity law:** G_eff = ηκ/(4π) (effective gravitational constant)
+
+Matching to physical constants c and G requires:
+
+$$c = \frac{a}{\tau_0} \quad\Rightarrow\quad \tau_0 = \frac{a}{c}$$
+
+$$G = G_{\text{eff}} \cdot \frac{a^3}{m_0 \tau_0^2} \quad\Rightarrow\quad m_0 = G_{\text{eff}} \cdot \frac{a \cdot c^2}{G}$$
+
+**Result:** Choosing ONE scale (length a) determines ALL conversions.
+
+### E.3 Conversion Formulas
+
+| Quantity | DET → SI Formula |
+|----------|------------------|
+| Length | x_SI = x_DET × a |
+| Time | t_SI = t_DET × τ₀ = t_DET × a/c |
+| Mass | m_SI = m_DET × m₀ |
+| Velocity | v_SI = v_DET × c |
+| Acceleration | acc_SI = acc_DET × c²/a |
+| Force | F_SI = F_DET × m₀c²/a |
+| Energy | E_SI = E_DET × m₀c² |
+| Momentum | p_SI = p_DET × m₀c |
+| Angular momentum | L_SI = L_DET × m₀ca |
+| Gravitational potential | Φ_SI = Φ_DET × c² |
+
+### E.4 Pre-Defined Unit Systems
+
+| System | a (m/cell) | τ₀ (s/step) | m₀ (kg/F) | Use Case |
+|--------|------------|-------------|-----------|----------|
+| Planck | 1.62×10⁻³⁵ | 5.39×10⁻⁴⁴ | 8.38×10⁻⁹ | Quantum gravity |
+| Laboratory | 1.0 | 3.34×10⁻⁹ | 5.19×10²⁶ | Terrestrial tests |
+| Solar System | 7.48×10¹⁰ | 2.50×10² | 3.88×10³⁷ | Planetary dynamics |
+| Galactic | 3.09×10¹⁹ | 1.03×10¹¹ | 1.60×10⁴⁶ | Galaxy rotation |
+
+### E.5 Quantum Scale Property
+
+At Planck scale: ℏ_lattice ≈ 2.6 (order unity)
+
+This suggests DET's coherence dynamics may connect to quantum mechanics at Planck scale, where:
+- 1 cell ≈ Planck length
+- 1 step ≈ Planck time
+- G_eff ≈ 0.385 ≈ m₀/m_Planck
+
+### E.6 Implementation
+
+See `det_si_units.py` for the complete DETUnitSystem class with:
+- Bidirectional conversions (DET ↔ SI)
+- Pre-defined systems (PLANCK, LABORATORY, SOLAR_SYSTEM, GALACTIC)
+- Astronomical units (AU, pc, M☉, years)
+- Dimensional tracking (DETQuantity class)
+- Kepler verification utilities
+
+**Example:**
+```python
+from det_si_units import SOLAR_SYSTEM
+
+# 1 AU orbit at 1 year period
+r_cells = 2.0  # = 1 AU
+T_steps = 126468  # = 1 year
+print(f"Orbital velocity: {SOLAR_SYSTEM.velocity_to_si(2*np.pi*r_cells/T_steps)/1e3:.1f} km/s")
+# Output: Orbital velocity: 29.8 km/s
+```
+
+---
+
+## Appendix F: File Manifest
 
 ### Source Code (/src)
 - `det_v6_3_1d_collider.py` - 1D unified collider
@@ -819,6 +904,8 @@ $$\boxed{\text{KEPLER'S THIRD LAW VERIFIED}}$$
 - `det_v6_3_3d_collider.py` - 3D unified collider
 - `det_v6_3_collider_torch.py` - PyTorch GPU-accelerated collider
 - `det_particle_tracker.py` - Discrete particle dynamics coupled to DET gravity
+- `det_unified_params.py` - Unified parameter schema (12 base → 25+ derived)
+- `det_si_units.py` - SI unit conversion layer
 
 ### Tests (/tests)
 - `det_comprehensive_falsifiers.py` - Full falsifier suite (15 tests)
@@ -826,6 +913,8 @@ $$\boxed{\text{KEPLER'S THIRD LAW VERIFIED}}$$
 - `test_kepler_standard_candle.py` - Kepler's Third Law emergence test
 - `test_kepler_interpolated.py` - Kepler test with trilinear gravity interpolation
 - `test_gravity_profile.py` - Gravity field 1/r² profile analysis
+- `test_unified_params.py` - Unified parameter schema tests
+- `test_si_units.py` - SI unit conversion tests
 - `diagnose_orbit_failure.py` - Orbital dynamics diagnostic tools
 
 ### Documentation (/docs)
