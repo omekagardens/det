@@ -1,8 +1,10 @@
-# DET Readout Specification v1.0
+# DET Readout Specification v1.1
 
 **Purpose:** Define exactly what DET predicts for clock rate, time dilation, and gravitational redshift—with explicit formulas suitable for testing against GPS, rocket experiments, and lab height-difference measurements.
 
 **Claim Type:** This document specifies the DET measurement mapping used for falsification testing.
+
+**Version:** 1.1 (added kinematic time dilation)
 
 ---
 
@@ -12,9 +14,12 @@
 
 **Definition:** The probability of advancing proper time at node i in one discrete step.
 
+**Full Formula (gravitational + kinematic):**
 ```
-P_i = a_i × σ_i × (1 + F_i)^(-1) × (1 + H_i)^(-1)
+P_i = a_i × σ_i × (1 + F_i)^(-1) × (1 + H_i)^(-1) × γ_v^(-1)
 ```
+
+where γ_v = (1 - v²/c²)^(-1/2) is the Lorentz factor for velocity v.
 
 **Components:**
 | Symbol | Name | Range | Physical Meaning |
@@ -23,15 +28,16 @@ P_i = a_i × σ_i × (1 + F_i)^(-1) × (1 + H_i)^(-1)
 | σ_i | Processing rate | > 0 | Local interaction strength (typically = 1) |
 | F_i | Resource | ≥ 0 | Local mass/energy concentration |
 | H_i | Coordination load | > 0 | Relational overhead (= σ_i or Σ√C_ij·σ_ij) |
+| γ_v | Lorentz factor | ≥ 1 | Kinematic time dilation factor |
 
 **DET Clock Law:** Presence P is the *proper time increment per coordinate step*:
 ```
 dτ_i/dk = P_i
 ```
 
-### 1.2 Clock Rate Ratio (Time Dilation)
+### 1.2 Gravitational Time Dilation
 
-For two clocks at different locations (different F values), with equal agency and processing:
+For two clocks at different locations (different F values), with equal agency, processing, and **at rest**:
 
 ```
 P_A / P_B = (1 + F_B) / (1 + F_A)
@@ -39,7 +45,49 @@ P_A / P_B = (1 + F_B) / (1 + F_A)
 
 **Key insight:** Higher F (more resource concentration) → lower P (slower clock).
 
-### 1.3 Resource Field (F) — Gravitational Potential Proxy
+**GPS gravitational effect:** +45.85 μs/day (satellite clocks run FAST at altitude)
+
+### 1.3 Kinematic Time Dilation
+
+For a moving clock relative to a stationary reference:
+
+```
+P_moving / P_rest = γ_v^(-1) = √(1 - v²/c²) ≈ 1 - v²/(2c²)
+```
+
+**Key insight:** Higher velocity → lower P (slower clock).
+
+**GPS kinematic effect:** -7.2 μs/day (satellite clocks run SLOW due to motion)
+
+### 1.4 Combined Effect (GPS Satellites)
+
+For GPS satellites, both effects apply:
+
+```
+P_sat / P_ground = [(1 + F_ground)/(1 + F_sat)] × [√(1 - v_sat²/c²)]
+                 ≈ (1 + ΔΦ/c²) × (1 - v²/(2c²))
+```
+
+**Net GPS effect:** +45.85 - 7.2 = **+38.65 μs/day** (satellite clocks run FAST overall)
+
+### 1.5 DET Momentum Interpretation of Kinematic Dilation
+
+In DET, kinematic time dilation can be understood through momentum:
+
+**Proposed formula:**
+```
+γ_v^(-1) ≈ (1 + π²/π_max²)^(-1/2)
+```
+
+where:
+- π is the local bond momentum
+- π_max is the maximum momentum (speed of light limit)
+
+This maps velocity to DET's momentum state variable:
+- v = 0 → π = 0 → γ_v^(-1) = 1 (no dilation)
+- v → c → π → π_max → γ_v^(-1) → 0 (infinite dilation)
+
+### 1.6 Resource Field (F) — Gravitational Potential Proxy
 
 F is the local energy/mass density. In the presence of gravity:
 - F accumulates in potential wells via gravitational flux
