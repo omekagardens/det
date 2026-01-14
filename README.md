@@ -2,7 +2,7 @@
 
 **Version:** 6.2  
 **Date:** January 2026  
-**Author:** Omeka Gardens (Reviewed and Organized by Manus)
+**Author:** Omeka Gardens
 
 ## Overview
 This package contains the complete DET v6.3 implementation, organized for clarity and verification. It includes the core theory, multi-dimensional colliders, and a categorized test suite.
