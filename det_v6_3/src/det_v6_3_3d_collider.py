@@ -227,11 +227,17 @@ class DETCollider3D:
         return np.real(ifftn(b_k))
 
     def _solve_poisson(self, source: np.ndarray) -> np.ndarray:
-        """Solve L*Phi = -kappa*rho for gravitational potential."""
+        """Solve L*Phi = kappa*rho for gravitational potential.
+
+        Note: L_k < 0 (discrete Laplacian eigenvalues are non-positive).
+        With Phi_k = kappa*rho_k / L_k, we get Phi < 0 near mass (like Newtonian).
+        Then g = -grad(Phi) points TOWARD mass (attractive gravity).
+        """
         source_k = fftn(source)
         source_k[0, 0, 0] = 0  # Remove mean
         # Apply lattice correction factor (v6.3)
-        Phi_k = -self.p.kappa_grav * self.p.eta_lattice * source_k / self.L_k_poisson
+        # Sign: kappa*rho / L_k with L_k < 0 gives Phi < 0 (attractive)
+        Phi_k = self.p.kappa_grav * self.p.eta_lattice * source_k / self.L_k_poisson
         Phi_k[0, 0, 0] = 0
         return np.real(ifftn(Phi_k))
 

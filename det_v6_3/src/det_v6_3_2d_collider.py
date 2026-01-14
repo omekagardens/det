@@ -207,10 +207,14 @@ class DETCollider2D:
         return np.real(ifft2(b_k))
 
     def _solve_poisson(self, source: np.ndarray) -> np.ndarray:
+        """Solve Poisson equation for attractive gravity.
+
+        Sign: kappa*rho / L_k with L_k < 0 gives Phi < 0 (attractive).
+        """
         source_k = fft2(source)
         source_k[0, 0] = 0
         # Apply lattice correction (v6.3)
-        Phi_k = -self.p.kappa_grav * self.p.eta_lattice * source_k / self.L_k_poisson
+        Phi_k = self.p.kappa_grav * self.p.eta_lattice * source_k / self.L_k_poisson
         Phi_k[0, 0] = 0
         return np.real(ifft2(Phi_k))
 

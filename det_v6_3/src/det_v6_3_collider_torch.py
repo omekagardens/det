@@ -224,11 +224,12 @@ class DETColliderTorch:
         rho = self.q - b
 
         # 3. Poisson potential with lattice correction
+        # Sign: kappa*rho / L_k with L_k < 0 gives Phi < 0 (attractive gravity)
         kappa_eff = self.p.kappa_grav * self.eta
         rho_k = torch.fft.fftn(rho)
         idx = tuple([0]*self.p.dim)
         rho_k[idx] = 0
-        Phi_k = -kappa_eff * rho_k / self.L_k_poisson
+        Phi_k = kappa_eff * rho_k / self.L_k_poisson  # Removed minus for attraction
         Phi_k[idx] = 0
         self.Phi = torch.real(torch.fft.ifftn(Phi_k))
 
