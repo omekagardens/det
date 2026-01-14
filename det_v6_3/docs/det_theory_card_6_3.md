@@ -36,6 +36,14 @@
 13. **Kepler Standard Candle Test:** Verified T² ∝ r³ with CV = 1.2%
 14. **G Extraction Methodology:** Documented mapping G_eff = ηκ/(4π) with calibration tables
 
+### Parameter Unification (Over-parameterization Reduction):
+15. **Unified Parameter Schema:** Reduced ~25 physical parameters to 12 base parameters
+    - Identified equal-value clusters (coincidences → constraints)
+    - Found factor-of-2, 5, 10 relationships between modules
+    - Observed near-golden ratio (φ ≈ 1.618) in λ_π/λ_L and L_max/π_max
+16. **DETUnifiedParams Class:** New dataclass with automatic derivation and legacy conversion
+17. **Verified Compatibility:** All 15/15 falsifiers pass with unified parameter derivation
+
 ### All v6.2 Falsifiers Verified: 15/15 PASS (+ Kepler Test)
 
 ---
@@ -398,6 +406,80 @@ where n_i = max(0, F_min - F_i) and w_i = a_i · n_i.
 | R_boundary | 2 | Boundary radius |
 | η_g | 0.5 | Grace flux coefficient |
 | C_quantum | 0.85 | Quantum gate threshold |
+
+### VII.3 Unified Parameter Schema
+
+The ~25 physical parameters in VII.2 reduce to **12 base parameters** via recognized symmetries and derivation rules:
+
+**Base Parameters (12):**
+
+| Symbol | Default | Description |
+|--------|---------|-------------|
+| τ_base | 0.02 | Time/screening scale (= α_grav = DT) |
+| σ_base | 0.12 | Charging rate scale (= α_π = η_floor) |
+| λ_base | 0.008 | Decay rate scale (= λ_π) |
+| μ_base | 2.0 | Mobility/power scale (= μ_grav = floor_power = γ_a_power) |
+| κ_base | 5.0 | Coupling scale (= κ_grav = F_core = L_max) |
+| C_0 | 0.15 | Coherence scale (= C_init = γ_a_max) |
+| φ_L | 0.5 | Angular/momentum ratio |
+| λ_a | 30.0 | Structural ceiling coupling |
+| τ_eq_C | 20.0 | Coherence equilibration ratio (α_C/λ_C) |
+| π_max | 3.0 | Maximum momentum |
+| μ_π_factor | 0.175 | Momentum mobility factor |
+| λ_L_factor | 0.625 | Angular decay factor |
+
+**Derivation Rules:**
+
+1. **Momentum Module:**
+   - α_π = σ_base
+   - λ_π = λ_base
+   - μ_π = μ_base × μ_π_factor
+
+2. **Angular Momentum Module (from Momentum × φ_L):**
+   - α_L = α_π × φ_L
+   - λ_L = λ_π × λ_L_factor
+   - μ_L = μ_π × φ_L × 1.028
+   - L_max = κ_base
+
+3. **Floor Module:**
+   - η_floor = σ_base (same as α_π)
+   - F_core = κ_base
+   - floor_power = μ_base
+
+4. **Agency Module:**
+   - β_a = 10 × τ_base
+   - γ_a_max = C_0
+   - γ_a_power = μ_base
+
+5. **Coherence Module:**
+   - C_init = C_0
+   - λ_C = τ_base / 10
+   - α_C = λ_C × τ_eq_C
+
+6. **Gravity Module:**
+   - α_grav = τ_base
+   - κ_grav = κ_base
+   - μ_grav = μ_base
+   - β_g = 5 × μ_grav
+
+7. **Structure:**
+   - α_q = σ_base / 10
+
+**Identified Symmetries:**
+
+| Pattern | Instances |
+|---------|-----------|
+| Equal values | α_grav = DT = τ_base = 0.02 |
+| | α_π = η_floor = σ_base = 0.12 |
+| | γ_a_max = C_init = C_0 = 0.15 |
+| | floor_power = γ_a_power = μ_grav = μ_base = 2.0 |
+| | L_max = F_core = κ_grav = κ_base = 5.0 |
+| Factor of 2 | α_L = α_π / 2 |
+| Factor of 5 | β_g = 5 × μ_grav |
+| Factor of 10 | β_a = 10 × τ_base, α_q = σ_base / 10 |
+| ~Golden ratio | λ_π / λ_L ≈ 1.6 ≈ φ, L_max / π_max ≈ φ |
+
+**Implementation:** See `det_unified_params.py` for the DETUnifiedParams dataclass with automatic derivation and legacy conversion.
 
 ---
 
