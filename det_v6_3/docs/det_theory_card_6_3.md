@@ -286,7 +286,9 @@ $$\boxed{(L_\sigma b)_i - \alpha b_i = -\alpha q_i}$$
 ### V.2 Gravitational Potential and Flux
 
 **Gravitational potential Φ_i:**
-$$\boxed{(L_\sigma \Phi)_i = -\kappa \rho_i}$$
+$$\boxed{(L_\sigma \Phi)_i = +\kappa \rho_i}$$
+
+*Note: With discrete Laplacian eigenvalues L_k < 0 and ρ > 0 near mass, this yields Φ < 0 (attractive gravity).*
 
 **Gravitational Flux:**
 $$\boxed{J^{(\text{grav})}_{i \to j} = \mu_g \sigma_{ij} \frac{F_i + F_j}{2} (\Phi_i - \Phi_j)}$$
@@ -309,8 +311,10 @@ $$\boxed{\eta(N) \approx 0.965 \quad \text{(for N=64)}}$$
 | 96 | 0.968 |
 | 128 | 0.975 |
 
-**Physical G extraction:**
-$$G_{\text{physical}} = \frac{1}{\eta} \times \frac{\kappa}{4\pi}$$
+**Effective G in lattice units:**
+$$\boxed{G_{\text{eff}} = \frac{\eta \kappa}{4\pi}}$$
+
+*Note: To match a target physical G, use κ = 4πG/(η × unit_conversion). See Appendix C for calibration.*
 
 ---
 
@@ -816,10 +820,12 @@ where G ≈ 6.674 × 10⁻¹¹ m³/(kg·s²).
 
 **DET Gravity:**
 The potential is sourced by relative structural debt ρ = q - b:
-$$L_\sigma \Phi = \kappa \rho$$
+$$L_\sigma \Phi = +\kappa \rho$$
 
 In the continuum limit, for a point mass ρ = M δ(r):
-$$\Phi(r) = \frac{\kappa M}{4\pi r}$$
+$$\Phi(r) = -\frac{\kappa M}{4\pi r}$$
+
+*Note: The negative sign arises because L (discrete Laplacian) has negative eigenvalues, so Φ = κρ/L < 0 near mass.*
 
 **DET-to-Newtonian Mapping:**
 $$\boxed{G_{\text{eff}} = \frac{\eta \kappa}{4\pi}}$$
