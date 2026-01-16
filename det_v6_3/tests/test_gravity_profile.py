@@ -144,13 +144,27 @@ def main():
     else:
         print(f"✗ Deviates from 1/r² by {abs(n + 2):.2f}")
 
-    # Summary
+    # Summary - based on actual measured data
     print("\n" + "="*70)
     print("SUMMARY")
     print("="*70)
-    print(f"""
-The DET gravity field with Helmholtz screening does NOT produce pure 1/r².
 
+    # Determine if gravity is close to 1/r² based on measurements
+    is_inverse_square = abs(n + 2) < 0.3  # n should be -2 for 1/r²
+    best_cv = best[1] if results else float('inf')
+
+    print(f"\nMeasured Results:")
+    print(f"  Power law exponent n = {n:.4f} (1/r² requires n = -2)")
+    print(f"  Best CV(|g|*r²) = {best_cv:.4f}")
+    print(f"  Deviation from 1/r²: {abs(n + 2):.4f}")
+
+    if is_inverse_square and best_cv < 0.3:
+        print("\n[VERIFIED] DET gravity is approximately 1/r² (Newtonian-like)")
+        print("  Kepler's Third Law should emerge naturally.")
+    else:
+        print(f"\n[VERIFIED] DET gravity deviates from pure 1/r².")
+        print(f"  Exponent = {n:.4f} (expected -2.0), CV = {best_cv:.4f}")
+        print("""
 Root cause: The baseline field b in DET (screened Poisson) modifies the
 effective source. The Helmholtz equation:
 
@@ -163,14 +177,14 @@ creates an exponentially-screened baseline, so:
 is a modified source that doesn't equal a point mass.
 
 IMPLICATIONS FOR KEPLER:
-- DET gravity law is NOT Newtonian 1/r²
+- DET gravity law deviates from Newtonian 1/r²
 - Kepler's Third Law (T² ∝ r³) relies on 1/r² gravity
-- DET will NOT naturally reproduce Kepler's law without modification
+- This may affect orbital dynamics predictions
 
 POTENTIAL FIXES:
 1. Bypass Helmholtz baseline: Set b = 0 (no screening)
 2. Use direct Poisson: L*Φ = -κ*q (no baseline subtraction)
-3. Accept non-Keplerian gravity as a DET prediction
+3. Accept modified gravity as a DET prediction
 """)
 
 
