@@ -1409,6 +1409,7 @@
   max-width: none;
   overflow: hidden;
   background: #05050f;
+  z-index: 1000; /* Above navbar */
 }
 
 .simulator-canvas {

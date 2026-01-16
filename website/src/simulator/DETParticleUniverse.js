@@ -28,10 +28,10 @@ export class DETParticleUniverse {
 
       // Momentum
       alpha_pi: 0.12,       // Momentum charging
-      lambda_pi: 0.008,     // Momentum decay
-      mu_pi: 0.35,          // Momentum mobility
-      pi_max: 5.0,          // Maximum momentum
-      beta_g: 1.5,          // Gravity-momentum coupling
+      lambda_pi: 0.005,     // Momentum decay (reduced for persistence)
+      mu_pi: 2.5,           // Momentum mobility (increased for visibility)
+      pi_max: 8.0,          // Maximum momentum (increased)
+      beta_g: 3.0,          // Gravity-momentum coupling (increased)
 
       // Agency
       lambda_a: 30.0,       // Structural ceiling coupling
@@ -91,9 +91,9 @@ export class DETParticleUniverse {
         sigma: 0.8 + Math.random() * 0.4,   // Processing rate
         theta: Math.random() * Math.PI * 2, // Phase
 
-        // Momentum
-        px: (Math.random() - 0.5) * 0.5,
-        py: (Math.random() - 0.5) * 0.5,
+        // Momentum (larger initial values for visible movement)
+        px: (Math.random() - 0.5) * 3,
+        py: (Math.random() - 0.5) * 3,
 
         // Derived
         P: 1.0,  // Presence (computed)
@@ -361,6 +361,27 @@ export class DETParticleUniverse {
       minP,
       bonds: this.getBonds().length
     };
+  }
+
+  // Add a new particle at specified position with optional velocity
+  addParticle(x, y, vx = 0, vy = 0) {
+    const newId = this.particles.length;
+    this.particles.push({
+      id: newId,
+      x: x,
+      y: y,
+      F: 0.5 + Math.random() * 0.5,
+      q: Math.random() * 0.3,
+      a: 0.8 + Math.random() * 0.2,
+      sigma: 0.8 + Math.random() * 0.4,
+      theta: Math.random() * Math.PI * 2,
+      px: vx,
+      py: vy,
+      P: 1.0,
+      trail: [],
+      coherence: new Map(),
+    });
+    return this.particles[newId];
   }
 
   // Scenario setups
