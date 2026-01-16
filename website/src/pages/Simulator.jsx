@@ -25,6 +25,12 @@ function Simulator() {
   const [particleCount, setParticleCount] = useState(200);
   const [stats, setStats] = useState({});
   const [colorMode, setColorMode] = useState('agency'); // agency, structure, presence, phase
+  const [drawMode, setDrawMode] = useState(false);
+
+  // Drawing state
+  const isDrawing = useRef(false);
+  const lastDrawPos = useRef({ x: 0, y: 0 });
+  const lastDrawTime = useRef(0);
 
   // Initialize universe
   useEffect(() => {
@@ -214,6 +220,62 @@ function Simulator() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Handle drawing particles
+  const getCanvasCoords = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  }, []);
+
+  const handlePointerDown = useCallback((e) => {
+    if (!drawMode) return;
+
+    isDrawing.current = true;
+    const pos = getCanvasCoords(e);
+    lastDrawPos.current = pos;
+    lastDrawTime.current = performance.now();
+
+    // Add first particle
+    if (universeRef.current) {
+      universeRef.current.addParticle(pos.x, pos.y, 0, 0);
+    }
+  }, [drawMode, getCanvasCoords]);
+
+  const handlePointerMove = useCallback((e) => {
+    if (!drawMode || !isDrawing.current) return;
+
+    const pos = getCanvasCoords(e);
+    const now = performance.now();
+    const dt = Math.max(1, now - lastDrawTime.current) / 1000;
+
+    // Calculate velocity from drag
+    const vx = (pos.x - lastDrawPos.current.x) / dt * 0.01;
+    const vy = (pos.y - lastDrawPos.current.y) / dt * 0.01;
+
+    // Add particle with velocity based on drag direction
+    if (universeRef.current) {
+      universeRef.current.addParticle(pos.x, pos.y, vx, vy);
+    }
+
+    lastDrawPos.current = pos;
+    lastDrawTime.current = now;
+  }, [drawMode, getCanvasCoords]);
+
+  const handlePointerUp = useCallback(() => {
+    isDrawing.current = false;
+  }, []);
+
   const scenarios = [
     { id: 'galaxy', label: 'Spiral Galaxy', desc: 'Rotating spiral with central mass' },
     { id: 'orbiting', label: 'Orbital System', desc: 'Particles orbiting central mass' },
@@ -236,6 +298,14 @@ function Simulator() {
       <canvas
         ref={canvasRef}
         className="simulator-canvas"
+        style={{ cursor: drawMode ? 'crosshair' : 'default' }}
+        onMouseDown={handlePointerDown}
+        onMouseMove={handlePointerMove}
+        onMouseUp={handlePointerUp}
+        onMouseLeave={handlePointerUp}
+        onTouchStart={handlePointerDown}
+        onTouchMove={handlePointerMove}
+        onTouchEnd={handlePointerUp}
       />
 
       {/* Stats Overlay */}
@@ -297,6 +367,13 @@ function Simulator() {
             disabled={running}
           >
             Step
+          </button>
+          <button
+            className={`sim-btn ${drawMode ? 'active' : ''}`}
+            onClick={() => setDrawMode(!drawMode)}
+            style={{ marginTop: '8px' }}
+          >
+            {drawMode ? '✏ Drawing ON' : '✏ Draw Particles'}
           </button>
         </div>
 
@@ -414,6 +491,12 @@ function Simulator() {
           agency a, and phase θ. Gravity emerges from q, time dilation from F,
           and quantum correlations from coherence C between phase-aligned particles.
         </div>
+        {drawMode && (
+          <div className="info-text" style={{ marginTop: '8px', color: '#a78bfa' }}>
+            Click and drag on the canvas to draw new particles!
+            Drag direction sets initial velocity.
+          </div>
+        )}
       </div>
     </div>
   );
