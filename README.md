@@ -1,6 +1,6 @@
 # Deep Existence Theory (DET) v6.3 Release
 
-**Version:** 6.2  
+**Version:** 6.3  
 **Date:** January 2026  
 **Author:** Omeka Gardens
 
