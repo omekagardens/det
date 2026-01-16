@@ -128,7 +128,7 @@ function Simulator() {
       if (showBonds) {
         const bonds = universe.getBonds();
         for (const bond of bonds) {
-          const alpha = bond.C * 0.6;
+          const alpha = Math.min(0.9, bond.C * 0.8);
           ctx.beginPath();
           ctx.moveTo(bond.p1.x, bond.p1.y);
           ctx.lineTo(bond.p2.x, bond.p2.y);
@@ -143,13 +143,26 @@ function Simulator() {
           gradient.addColorStop(1, color2.replace(')', `, ${alpha})`).replace('hsl', 'hsla'));
 
           ctx.strokeStyle = gradient;
-          ctx.lineWidth = bond.C * 2;
+          ctx.lineWidth = 1 + bond.C * 3; // Thicker bonds for higher coherence
           ctx.stroke();
+
+          // Show angular momentum as curved lines for strong bonds
+          if (Math.abs(bond.L) > 0.5 && bond.C > 0.2) {
+            const midX = (bond.p1.x + bond.p2.x) / 2;
+            const midY = (bond.p1.y + bond.p2.y) / 2;
+            const radius = 5 + Math.abs(bond.L) * 2;
+            ctx.beginPath();
+            ctx.arc(midX, midY, radius, 0, Math.PI * (bond.L > 0 ? 1 : -1));
+            ctx.strokeStyle = `rgba(255, 200, 100, ${bond.C * 0.5})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
         }
       }
 
       // Draw particles
       for (const p of universe.particles) {
+        if (!p.alive) continue; // Skip dead particles
         const color = getParticleColor(p, colorMode);
         const size = 3 + p.F * 8; // Size based on resource
 
@@ -337,6 +350,10 @@ function Simulator() {
         <div className="sim-stat">
           <span className="label">Avg P</span>
           <span className="value">{stats.avgP?.toFixed(3) || 0}</span>
+        </div>
+        <div className="sim-stat">
+          <span className="label">Fusions</span>
+          <span className="value" style={{ color: stats.fusions > 0 ? '#f0a' : '#0ff' }}>{stats.fusions || 0}</span>
         </div>
       </div>
 
