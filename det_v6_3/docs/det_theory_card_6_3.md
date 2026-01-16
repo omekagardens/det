@@ -768,7 +768,12 @@ STEP 11: Update pointer records r (if detectors present)
    - Deflection α(b) computed via geodesic integration
    - Comparison with Schwarzschild: α = 4GM/(c²b)
    - Einstein radius calculation
-4. **Cosmological Scaling:** Large-scale structure formation
+4. ✅ **Cosmological Scaling:** Large-scale structure formation
+   - Implemented in `calibration/cosmological_scaling.py`
+   - Power spectrum P(k) computation and spectral index
+   - Two-point correlation function ξ(r)
+   - Structure growth analysis with growth factor D(t)
+   - Comparison with ΛCDM cosmology
 5. **Black Hole Thermodynamics:** Test Hawking-like radiation predictions
 6. **Quantum-Classical Transition:** Study agency-coherence interplay
 
@@ -1246,7 +1251,77 @@ See `calibration/gravitational_lensing.py`:
 
 ---
 
-## Appendix K: File Manifest
+## Appendix K: Cosmological Scaling (v6.4)
+
+### K.1 Purpose
+
+Study how DET dynamics lead to large-scale structure formation and compare with standard ΛCDM cosmological predictions.
+
+### K.2 Theoretical Framework
+
+**Standard Cosmology:**
+Structure grows from primordial density fluctuations characterized by:
+- Power spectrum: P(k) ~ k^(n_s-1) × T(k)² × D(a)²
+- Correlation function: ξ(r) = Fourier transform of P(k)
+- Growth factor: D(a) ~ a in matter domination
+
+**DET Structure Formation:**
+Gravity sourced by structural debt ρ = q - b amplifies initial perturbations:
+$$\boxed{G_{\text{eff}} = \frac{\eta \kappa}{4\pi}}$$
+
+The baseline field b provides natural screening at large scales, potentially modifying structure formation compared to pure Newtonian gravity.
+
+### K.3 Key Observables
+
+**Power Spectrum P(k):**
+$$P(k) = \langle|\delta_k|^2\rangle \cdot V$$
+
+where δ = (ρ - ρ̄)/ρ̄ is the density contrast.
+
+**Two-Point Correlation Function ξ(r):**
+$$\xi(r) = \langle\delta(\mathbf{x})\delta(\mathbf{x}+\mathbf{r})\rangle$$
+
+**Growth Factor D(t):**
+$$D(t) = \frac{\sigma(t)}{\sigma(0)}$$
+
+where σ = √⟨δ²⟩ is the RMS fluctuation amplitude.
+
+**Growth Rate:**
+$$f = \frac{d \ln D}{d \ln a}$$
+
+### K.4 ΛCDM Comparison
+
+| Parameter | ΛCDM Value | Description |
+|-----------|------------|-------------|
+| Ω_m | 0.315 | Matter density |
+| Ω_Λ | 0.685 | Dark energy density |
+| σ_8 | 0.811 | Clustering amplitude |
+| n_s | 0.965 | Scalar spectral index |
+
+**Growth rate approximation:**
+$$f \approx \Omega_m(a)^{0.55}$$
+
+### K.5 DET Results
+
+DET structure formation analysis produces:
+- Power spectrum with measurable spectral index
+- Correlation function with characteristic correlation length
+- Structure growth tracking growth factor evolution
+- Comparison framework with ΛCDM predictions
+
+### K.6 Implementation
+
+See `calibration/cosmological_scaling.py`:
+- `PowerSpectrumAnalyzer`: P(k) computation
+- `CorrelationAnalyzer`: ξ(r) computation
+- `StructureGrowthAnalyzer`: Growth simulation
+- `LCDMComparison`: ΛCDM comparison tools
+- `CosmologicalScalingAnalyzer`: Full analysis pipeline
+- `run_cosmological_analysis()`: Main entry point
+
+---
+
+## Appendix L: File Manifest
 
 ### Source Code (/src)
 - `det_v6_3_1d_collider.py` - 1D unified collider
@@ -1262,6 +1337,7 @@ See `calibration/gravitational_lensing.py`:
 - `extract_g_calibration.py` - External G extraction (potential + orbital methods)
 - `galaxy_rotation_curves.py` - SPARC galaxy rotation curve fitting
 - `gravitational_lensing.py` - Ray-tracing through Φ field
+- `cosmological_scaling.py` - Large-scale structure formation analysis
 
 ### Tests (/tests)
 - `det_comprehensive_falsifiers.py` - Full falsifier suite (15 tests)
@@ -1276,6 +1352,7 @@ See `calibration/gravitational_lensing.py`:
 - `test_g_calibration.py` - G extraction calibration tests (21 tests) - NEW
 - `test_galaxy_rotation.py` - Galaxy rotation curve tests (26 tests) - NEW
 - `test_gravitational_lensing.py` - Gravitational lensing tests (21 tests) - NEW
+- `test_cosmological_scaling.py` - Cosmological scaling tests (32 tests) - NEW
 
 ### Documentation (/docs)
 - `det_theory_card_6_3.md` - This document
@@ -1288,5 +1365,5 @@ See `calibration/gravitational_lensing.py`:
 *DET v6.3 - Deep Existence Theory: Unified Framework for Emergent Physics*
 *January 2026*
 
-*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing*
-*68 additional tests (21 + 26 + 21) all passing*
+*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing, Cosmological Scaling*
+*100 additional tests (21 + 26 + 21 + 32) all passing*
