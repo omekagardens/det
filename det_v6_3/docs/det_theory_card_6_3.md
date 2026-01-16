@@ -780,7 +780,12 @@ STEP 11: Update pointer records r (if detectors present)
    - Radiation measurement via F-flux across surface
    - Temperature T and entropy S computation
    - Hawking scaling comparison: T ~ 1/M, S ~ M²
-6. **Quantum-Classical Transition:** Study agency-coherence interplay
+6. ✅ **Quantum-Classical Transition:** Study agency-coherence interplay
+   - Implemented in `calibration/quantum_classical_transition.py`
+   - Coherence dynamics analysis (bond coherences C_X, C_Y, C_Z)
+   - Decoherence simulation and measurement effects
+   - Entanglement-like correlations (Bell parameter, locality)
+   - Regime classification: quantum, classical, transition
 
 ---
 
@@ -1389,7 +1394,71 @@ See `calibration/black_hole_thermodynamics.py`:
 
 ---
 
-## Appendix M: File Manifest
+## Appendix M: Quantum-Classical Transition (v6.4)
+
+### M.1 Purpose
+
+Study how DET transitions between quantum-like coherent behavior and classical definite-outcome behavior through the interplay of coherence and agency.
+
+### M.2 Coherence in DET
+
+Coherence C governs quantum-like behavior:
+- **Bond coherence:** C_X, C_Y, C_Z per bond direction
+- **High C:** Phase correlations maintained (quantum regime)
+- **Low C:** Phases randomized (classical regime)
+
+**Coherence dynamics:**
+$$\frac{dC}{dt} = \alpha_C |J| - \lambda_C C$$
+
+### M.3 Agency-Coherence Interplay
+
+Agency a represents decision-making capacity, bounded by structural ceiling:
+$$a_{\max} = \frac{1}{1 + \lambda_a q^2}$$
+
+The interplay between coherence and agency determines:
+- Responsiveness to relational gradients
+- Quantum vs classical decision-making
+- Information processing capacity
+
+### M.4 Quantum-Classical Regimes
+
+| Regime | Coherence | Bell Parameter | Behavior |
+|--------|-----------|----------------|----------|
+| Quantum | C > 0.5 | S > 2 | Non-local correlations |
+| Transition | 0.1 < C < 0.5 | S ≈ 2 | Mixed behavior |
+| Classical | C < 0.1 | S < 2 | Local, definite outcomes |
+
+### M.5 Decoherence Mechanisms
+
+1. **Natural decoherence:** λ_C term causes coherence decay
+2. **Measurement:** External observation collapses coherence
+3. **Environmental coupling:** Interaction with other degrees of freedom
+
+### M.6 Entanglement-Like Metrics
+
+**Bell parameter (CHSH):**
+$$S = |E(a,b) - E(a,b') + E(a',b) + E(a',b')|$$
+
+- S ≤ 2: Classical (local hidden variables)
+- 2 < S ≤ 2√2: Quantum
+- S > 2√2: Super-quantum (non-physical)
+
+**Locality violation:** Measures long-range vs short-range correlation ratio
+
+### M.7 Implementation
+
+See `calibration/quantum_classical_transition.py`:
+- `CoherenceAnalyzer`: Coherence state measurement
+- `AgencyAnalyzer`: Agency dynamics analysis
+- `DecoherenceSimulator`: Decoherence and measurement
+- `EntanglementAnalyzer`: Bell parameter, locality violation
+- `RegimeClassifier`: Quantum/classical/transition classification
+- `QuantumClassicalAnalyzer`: Full analysis pipeline
+- `run_quantum_classical_analysis()`: Main entry point
+
+---
+
+## Appendix N: File Manifest
 
 ### Source Code (/src)
 - `det_v6_3_1d_collider.py` - 1D unified collider
@@ -1407,6 +1476,7 @@ See `calibration/black_hole_thermodynamics.py`:
 - `gravitational_lensing.py` - Ray-tracing through Φ field
 - `cosmological_scaling.py` - Large-scale structure formation analysis
 - `black_hole_thermodynamics.py` - Hawking-like radiation predictions
+- `quantum_classical_transition.py` - Agency-coherence interplay analysis
 
 ### Tests (/tests)
 - `det_comprehensive_falsifiers.py` - Full falsifier suite (15 tests)
@@ -1423,6 +1493,7 @@ See `calibration/black_hole_thermodynamics.py`:
 - `test_gravitational_lensing.py` - Gravitational lensing tests (21 tests) - NEW
 - `test_cosmological_scaling.py` - Cosmological scaling tests (32 tests) - NEW
 - `test_black_hole_thermodynamics.py` - Black hole thermodynamics tests (36 tests) - NEW
+- `test_quantum_classical_transition.py` - Quantum-classical transition tests (32 tests) - NEW
 
 ### Documentation (/docs)
 - `det_theory_card_6_3.md` - This document
@@ -1435,5 +1506,6 @@ See `calibration/black_hole_thermodynamics.py`:
 *DET v6.3 - Deep Existence Theory: Unified Framework for Emergent Physics*
 *January 2026*
 
-*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing, Cosmological Scaling, Black Hole Thermodynamics*
-*136 additional tests (21 + 26 + 21 + 32 + 36) all passing*
+*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing, Cosmological Scaling, Black Hole Thermodynamics, Quantum-Classical Transition*
+*168 additional tests (21 + 26 + 21 + 32 + 36 + 32) all passing*
+*v6.4 ROADMAP COMPLETE*
