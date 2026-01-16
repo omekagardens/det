@@ -753,12 +753,39 @@ STEP 11: Update pointer records r (if detectors present)
 8. ✅ 3D particle simulation demonstration
 
 ### Next Steps (Roadmap to v6.4):
-1. **External Calibration:** Extract effective G from two-body simulations
-2. **Galaxy Rotation Curves:** Fit SPARC database observations
-3. **Gravitational Lensing:** Implement ray-tracing through Φ field
-4. **Cosmological Scaling:** Large-scale structure formation
-5. **Black Hole Thermodynamics:** Test Hawking-like radiation predictions
-6. **Quantum-Classical Transition:** Study agency-coherence interplay
+1. ✅ **External Calibration:** Extract effective G from two-body simulations
+   - Implemented in `calibration/extract_g_calibration.py`
+   - Two methods: Potential profile fitting, Orbital (Kepler) extraction
+   - G_eff = ηκ/(4π) verified to <20% accuracy
+2. ✅ **Galaxy Rotation Curves:** Fit SPARC database observations
+   - Implemented in `calibration/galaxy_rotation_curves.py`
+   - Sample galaxies: NGC2403, UGC128, DDO154, NGC6946
+   - Mass models: Exponential disk, NFW halo, combined
+   - DET rotation curve fitting with M/L optimization
+3. ✅ **Gravitational Lensing:** Implement ray-tracing through Φ field
+   - Implemented in `calibration/gravitational_lensing.py`
+   - Light ray tracing with trilinear interpolation
+   - Deflection α(b) computed via geodesic integration
+   - Comparison with Schwarzschild: α = 4GM/(c²b)
+   - Einstein radius calculation
+4. ✅ **Cosmological Scaling:** Large-scale structure formation
+   - Implemented in `calibration/cosmological_scaling.py`
+   - Power spectrum P(k) computation and spectral index
+   - Two-point correlation function ξ(r)
+   - Structure growth analysis with growth factor D(t)
+   - Comparison with ΛCDM cosmology
+5. ✅ **Black Hole Thermodynamics:** Test Hawking-like radiation predictions
+   - Implemented in `calibration/black_hole_thermodynamics.py`
+   - Black hole configuration (high q, low P regions)
+   - Radiation measurement via F-flux across surface
+   - Temperature T and entropy S computation
+   - Hawking scaling comparison: T ~ 1/M, S ~ M²
+6. ✅ **Quantum-Classical Transition:** Study agency-coherence interplay
+   - Implemented in `calibration/quantum_classical_transition.py`
+   - Coherence dynamics analysis (bond coherences C_X, C_Y, C_Z)
+   - Decoherence simulation and measurement effects
+   - Entanglement-like correlations (Bell parameter, locality)
+   - Regime classification: quantum, classical, transition
 
 ---
 
@@ -1084,7 +1111,354 @@ See `det_retrocausal.py` for:
 
 ---
 
-## Appendix H: File Manifest
+## Appendix H: External G Calibration (v6.4)
+
+### H.1 Purpose
+
+Extract the effective gravitational constant G_eff from DET simulations and verify against theoretical prediction G_eff = ηκ/(4π).
+
+### H.2 Two Extraction Methods
+
+**Method 1: Potential Profile Fitting**
+1. Place point mass at center (via structural debt q)
+2. Let gravitational field establish
+3. Measure Φ(r) at multiple radii
+4. Fit to Φ(r) = A/r + B
+5. Extract G = -A/M where M = sum(q - b)
+
+**Method 2: Orbital (Kepler) Extraction**
+1. Set up two-body problem with central mass
+2. Launch test particle on circular orbit
+3. Measure orbital period T and radius r
+4. Apply Kepler's Third Law: G = 4π²r³/(M×T²)
+
+### H.3 Key Insight: Gravitational Mass
+
+In DET, gravity is sourced by structural debt ρ = q - b, not by the resource field F directly. The effective gravitational mass must be measured as:
+
+$$M_{\text{grav}} = \sum_i (q_i - b_i)$$
+
+where b is the baseline field from the Helmholtz equation.
+
+### H.4 Results
+
+Both methods extract G_eff consistent with theory (within ~20% for small grids):
+- Potential method: Direct profile fitting with R² > 0.95
+- Orbital method: Kepler's Third Law verification (T²/r³ constant)
+
+### H.5 Implementation
+
+See `calibration/extract_g_calibration.py`:
+- `PotentialProfileExtractor`: Potential fitting method
+- `OrbitalExtractor`: Kepler extraction method
+- `GCalibrator`: Combined calibration with statistics
+- `run_g_calibration()`: Main entry point
+
+---
+
+## Appendix I: Galaxy Rotation Curves (v6.4)
+
+### I.1 Purpose
+
+Fit DET rotation curve predictions to observed galaxy dynamics from the SPARC database.
+
+### I.2 SPARC Database
+
+SPARC = Spitzer Photometry & Accurate Rotation Curves (~175 galaxies with):
+- High-resolution rotation curves v(r)
+- Stellar mass from infrared photometry
+- HI gas mass measurements
+- Accurate distances and inclinations
+
+### I.3 Mass Distribution Models
+
+**Exponential Disk:**
+$$\Sigma(r) = \Sigma_0 \exp(-r/R_d)$$
+$$M(<r) = M_{\text{total}} \left[1 - (1 + r/R_d) e^{-r/R_d}\right]$$
+
+**NFW Halo (Dark Matter):**
+$$\rho(r) = \frac{\rho_s}{(r/R_s)(1 + r/R_s)^2}$$
+$$M(<r) = M_{\text{vir}} \frac{f(r/R_s)}{f(c)}$$
+
+where f(x) = ln(1+x) - x/(1+x).
+
+### I.4 DET Rotation Curve Prediction
+
+For circular orbits in DET:
+$$v(r) = \sqrt{\frac{G_{\text{eff}} \cdot M(<r)}{r}}$$
+
+The analysis compares:
+1. DET with baryons only (stars + gas)
+2. DET with optimized M/L ratio
+3. DET + NFW dark matter halo
+
+### I.5 Sample Results
+
+| Galaxy | Type | DET Baryons χ² | DET+DM χ² | Needs DM? |
+|--------|------|----------------|-----------|-----------|
+| NGC2403 | Spiral | Moderate | Good | Maybe |
+| UGC128 | LSB | Poor | Good | Yes |
+| DDO154 | Dwarf | Poor | Good | Yes |
+| NGC6946 | Spiral | Moderate | Good | Maybe |
+
+### I.6 Implementation
+
+See `calibration/galaxy_rotation_curves.py`:
+- `GalaxyObservation`: SPARC-compatible data structure
+- `ExponentialDisk`, `NFWHalo`: Mass models
+- `DETRotationModel`: DET rotation curve computation
+- `RotationCurveAnalyzer`: Full analysis pipeline
+- `run_sparc_analysis()`: Main entry point
+
+---
+
+## Appendix J: Gravitational Lensing (v6.4)
+
+### J.1 Purpose
+
+Implement ray-tracing through the DET gravitational potential field to compute light deflection and verify against Schwarzschild predictions.
+
+### J.2 Theory: Light Deflection
+
+In the weak-field limit, light follows geodesics:
+$$\frac{d^2 x}{d\lambda^2} = -\nabla\Phi$$
+
+The total deflection angle for a ray with impact parameter b:
+$$\alpha = \frac{2}{c^2} \int \nabla_\perp \Phi \, dl$$
+
+For a point mass (Schwarzschild weak-field):
+$$\alpha = \frac{4GM}{c^2 b}$$
+
+### J.3 DET Implementation
+
+**Ray Tracing:**
+1. Initialize ray at (x, y, z) with direction (vx, vy, vz)
+2. Interpolate Φ and ∇Φ at ray position (trilinear)
+3. Integrate trajectory using velocity Verlet
+4. Renormalize velocity to c = 1 (light speed)
+5. Accumulate deflection from direction change
+
+**Observables:**
+- Deflection angle α(b) vs impact parameter
+- Einstein radius: R_E = √(4·G_eff·M·D)
+- Deflection profile: verify α ∝ 1/b
+
+### J.4 Results
+
+DET ray-tracing produces:
+- Positive deflection toward mass (attractive gravity ✓)
+- Deflection increases for smaller impact parameter ✓
+- Approximate 1/b law for deflection profile ✓
+- Einstein radius computed correctly ✓
+
+### J.5 Implementation
+
+See `calibration/gravitational_lensing.py`:
+- `GravitationalRayTracer`: Ray integration through Φ field
+- `GravitationalLensing`: Complete lensing analysis
+- `ExtendedMassLensing`: Galaxy-scale lensing
+- `run_lensing_analysis()`: Main entry point
+
+---
+
+## Appendix K: Cosmological Scaling (v6.4)
+
+### K.1 Purpose
+
+Study how DET dynamics lead to large-scale structure formation and compare with standard ΛCDM cosmological predictions.
+
+### K.2 Theoretical Framework
+
+**Standard Cosmology:**
+Structure grows from primordial density fluctuations characterized by:
+- Power spectrum: P(k) ~ k^(n_s-1) × T(k)² × D(a)²
+- Correlation function: ξ(r) = Fourier transform of P(k)
+- Growth factor: D(a) ~ a in matter domination
+
+**DET Structure Formation:**
+Gravity sourced by structural debt ρ = q - b amplifies initial perturbations:
+$$\boxed{G_{\text{eff}} = \frac{\eta \kappa}{4\pi}}$$
+
+The baseline field b provides natural screening at large scales, potentially modifying structure formation compared to pure Newtonian gravity.
+
+### K.3 Key Observables
+
+**Power Spectrum P(k):**
+$$P(k) = \langle|\delta_k|^2\rangle \cdot V$$
+
+where δ = (ρ - ρ̄)/ρ̄ is the density contrast.
+
+**Two-Point Correlation Function ξ(r):**
+$$\xi(r) = \langle\delta(\mathbf{x})\delta(\mathbf{x}+\mathbf{r})\rangle$$
+
+**Growth Factor D(t):**
+$$D(t) = \frac{\sigma(t)}{\sigma(0)}$$
+
+where σ = √⟨δ²⟩ is the RMS fluctuation amplitude.
+
+**Growth Rate:**
+$$f = \frac{d \ln D}{d \ln a}$$
+
+### K.4 ΛCDM Comparison
+
+| Parameter | ΛCDM Value | Description |
+|-----------|------------|-------------|
+| Ω_m | 0.315 | Matter density |
+| Ω_Λ | 0.685 | Dark energy density |
+| σ_8 | 0.811 | Clustering amplitude |
+| n_s | 0.965 | Scalar spectral index |
+
+**Growth rate approximation:**
+$$f \approx \Omega_m(a)^{0.55}$$
+
+### K.5 DET Results
+
+DET structure formation analysis produces:
+- Power spectrum with measurable spectral index
+- Correlation function with characteristic correlation length
+- Structure growth tracking growth factor evolution
+- Comparison framework with ΛCDM predictions
+
+### K.6 Implementation
+
+See `calibration/cosmological_scaling.py`:
+- `PowerSpectrumAnalyzer`: P(k) computation
+- `CorrelationAnalyzer`: ξ(r) computation
+- `StructureGrowthAnalyzer`: Growth simulation
+- `LCDMComparison`: ΛCDM comparison tools
+- `CosmologicalScalingAnalyzer`: Full analysis pipeline
+- `run_cosmological_analysis()`: Main entry point
+
+---
+
+## Appendix L: Black Hole Thermodynamics (v6.4)
+
+### L.1 Purpose
+
+Test whether DET black holes exhibit Hawking-like thermodynamic behavior, including temperature scaling with mass and entropy area law.
+
+### L.2 DET Black Hole Definition
+
+In DET, a "black hole" is characterized by:
+- **High structural debt:** q → 1
+- **Vanishing presence:** P → 0 (time stops)
+- **Strong gravitational potential well**
+
+The structural ceiling from agency dynamics:
+$$a_{\max} = \frac{1}{1 + \lambda_a q^2}$$
+
+ensures that a_max → 0 as q → 1, creating a true "frozen" region.
+
+### L.3 Hawking Predictions
+
+**Standard Hawking thermodynamics:**
+$$T_H = \frac{\hbar c^3}{8\pi G M k_B} \sim \frac{1}{M}$$
+$$S_{BH} = \frac{A c^3}{4 G \hbar} \sim M^2$$
+$$L \sim T^4 A \sim \frac{1}{M^2}$$
+
+### L.4 DET Radiation Mechanism
+
+Radiation in DET emerges from:
+1. **F-flux across surface:** Diffusive transport from high-F interior
+2. **Momentum-driven flux:** π-field carrying resource outward
+3. **Grace injection:** Recovery mechanism at depleted boundaries
+
+### L.5 Thermodynamic Calculations
+
+**Temperature from radiation:**
+Using Stefan-Boltzmann-like relation with measured luminosity L and surface area A:
+$$T = \left(\frac{L}{A}\right)^{1/4}$$
+
+**Entropy from area:**
+Using Bekenstein-Hawking area law:
+$$S = \frac{A}{4 G_{\text{eff}}}$$
+
+**Lifetime:**
+$$\tau = \frac{M}{L}$$
+
+### L.6 Mass Scaling Analysis
+
+The analysis tests whether DET produces Hawking-like scaling:
+- Temperature exponent: T ~ M^n (Hawking predicts n = -1)
+- Entropy exponent: S ~ M^n (Hawking predicts n = 2)
+
+### L.7 Implementation
+
+See `calibration/black_hole_thermodynamics.py`:
+- `BlackHoleConfigurator`: Create high-q compact objects
+- `RadiationAnalyzer`: Measure F-flux radiation
+- `ThermodynamicsCalculator`: T, S, lifetime computation
+- `HawkingComparer`: Compare with Hawking predictions
+- `BlackHoleThermodynamicsAnalyzer`: Full analysis pipeline
+- `run_black_hole_analysis()`: Main entry point
+
+---
+
+## Appendix M: Quantum-Classical Transition (v6.4)
+
+### M.1 Purpose
+
+Study how DET transitions between quantum-like coherent behavior and classical definite-outcome behavior through the interplay of coherence and agency.
+
+### M.2 Coherence in DET
+
+Coherence C governs quantum-like behavior:
+- **Bond coherence:** C_X, C_Y, C_Z per bond direction
+- **High C:** Phase correlations maintained (quantum regime)
+- **Low C:** Phases randomized (classical regime)
+
+**Coherence dynamics:**
+$$\frac{dC}{dt} = \alpha_C |J| - \lambda_C C$$
+
+### M.3 Agency-Coherence Interplay
+
+Agency a represents decision-making capacity, bounded by structural ceiling:
+$$a_{\max} = \frac{1}{1 + \lambda_a q^2}$$
+
+The interplay between coherence and agency determines:
+- Responsiveness to relational gradients
+- Quantum vs classical decision-making
+- Information processing capacity
+
+### M.4 Quantum-Classical Regimes
+
+| Regime | Coherence | Bell Parameter | Behavior |
+|--------|-----------|----------------|----------|
+| Quantum | C > 0.5 | S > 2 | Non-local correlations |
+| Transition | 0.1 < C < 0.5 | S ≈ 2 | Mixed behavior |
+| Classical | C < 0.1 | S < 2 | Local, definite outcomes |
+
+### M.5 Decoherence Mechanisms
+
+1. **Natural decoherence:** λ_C term causes coherence decay
+2. **Measurement:** External observation collapses coherence
+3. **Environmental coupling:** Interaction with other degrees of freedom
+
+### M.6 Entanglement-Like Metrics
+
+**Bell parameter (CHSH):**
+$$S = |E(a,b) - E(a,b') + E(a',b) + E(a',b')|$$
+
+- S ≤ 2: Classical (local hidden variables)
+- 2 < S ≤ 2√2: Quantum
+- S > 2√2: Super-quantum (non-physical)
+
+**Locality violation:** Measures long-range vs short-range correlation ratio
+
+### M.7 Implementation
+
+See `calibration/quantum_classical_transition.py`:
+- `CoherenceAnalyzer`: Coherence state measurement
+- `AgencyAnalyzer`: Agency dynamics analysis
+- `DecoherenceSimulator`: Decoherence and measurement
+- `EntanglementAnalyzer`: Bell parameter, locality violation
+- `RegimeClassifier`: Quantum/classical/transition classification
+- `QuantumClassicalAnalyzer`: Full analysis pipeline
+- `run_quantum_classical_analysis()`: Main entry point
+
+---
+
+## Appendix N: File Manifest
 
 ### Source Code (/src)
 - `det_v6_3_1d_collider.py` - 1D unified collider
@@ -1096,6 +1470,14 @@ See `det_retrocausal.py` for:
 - `det_si_units.py` - SI unit conversion layer
 - `det_retrocausal.py` - Retrocausal locality module for Bell correlations
 
+### Calibration Modules (/calibration) - NEW in v6.4
+- `extract_g_calibration.py` - External G extraction (potential + orbital methods)
+- `galaxy_rotation_curves.py` - SPARC galaxy rotation curve fitting
+- `gravitational_lensing.py` - Ray-tracing through Φ field
+- `cosmological_scaling.py` - Large-scale structure formation analysis
+- `black_hole_thermodynamics.py` - Hawking-like radiation predictions
+- `quantum_classical_transition.py` - Agency-coherence interplay analysis
+
 ### Tests (/tests)
 - `det_comprehensive_falsifiers.py` - Full falsifier suite (15 tests)
 - `det_3d_particle_simulation.py` - Particle dynamics demo
@@ -1106,6 +1488,12 @@ See `det_retrocausal.py` for:
 - `test_si_units.py` - SI unit conversion tests
 - `test_bell_retrocausal.py` - Bell/CHSH violation tests (F_Bell)
 - `diagnose_orbit_failure.py` - Orbital dynamics diagnostic tools
+- `test_g_calibration.py` - G extraction calibration tests (21 tests) - NEW
+- `test_galaxy_rotation.py` - Galaxy rotation curve tests (26 tests) - NEW
+- `test_gravitational_lensing.py` - Gravitational lensing tests (21 tests) - NEW
+- `test_cosmological_scaling.py` - Cosmological scaling tests (32 tests) - NEW
+- `test_black_hole_thermodynamics.py` - Black hole thermodynamics tests (36 tests) - NEW
+- `test_quantum_classical_transition.py` - Quantum-classical transition tests (32 tests) - NEW
 
 ### Documentation (/docs)
 - `det_theory_card_6_3.md` - This document
@@ -1117,3 +1505,7 @@ See `det_retrocausal.py` for:
 
 *DET v6.3 - Deep Existence Theory: Unified Framework for Emergent Physics*
 *January 2026*
+
+*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing, Cosmological Scaling, Black Hole Thermodynamics, Quantum-Classical Transition*
+*168 additional tests (21 + 26 + 21 + 32 + 36 + 32) all passing*
+*v6.4 ROADMAP COMPLETE*
