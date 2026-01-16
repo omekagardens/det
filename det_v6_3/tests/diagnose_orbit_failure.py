@@ -19,7 +19,10 @@ from det_v6_3_3d_collider import DETCollider3D, DETParams3D
 
 
 def test_momentum_conservation():
-    """Test if total momentum is conserved in DET."""
+    """Test if total momentum is conserved in DET.
+
+    Returns True if significant momentum decay detected, False otherwise.
+    """
     print("="*70)
     print("TEST 1: MOMENTUM CONSERVATION")
     print("="*70)
@@ -76,15 +79,26 @@ def test_momentum_conservation():
     print(f"\nπ_X decay: {decay_X*100:.1f}%")
     print(f"π_Y decay: {decay_Y*100:.1f}%")
 
-    if abs(decay_X) > 0.1 or abs(decay_Y) > 0.1:
+    # Check if significant decay occurred (>10%)
+    momentum_decayed = abs(decay_X) > 0.1 or abs(decay_Y) > 0.1
+
+    if momentum_decayed:
         print("\n⚠️  CONCLUSION: Momentum is NOT conserved!")
-        print("Root cause: λ_π decay term drains momentum from the system.")
+        print("    [VERIFIED: decay_X={:.1f}%, decay_Y={:.1f}% exceed 10% threshold]".format(
+            decay_X*100, decay_Y*100))
+        print("    Root cause: λ_π decay term drains momentum from the system.")
     else:
         print("\n✓ Momentum approximately conserved")
+        print("    [VERIFIED: decay within 10% threshold]")
+
+    return momentum_decayed
 
 
 def test_wavepacket_dispersion():
-    """Test if localized wavepackets spread out."""
+    """Test if localized wavepackets spread out.
+
+    Returns True if dispersion is detected (packets spread), False otherwise.
+    """
     print("\n" + "="*70)
     print("TEST 2: WAVEPACKET DISPERSION")
     print("="*70)
@@ -115,6 +129,11 @@ def test_wavepacket_dispersion():
     print(f"{'Step':>6} {'F_max':>12} {'RMS_r':>12} {'Mass':>12}")
     print("-"*50)
 
+    rms_initial = None
+    rms_final = None
+    F_max_initial = None
+    F_max_final = None
+
     for t in range(500):
         sim.step()
         if t % 50 == 0:
@@ -132,8 +151,36 @@ def test_wavepacket_dispersion():
                 F_max = np.max(sim.F)
                 print(f"{t:>6} {F_max:>12.4f} {rms:>12.2f} {total_F:>12.4f}")
 
+                # Record initial and final values
+                if rms_initial is None:
+                    rms_initial = rms
+                    F_max_initial = F_max
+                rms_final = rms
+                F_max_final = F_max
+
     print("-"*50)
-    print("\n⚠️  CONCLUSION: Packets spread due to diffusive F dynamics.")
+
+    # Actually check if dispersion occurred
+    dispersion_detected = False
+    if rms_initial is not None and rms_final is not None:
+        rms_increase = (rms_final - rms_initial) / rms_initial if rms_initial > 0 else 0
+        F_max_decrease = (F_max_initial - F_max_final) / F_max_initial if F_max_initial > 0 else 0
+
+        print(f"\nRMS width increase: {rms_increase*100:.1f}%")
+        print(f"F_max decrease: {F_max_decrease*100:.1f}%")
+
+        # Dispersion if RMS increased by >10% OR F_max decreased by >20%
+        dispersion_detected = rms_increase > 0.10 or F_max_decrease > 0.20
+
+        if dispersion_detected:
+            print("\n⚠️  CONCLUSION: Packets spread due to diffusive F dynamics.")
+            print("    [VERIFIED: RMS increased or F_max decreased significantly]")
+        else:
+            print("\n✓ Packets remained localized (no significant dispersion).")
+    else:
+        print("\n⚠️  Could not measure dispersion (no valid F data)")
+
+    return dispersion_detected
 
 
 def test_orbit_with_zero_decay():
@@ -279,27 +326,48 @@ def test_fundamental_orbit_requirement():
 
 
 if __name__ == "__main__":
-    test_momentum_conservation()
-    test_wavepacket_dispersion()
-    test_orbit_with_zero_decay()
-    test_fundamental_orbit_requirement()
+    # Run all tests and collect results
+    results = {}
+
+    results['momentum_decay'] = test_momentum_conservation()
+    results['dispersion'] = test_wavepacket_dispersion()
+    test_orbit_with_zero_decay()  # Diagnostic only
+    test_fundamental_orbit_requirement()  # Diagnostic only
 
     print("\n" + "="*70)
     print("SUMMARY: ROOT CAUSES OF KEPLER FAILURE")
     print("="*70)
-    print("""
-1. MOMENTUM DECAY: λ_π > 0 causes total momentum to drain from system.
-   → Even λ_π = 0.001 causes significant decay over orbital timescales.
 
-2. WAVEPACKET DISPERSION: F field spreads diffusively.
-   → "Particles" don't stay localized; they spread into background.
+    # Report verified findings
+    print("\nVERIFIED FINDINGS:")
+    print("-"*50)
 
-3. NO PARTICLE IDENTITY: DET tracks field densities, not particles.
-   → No mechanism to maintain a distinct orbiting "test mass".
+    if results['momentum_decay']:
+        print("✓ TEST 1: Momentum decay CONFIRMED")
+        print("  → λ_π > 0 causes total momentum to drain from system")
+    else:
+        print("✗ TEST 1: Momentum decay NOT detected (unexpected)")
 
-POTENTIAL FIXES:
-1. Set λ_π = 0 (zero momentum decay) for gravitational scenarios
-2. Add "particle mode" that tracks discrete point masses separately
-3. Reformulate momentum as conserved quantity (Σπ = const)
-4. Add localization mechanism to prevent wavepacket spreading
-""")
+    if results['dispersion']:
+        print("✓ TEST 2: Wavepacket dispersion CONFIRMED")
+        print("  → F field spreads diffusively; particles don't stay localized")
+    else:
+        print("✗ TEST 2: Wavepacket dispersion NOT detected (unexpected)")
+
+    print("\nADDITIONAL OBSERVATIONS:")
+    print("-"*50)
+    print("3. NO PARTICLE IDENTITY: DET tracks field densities, not particles.")
+    print("   → No mechanism to maintain a distinct orbiting 'test mass'.")
+
+    print("\nPOTENTIAL FIXES:")
+    print("-"*50)
+    print("1. Set λ_π = 0 (zero momentum decay) for gravitational scenarios")
+    print("2. Add 'particle mode' that tracks discrete point masses separately")
+    print("3. Reformulate momentum as conserved quantity (Σπ = const)")
+    print("4. Add localization mechanism to prevent wavepacket spreading")
+
+    # Final summary
+    verified_count = sum([results['momentum_decay'], results['dispersion']])
+    print("\n" + "="*70)
+    print(f"DIAGNOSTIC COMPLETE: {verified_count}/2 root causes verified")
+    print("="*70)
