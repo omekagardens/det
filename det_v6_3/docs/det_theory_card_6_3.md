@@ -774,7 +774,12 @@ STEP 11: Update pointer records r (if detectors present)
    - Two-point correlation function ξ(r)
    - Structure growth analysis with growth factor D(t)
    - Comparison with ΛCDM cosmology
-5. **Black Hole Thermodynamics:** Test Hawking-like radiation predictions
+5. ✅ **Black Hole Thermodynamics:** Test Hawking-like radiation predictions
+   - Implemented in `calibration/black_hole_thermodynamics.py`
+   - Black hole configuration (high q, low P regions)
+   - Radiation measurement via F-flux across surface
+   - Temperature T and entropy S computation
+   - Hawking scaling comparison: T ~ 1/M, S ~ M²
 6. **Quantum-Classical Transition:** Study agency-coherence interplay
 
 ---
@@ -1321,7 +1326,70 @@ See `calibration/cosmological_scaling.py`:
 
 ---
 
-## Appendix L: File Manifest
+## Appendix L: Black Hole Thermodynamics (v6.4)
+
+### L.1 Purpose
+
+Test whether DET black holes exhibit Hawking-like thermodynamic behavior, including temperature scaling with mass and entropy area law.
+
+### L.2 DET Black Hole Definition
+
+In DET, a "black hole" is characterized by:
+- **High structural debt:** q → 1
+- **Vanishing presence:** P → 0 (time stops)
+- **Strong gravitational potential well**
+
+The structural ceiling from agency dynamics:
+$$a_{\max} = \frac{1}{1 + \lambda_a q^2}$$
+
+ensures that a_max → 0 as q → 1, creating a true "frozen" region.
+
+### L.3 Hawking Predictions
+
+**Standard Hawking thermodynamics:**
+$$T_H = \frac{\hbar c^3}{8\pi G M k_B} \sim \frac{1}{M}$$
+$$S_{BH} = \frac{A c^3}{4 G \hbar} \sim M^2$$
+$$L \sim T^4 A \sim \frac{1}{M^2}$$
+
+### L.4 DET Radiation Mechanism
+
+Radiation in DET emerges from:
+1. **F-flux across surface:** Diffusive transport from high-F interior
+2. **Momentum-driven flux:** π-field carrying resource outward
+3. **Grace injection:** Recovery mechanism at depleted boundaries
+
+### L.5 Thermodynamic Calculations
+
+**Temperature from radiation:**
+Using Stefan-Boltzmann-like relation with measured luminosity L and surface area A:
+$$T = \left(\frac{L}{A}\right)^{1/4}$$
+
+**Entropy from area:**
+Using Bekenstein-Hawking area law:
+$$S = \frac{A}{4 G_{\text{eff}}}$$
+
+**Lifetime:**
+$$\tau = \frac{M}{L}$$
+
+### L.6 Mass Scaling Analysis
+
+The analysis tests whether DET produces Hawking-like scaling:
+- Temperature exponent: T ~ M^n (Hawking predicts n = -1)
+- Entropy exponent: S ~ M^n (Hawking predicts n = 2)
+
+### L.7 Implementation
+
+See `calibration/black_hole_thermodynamics.py`:
+- `BlackHoleConfigurator`: Create high-q compact objects
+- `RadiationAnalyzer`: Measure F-flux radiation
+- `ThermodynamicsCalculator`: T, S, lifetime computation
+- `HawkingComparer`: Compare with Hawking predictions
+- `BlackHoleThermodynamicsAnalyzer`: Full analysis pipeline
+- `run_black_hole_analysis()`: Main entry point
+
+---
+
+## Appendix M: File Manifest
 
 ### Source Code (/src)
 - `det_v6_3_1d_collider.py` - 1D unified collider
@@ -1338,6 +1406,7 @@ See `calibration/cosmological_scaling.py`:
 - `galaxy_rotation_curves.py` - SPARC galaxy rotation curve fitting
 - `gravitational_lensing.py` - Ray-tracing through Φ field
 - `cosmological_scaling.py` - Large-scale structure formation analysis
+- `black_hole_thermodynamics.py` - Hawking-like radiation predictions
 
 ### Tests (/tests)
 - `det_comprehensive_falsifiers.py` - Full falsifier suite (15 tests)
@@ -1353,6 +1422,7 @@ See `calibration/cosmological_scaling.py`:
 - `test_galaxy_rotation.py` - Galaxy rotation curve tests (26 tests) - NEW
 - `test_gravitational_lensing.py` - Gravitational lensing tests (21 tests) - NEW
 - `test_cosmological_scaling.py` - Cosmological scaling tests (32 tests) - NEW
+- `test_black_hole_thermodynamics.py` - Black hole thermodynamics tests (36 tests) - NEW
 
 ### Documentation (/docs)
 - `det_theory_card_6_3.md` - This document
@@ -1365,5 +1435,5 @@ See `calibration/cosmological_scaling.py`:
 *DET v6.3 - Deep Existence Theory: Unified Framework for Emergent Physics*
 *January 2026*
 
-*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing, Cosmological Scaling*
-*100 additional tests (21 + 26 + 21 + 32) all passing*
+*v6.4 Calibration Updates: G Extraction, Galaxy Rotation Curves, Gravitational Lensing, Cosmological Scaling, Black Hole Thermodynamics*
+*136 additional tests (21 + 26 + 21 + 32 + 36) all passing*
