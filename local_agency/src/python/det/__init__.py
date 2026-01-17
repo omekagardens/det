@@ -10,11 +10,17 @@ Phase 4 adds: Extended DET dynamics, learning via recruitment,
 emotional state integration, and multi-session support.
 
 Phase 2.2 adds: MLX training pipeline for memory model retraining.
+
+Phase 5.1 adds: Multi-LLM routing with domain-specialized models.
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
 from .llm import DETLLMInterface, OllamaClient, DetIntentPacket, IntentType, DomainType
 from .memory import MemoryManager, MemoryDomain, MemoryEntry, DomainRouter, ContextWindow
+from .routing import (
+    ModelConfig, ModelPool, ModelStatus, LLMRouter, RoutingResult, MultiModelInterface,
+    DEFAULT_MODELS
+)
 from .dialogue import InternalDialogue, DialogueTurn, DialogueState
 from .sandbox import BashSandbox, FileOperations, CommandAnalyzer, RiskLevel, PermissionLevel
 from .tasks import TaskManager, Task, TaskStep, TaskStatus, TaskPriority
@@ -29,7 +35,7 @@ from .training import (
     TrainingDataGenerator, LoRATrainer, MemoryRetuner, is_mlx_available
 )
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -37,6 +43,9 @@ __all__ = [
     "DETLLMInterface", "OllamaClient", "DetIntentPacket", "IntentType", "DomainType",
     # Memory
     "MemoryManager", "MemoryDomain", "MemoryEntry", "DomainRouter", "ContextWindow",
+    # Routing (Phase 5.1)
+    "ModelConfig", "ModelPool", "ModelStatus", "LLMRouter", "RoutingResult",
+    "MultiModelInterface", "DEFAULT_MODELS",
     # Dialogue
     "InternalDialogue", "DialogueTurn", "DialogueState",
     # Sandbox
