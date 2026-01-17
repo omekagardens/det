@@ -38,12 +38,23 @@ from .dna_det_deep_analysis import (
     CODON_TABLE
 )
 
+from .det_subdivision_theory import (
+    DETAgent,
+    SubdivisionTheory,
+    AgencyInheritanceMode,
+    DNAReplicationModel,
+    analyze_primordial_agency_question,
+    run_subdivision_analysis
+)
+
 __all__ = [
+    # DNA-DET Analyzer
     'DNASequence',
     'DNADETAnalyzer',
     'DETDNAAnalysis',
     'fetch_sample_sequences',
     'run_dna_det_analysis',
+    # Database fetcher
     'NCBISequence',
     'fetch_ncbi_sequence',
     'parse_fasta_file',
@@ -51,6 +62,7 @@ __all__ = [
     'list_available_samples',
     'get_diversity_sequences',
     'FAMOUS_SEQUENCES',
+    # Deep analysis
     'analyze_dna_phi_geometry',
     'analyze_amino_acid_det_patterns',
     'build_codon_det_lattice',
@@ -62,5 +74,12 @@ __all__ = [
     'PHI_SQ',
     'DNA_HELIX_PARAMS',
     'AMINO_ACIDS',
-    'CODON_TABLE'
+    'CODON_TABLE',
+    # Subdivision theory
+    'DETAgent',
+    'SubdivisionTheory',
+    'AgencyInheritanceMode',
+    'DNAReplicationModel',
+    'analyze_primordial_agency_question',
+    'run_subdivision_analysis'
 ]
