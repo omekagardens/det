@@ -26,6 +26,8 @@ function Simulator() {
   const [stats, setStats] = useState({});
   const [colorMode, setColorMode] = useState('agency'); // agency, structure, presence, phase
   const [drawMode, setDrawMode] = useState(false);
+  const [boundaryEnabled, setBoundaryEnabled] = useState(true);
+  const [graceEnabled, setGraceEnabled] = useState(true);
 
   // Drawing state
   const isDrawing = useRef(false);
@@ -45,6 +47,8 @@ function Simulator() {
       numParticles: particleCount,
       width: canvas.width,
       height: canvas.height,
+      boundaryEnabled,
+      graceEnabled,
     });
 
     universeRef.current.setupScenario(scenario);
@@ -163,6 +167,20 @@ function Simulator() {
       // Draw particles
       for (const p of universe.particles) {
         if (!p.alive) continue; // Skip dead particles
+
+        // Boundary particles rendered differently
+        if (p.isBoundary) {
+          const size = 4 + p.F * 3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+          ctx.fillStyle = `hsla(200, 80%, 60%, 0.7)`;
+          ctx.fill();
+          ctx.strokeStyle = `hsla(200, 90%, 70%, 0.9)`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          continue;
+        }
+
         const color = getParticleColor(p, colorMode);
         const size = 3 + p.F * 8; // Size based on resource
 
@@ -295,6 +313,7 @@ function Simulator() {
     { id: 'collision', label: 'Cluster Collision', desc: 'Two clusters colliding' },
     { id: 'expansion', label: 'Big Bang', desc: 'Expansion from singularity' },
     { id: 'quantum', label: 'Quantum Coherent', desc: 'High coherence, phase-aligned' },
+    { id: 'grace-demo', label: 'Grace Demo', desc: 'Resource redistribution via grace' },
     { id: 'random', label: 'Random', desc: 'Random initial conditions' },
   ];
 
@@ -355,6 +374,18 @@ function Simulator() {
           <span className="label">Fusions</span>
           <span className="value" style={{ color: stats.fusions > 0 ? '#f0a' : '#0ff' }}>{stats.fusions || 0}</span>
         </div>
+        {boundaryEnabled && (
+          <div className="sim-stat">
+            <span className="label">Boundary</span>
+            <span className="value" style={{ color: '#6af' }}>{stats.boundary || 0}</span>
+          </div>
+        )}
+        {graceEnabled && (
+          <div className="sim-stat">
+            <span className="label">Grace</span>
+            <span className="value" style={{ color: stats.graceFlow > 0.1 ? '#0f8' : '#0ff' }}>{stats.graceFlow?.toFixed(2) || 0}</span>
+          </div>
+        )}
       </div>
 
       {/* Formula Display */}
@@ -454,6 +485,33 @@ function Simulator() {
               onChange={(e) => setShowGlow(e.target.checked)}
             />
             <span>Glow Effect</span>
+          </label>
+        </div>
+
+        {/* DET Physics */}
+        <div className="control-group">
+          <h4>DET Physics</h4>
+          <label className="sim-checkbox">
+            <input
+              type="checkbox"
+              checked={boundaryEnabled}
+              onChange={(e) => {
+                setBoundaryEnabled(e.target.checked);
+                universeRef.current?.setBoundaryEnabled(e.target.checked);
+              }}
+            />
+            <span>Boundary Agents</span>
+          </label>
+          <label className="sim-checkbox">
+            <input
+              type="checkbox"
+              checked={graceEnabled}
+              onChange={(e) => {
+                setGraceEnabled(e.target.checked);
+                universeRef.current?.setGraceEnabled(e.target.checked);
+              }}
+            />
+            <span>Grace Injection</span>
           </label>
         </div>
 
