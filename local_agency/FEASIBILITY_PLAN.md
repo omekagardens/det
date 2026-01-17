@@ -35,6 +35,7 @@ This inverts the typical paradigm: rather than LLMs being the reasoning engine w
 | **LLM-to-DET interface** | Port Protocol: stimulus injection via sensory membrane | exploration 05 |
 | **Cross-layer dynamics** | One law, three regimes; local novelty/stability triggers | exploration 06 |
 | **Temporal dynamics** | Dual EMAs, local cadence, windowed membrane events | exploration 07 |
+| **Emotional feedback** | 3-axis affect (V/A/B) modulates thresholds and plasticity | exploration 08 |
 
 ---
 
@@ -1338,20 +1339,9 @@ This project would represent several novel contributions:
 | **LLM-to-DET interface** | Port Protocol: LLM emits DetIntentPacket → Sensory membrane (16-64 port nodes) → Resource injection + temporary bonds. DET dynamics decide recruitment. | `05_llm_det_interface.md` |
 | **Cross-layer dynamics** | One bond law, three parameter regimes. A→P escalation via local novelty score. P→A compilation via local stability score. Anti-prison decay rules. | `06_cross_layer_dynamics.md` |
 | **Temporal dynamics** | Per-node local cadence counters, dual EMAs (short α=0.3 for escalation, long α=0.05 for compilation), windowed membrane events with quiet acceleration. | `07_temporal_dynamics.md` |
+| **Emotional feedback** | 3-axis affect (Valence, Arousal, Bondedness) per node from local observables. Modulates escalation threshold, plasticity, decay. Self-level = participation-weighted average. | `08_emotional_feedback.md` |
 
-### 9.2 OPEN: Emotional Feedback Integration
-
-**Question**: How should emotional state affect behavior?
-
-**Options**:
-1. **Informational only**: Display to user, no behavioral impact
-2. **Response style**: Affects response tone/verbosity
-3. **Capability gating**: Some operations require certain emotional states
-4. **Self-care triggers**: Automatic recovery when in negative states
-
-**Initial direction**: Start with 1 and 4, expand to 2 and 3 later.
-
-### 9.3 OPEN: Substrate Sizing
+### 9.2 OPEN: Substrate Sizing
 
 **Question**: How many nodes and what pool sizes?
 
@@ -1397,8 +1387,9 @@ This document serves as the foundation for implementation. The next step is to b
 10. LLM-to-DET Interface: `explorations/05_llm_det_interface.md`
 11. Cross-Layer Dynamics: `explorations/06_cross_layer_dynamics.md`
 12. Temporal Dynamics: `explorations/07_temporal_dynamics.md`
+13. Emotional Feedback: `explorations/08_emotional_feedback.md`
 
 ### External Tools & Frameworks
-13. Orla Project: https://github.com/dorcha-inc/orla
-14. MLX Documentation: https://ml-explore.github.io/mlx/
-15. Ollama: https://ollama.ai/
+14. Orla Project: https://github.com/dorcha-inc/orla
+15. MLX Documentation: https://ml-explore.github.io/mlx/
+16. Ollama: https://ollama.ai/
