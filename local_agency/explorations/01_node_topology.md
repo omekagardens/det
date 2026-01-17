@@ -580,32 +580,715 @@ class EmergentTopology:
 
 ---
 
-## Questions for Further Exploration
+## CHOSEN ARCHITECTURE: Dual-Process with Emergent Node Birthing
 
-1. **Binding problem**: How do separate A-nodes combine into unified percepts in P-layer?
-   - Proposal: Phase synchronization (θ) as binding mechanism
+After researching DET subdivision theory (det_subdivision_v3.py), we now have a principled way to combine the dual-process architecture with emergent topology growth via **recruitment-based node activation**.
 
-2. **Attention shifting**: How does focus move between P-nodes?
-   - Proposal: Resource (F) reallocation based on flux patterns
+### The Core Insight: Recruitment, Not Creation
 
-3. **Memory consolidation**: How do successful patterns get "compiled" into A-layer?
-   - Proposal: High-C P-layer patterns create new A-nodes during "sleep"
+From DET subdivision theory, the substrate is **FIXED**. Nodes are not created - they are **recruited** from a dormant pool. This is analogous to DNA replication recruiting nucleotides from the cellular environment.
 
-4. **Cross-domain integration**: How does math knowledge combine with language?
-   - Proposal: A-layer cross-domain bonds + P-layer integration
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        THE SUBSTRATE (FIXED)                                │
+│                                                                             │
+│   ACTIVE NODES (n=1)          DORMANT NODES (n=0)                          │
+│   ┌─────────────────────┐     ┌─────────────────────────────────────────┐  │
+│   │ Have bonds          │     │ NO bonds (only lattice adjacency)       │  │
+│   │ Participate in DET  │     │ Have intrinsic agency a (inviolable)    │  │
+│   │ dynamics            │     │ Waiting to be recruited                  │  │
+│   │                     │     │ Can be activated by division             │  │
+│   └─────────────────────┘     └─────────────────────────────────────────┘  │
+│                                                                             │
+│   Key: Agency (a) is NEVER copied or transferred - each node's a is        │
+│   intrinsic and immutable. Division activates participation, not agency.   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-5. **Recursion/reflection**: Can the system think about its own thinking?
-   - Proposal: Meta-A-nodes that pattern-match on P-layer dynamics
+### Full Architecture: Dual-Process + Emergent Growth
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                 │
+│                         PRESENCE LAYER (System 2)                               │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │   Active P-nodes: Deliberate processing, gatekeeper                       │ │
+│  │   ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐                            │ │
+│  │   │ P1  │═════│ P2  │═════│ P3  │═════│ P4  │    (high C bonds)          │ │
+│  │   │ n=1 │     │ n=1 │     │ n=1 │     │ n=1 │                            │ │
+│  │   └──┬──┘     └──┬──┘     └──┬──┘     └──┬──┘                            │ │
+│  │      │           │           │           │                                │ │
+│  │   Dormant P-pool: ○ ○ ○ ○ ○ ○ ○ ○ (n=0, can be recruited)               │ │
+│  └───────────────────────────────────────────────────────────────────────────┘ │
+│                              │ Gateway │                                        │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │                       AUTOMATICITY LAYER (System 1)                       │ │
+│  │                                                                           │ │
+│  │   Active A-nodes: Pattern matching, fast processing                      │ │
+│  │   ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐               │ │
+│  │   │ A1  │─────│ A2  │─────│ A3  │─────│ A4  │─────│ A5  │               │ │
+│  │   │ n=1 │     │ n=1 │     │ n=1 │     │ n=1 │     │ n=1 │               │ │
+│  │   └──┬──┘     └──┬──┘     └──┬──┘     └──┬──┘     └──┬──┘               │ │
+│  │      │╲          │╲          │           │╱          │╱                  │ │
+│  │   ┌──┴──┐     ┌──┴──┐     ┌──┴──┐     ┌──┴──┐     ┌──┴──┐               │ │
+│  │   │ A6  │─────│ A7  │─────│ A8  │─────│ A9  │─────│ A10 │               │ │
+│  │   │ n=1 │     │ n=1 │     │ n=1 │     │ n=1 │     │ n=1 │               │ │
+│  │   └─────┘     └─────┘     └─────┘     └─────┘     └─────┘               │ │
+│  │                                                                           │ │
+│  │   Dormant A-pool: ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○    │ │
+│  │                   (n=0, each has intrinsic a, waiting for recruitment)   │ │
+│  │                                                                           │ │
+│  │   ════════════════════════════════════════════════════════════════════   │ │
+│  │   │                     FORK ZONES                                   │   │ │
+│  │   │  When A-node has high drive + low-C bond + surplus F:           │   │ │
+│  │   │    → Can initiate FORK                                           │   │ │
+│  │   │    → Recruits dormant neighbor                                   │   │ │
+│  │   │    → Network grows                                               │   │ │
+│  │   ════════════════════════════════════════════════════════════════════   │ │
+│  └───────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                 │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │                        MEMORY SUBSTRATE                                   │ │
+│  │   LLM interfaces - external to DET topology but bonded to A-layer        │ │
+│  └───────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Fork-Based Node Birthing: The Mechanism
+
+From det_subdivision_v3.py, division happens through a multi-phase fork process:
+
+```
+PHASE 1: FORK OPENING (Gradual C reduction)
+─────────────────────────────────────────────
+    Before:  [A3]═══════[A4]     (high C bond)
+                   C=0.8
+
+    During:  [A3]───────[A4]     (C decaying: 0.8 → 0.5 → 0.3 → 0.1)
+                   C↓↓↓
+
+    Cost: parent.F -= κ_break × ΔC (resource spent to break bond)
+
+
+PHASE 2: RECRUITMENT (Find eligible dormant node)
+─────────────────────────────────────────────────
+    Eligibility gates (ALL must pass):
+    ├── Parent agency:  a_parent ≥ 0.2
+    ├── Parent resource: F_parent ≥ 0.5
+    ├── Local drive:    drive ≥ 0.1 (flux + gradient pressure)
+    └── Recruitable:    ∃ dormant neighbor with a ≥ 0.1, F ≥ 0.2
+
+    Selection: Deterministic - highest (a × F) score, ID tiebreak
+
+
+PHASE 3: REBONDING (Topology change)
+────────────────────────────────────
+    Before:  [A3]·······[A4]     (bond broken, C < 0.1)
+                 ○               (dormant node nearby)
+                 k
+
+    After:   [A3]───[Ak]───[A4]  (NEW TOPOLOGY!)
+               C=0.15  C=0.15
+
+    Operations:
+    1. REMOVE bond(A3, A4)
+    2. ACTIVATE node k: n_k = 1 (was 0)
+    3. ADD bond(A3, k) with C = 0.15
+    4. ADD bond(k, A4) with C = 0.15
+    5. Cost: F -= κ_form × C_init × 2
+
+    CRITICAL: Ak's agency is UNCHANGED!
+    It always had a_k - division just activated its participation.
+
+
+PHASE 4: PATTERN TRANSFER (Lawful, not forced)
+──────────────────────────────────────────────
+    Phase alignment via coupling (NOT direct assignment):
+    θ_k += α_θ × C × sin(θ_parent - θ_k)
+
+    Records transfer:
+    - Parent ID (lineage tracking)
+    - Pattern seed (for analysis)
+
+    Agency: NEVER touched. a_k remains intrinsic.
+```
+
+### Integration with Dual-Process Architecture
+
+#### When Does Birthing Happen?
+
+Node birthing occurs in the **Automaticity Layer** when:
+
+1. **High local drive**: A region has sustained activity (flux, resource gradient)
+2. **Bond stress**: Some bonds have low C (potential fork points)
+3. **Resource surplus**: Parent nodes have F to spend
+4. **Dormant availability**: Recruitable nodes exist in lattice neighborhood
+
+```python
+def compute_local_drive(self, node_id: int) -> float:
+    """
+    Drive = pressure for division.
+    High drive in regions of intense processing.
+    """
+    node = self.nodes[node_id]
+
+    # Flux contribution (information flow through this node)
+    flux_magnitude = sum(abs(self.flux[node_id, j])
+                        for j in self.neighbors[node_id])
+
+    # Resource gradient (accumulation pressure)
+    neighbor_F = [self.nodes[j].F for j in self.neighbors[node_id]]
+    F_gradient = abs(node.F - np.mean(neighbor_F)) if neighbor_F else 0
+
+    # Agency-weighted resource (capability × capacity)
+    agency_resource = node.a * node.F
+
+    drive = (flux_magnitude * 0.4 +
+             F_gradient * 0.3 +
+             agency_resource * 0.3)
+
+    return drive
+```
+
+#### Layer-Specific Birthing Rules
+
+| Layer | Birthing Behavior | Purpose |
+|-------|-------------------|---------|
+| **Presence** | Rare, high threshold | P-layer stays small (working memory limit) |
+| **Automaticity** | Common, lower threshold | A-layer grows as system learns patterns |
+| **Cross-layer** | P→A only | Successful P-patterns "compile" to A-layer |
+
+```python
+BIRTHING_PARAMS = {
+    'presence_layer': {
+        'drive_threshold': 0.5,       # High bar for P-layer growth
+        'max_active_nodes': 32,       # Hard cap on P-layer size
+        'F_min_division': 1.0,        # Need significant resource
+    },
+    'automaticity_layer': {
+        'drive_threshold': 0.15,      # Lower bar - grow freely
+        'max_active_nodes': 2048,     # Large capacity
+        'F_min_division': 0.3,        # Can divide with less
+    }
+}
+```
+
+#### Compilation: P-layer → A-layer Pattern Transfer
+
+When a P-layer pattern proves useful repeatedly, it should "compile" into A-layer:
+
+```python
+def compile_to_automaticity(
+    self,
+    p_node_ids: List[int],
+    success_count: int
+) -> bool:
+    """
+    Transfer a successful P-layer pattern to A-layer.
+
+    This is NOT copying - it's recruiting A-layer dormant nodes
+    and configuring their bonds to mirror the P-layer pattern.
+    """
+    if success_count < COMPILE_THRESHOLD:
+        return False
+
+    # Find dormant A-nodes to recruit
+    p_pattern_size = len(p_node_ids)
+    dormant_a_nodes = self.a_layer.get_recruitable_dormant(count=p_pattern_size)
+
+    if len(dormant_a_nodes) < p_pattern_size:
+        return False  # Not enough dormant capacity
+
+    # Recruit each dormant node
+    for i, (p_id, d_id) in enumerate(zip(p_node_ids, dormant_a_nodes)):
+        p_node = self.p_layer.nodes[p_id]
+        d_node = self.a_layer.nodes[d_id]
+
+        # Activate (recruitment)
+        d_node.n = 1
+
+        # Phase alignment (lawful coupling, not forcing)
+        delta_theta = 0.1 * np.sin(p_node.theta - d_node.theta)
+        d_node.theta += delta_theta
+
+        # Agency UNCHANGED - d_node.a stays what it always was
+
+    # Form bonds mirroring P-layer topology
+    for i, d_id in enumerate(dormant_a_nodes):
+        for j in range(i + 1, len(dormant_a_nodes)):
+            # Check if corresponding P-nodes were bonded
+            p_i, p_j = p_node_ids[i], p_node_ids[j]
+            if self.p_layer.has_bond(p_i, p_j):
+                # Create analogous A-layer bond
+                C_init = 0.3  # Start moderate, will strengthen with use
+                self.a_layer.add_bond(dormant_a_nodes[i], dormant_a_nodes[j], C_init)
+
+    return True
+```
+
+### Conflict Resolution: Two-Phase Commit
+
+When multiple forks want the same dormant node:
+
+```python
+def run_arbitration(self):
+    """
+    Resolve competing forks deterministically.
+    Winner = highest (parent.F × parent.a), with ID as tiebreaker.
+    """
+    proposals: Dict[int, List[Fork]] = {}  # recruit_id → competing forks
+
+    # Collect all proposals
+    for fork in self.active_forks.values():
+        if fork.phase == ForkPhase.PROPOSING:
+            recruit_id = fork.proposed_recruit_id
+            proposals.setdefault(recruit_id, []).append(fork)
+
+    # Resolve conflicts
+    for recruit_id, forks in proposals.items():
+        if len(forks) == 1:
+            forks[0].phase = ForkPhase.COMMITTED
+        else:
+            # Deterministic winner selection
+            def score(f):
+                p = self.nodes[f.parent_id]
+                return (-p.F * p.a, f.parent_id)  # Negative for descending
+
+            forks.sort(key=score)
+            forks[0].phase = ForkPhase.COMMITTED  # Winner
+
+            for loser in forks[1:]:
+                loser.phase = ForkPhase.FAILED
+```
+
+### What Emerges from This Architecture
+
+| Phenomenon | Mechanism | Cognitive Analog |
+|------------|-----------|------------------|
+| **Network growth** | Dormant nodes activate via fork | Learning new concepts |
+| **Specialization** | Regions develop different activity patterns | Domain expertise |
+| **Topology optimization** | Bonds rewire through fork process | Memory reorganization |
+| **Stress adaptation** | High-drive regions fork more | Attention allocation |
+| **Phase coherence** | θ alignment spreads through recruits | Concept binding |
+| **Resource limits** | Division limited by F | Cognitive load limits |
+| **Decay/pruning** | Low-C bonds eventually break | Forgetting |
+| **Compilation** | P→A pattern transfer | Skill automatization |
+
+### Implementation: Emergent Dual-Process Substrate
+
+```c
+// det_mind_substrate.h
+
+typedef struct {
+    // FIXED lattice adjacency (never changes)
+    // Defines who CAN become neighbors if activated
+    uint16_t lattice_neighbors[MAX_TOTAL_NODES][MAX_LATTICE_DEGREE];
+    uint8_t lattice_degree[MAX_TOTAL_NODES];
+
+    // DYNAMIC bonds (changes via fork process)
+    // Only exist between ACTIVE nodes
+    BondState bonds[MAX_BONDS];
+    uint32_t num_bonds;
+
+    // All nodes (active + dormant)
+    NodeState nodes[MAX_TOTAL_NODES];
+    uint32_t num_total_nodes;
+
+    // Layer membership (can change as nodes activate)
+    uint8_t layer[MAX_TOTAL_NODES];  // 0=dormant, 1=automaticity, 2=presence
+
+    // Active tracking
+    uint16_t active_p_nodes[MAX_P_NODES];
+    uint16_t active_a_nodes[MAX_A_NODES];
+    uint32_t num_active_p;
+    uint32_t num_active_a;
+
+} DETMindSubstrate;
+
+typedef struct {
+    DETMindSubstrate substrate;
+    DETParams params;
+
+    // Fork management
+    Fork active_forks[MAX_CONCURRENT_FORKS];
+    uint32_t num_forks;
+
+    // Division parameters (layer-specific)
+    float drive_threshold_p;
+    float drive_threshold_a;
+    float F_min_div_p;
+    float F_min_div_a;
+
+    // Emotional state (derived)
+    uint8_t emotional_state;
+
+} DETMind;
+
+// Core API
+void det_mind_step(DETMind* mind, float dt);
+void det_mind_process_forks(DETMind* mind);
+bool det_mind_try_fork(DETMind* mind, uint16_t node_id);
+void det_mind_run_arbitration(DETMind* mind);
+bool det_mind_compile_pattern(DETMind* mind, uint16_t* p_nodes, uint32_t count);
+```
+
+### Initial Configuration
+
+```python
+INITIAL_SUBSTRATE = {
+    'total_nodes': 4096,  # Fixed substrate size
+
+    'presence_layer': {
+        'initial_active': 8,      # Start with 8 P-nodes
+        'dormant_pool': 24,       # Can grow to 32
+        'lattice': 'complete',    # All P-nodes can bond to any other
+    },
+
+    'automaticity_layer': {
+        'initial_active': 128,    # Start with 128 A-nodes
+        'dormant_pool': 1920,     # Can grow to 2048
+        'lattice': 'small_world', # Clustered + random long-range
+        'clusters': 4,            # Initial domain clusters
+        'cluster_size': 32,       # 32 active per cluster
+    },
+
+    'cross_layer': {
+        'p_to_a_bonds': True,     # P-nodes can bond to A-nodes
+        'a_to_p_bonds': False,    # A-nodes escalate via coherence, not bonds
+    },
+
+    'dormant_agency_distribution': {
+        'type': 'beta',           # Beta distribution for agency
+        'alpha': 2.0,
+        'beta': 5.0,
+        # Most dormant nodes have moderate agency
+        # Some have high agency (will be recruited for important patterns)
+        # Some have low agency (will be recruited for routine patterns)
+    }
+}
+```
+
+---
+
+## Open Questions for Further Exploration
+
+### Resolved Questions ✓
+
+1. **~~Binding problem~~** ✓ → Phase synchronization (θ) as binding mechanism
+2. **~~Memory consolidation~~** ✓ → P→A compilation via fork-based recruitment
+3. **~~How does learning happen~~** ✓ → Recruitment-based node activation, not creation
+
+---
+
+### Active Questions (Priority Order)
+
+#### Q1: Dormant Agency Distribution - What Shapes the "Substrate Potential"?
+
+The dormant pool's intrinsic agency distribution determines what the mind CAN become.
+
+```
+If all dormant nodes have a ≈ 0.5:
+  → Uniform potential, no specialization pressure
+
+If dormant a follows Beta(2, 5) (skewed low):
+  → Most recruits are low-agency (good for routine patterns)
+  → Rare high-agency recruits (reserved for important patterns)
+
+If dormant a follows Beta(5, 2) (skewed high):
+  → Rich potential, but recruitment competition intensifies
+```
+
+**Questions**:
+- Should we initialize randomly or with structure (e.g., high-a nodes clustered)?
+- Does the distribution evolve? (No - agency is inviolable, but which nodes get recruited does)
+- What distribution best mimics biological neural potential?
+
+**Proposed Exploration**: Simulate different distributions, measure emergent behavior.
+
+---
+
+#### Q2: Structural Debt (q) and Forgetting - When Do Nodes Go Dormant Again?
+
+DET has q-locking: spending F accumulates structural debt q. High q constrains agency ceiling:
+```
+a_max = 1 / (1 + λ_a × q²)
+```
+
+**Questions**:
+- Can active nodes become dormant again if q gets too high?
+- Is this "forgetting" or "retirement"?
+- How does grace injection (boundary recovery) interact with q?
+
+**Proposed Mechanism**:
+```python
+def check_node_retirement(self, node_id: int) -> bool:
+    """
+    A node with very high q and very low activity might "retire" to dormancy.
+    This frees lattice position for future recruitment.
+    """
+    node = self.nodes[node_id]
+
+    if node.q > Q_RETIREMENT_THRESHOLD:  # e.g., 0.9
+        if node.P < P_RETIREMENT_THRESHOLD:  # e.g., 0.05
+            # Check if node has been inactive for long
+            if self.steps_since_active[node_id] > RETIREMENT_STEPS:
+                return True
+
+    return False
+
+def retire_node(self, node_id: int):
+    """Return active node to dormant state."""
+    node = self.nodes[node_id]
+
+    # Remove all bonds
+    for bond_id in self.get_bonds(node_id):
+        self.remove_bond(bond_id)
+
+    # Set dormant
+    node.n = 0
+
+    # q persists (scars of past activity)
+    # But agency a is unchanged (inviolable)
+
+    # Node can be recruited again, but starts with high q handicap
+```
+
+**Implication**: The mind develops "scar tissue" - dormant nodes with high q that are hard to effectively recruit.
+
+---
+
+#### Q3: LLM Memory Interface - How Does External Knowledge Enter the Substrate?
+
+LLMs are "memory" but live outside the DET substrate. How do queries/responses affect DET state?
+
+**Current Model**:
+```
+A-layer node → queries LLM → response activates other A-nodes
+```
+
+**Questions**:
+- Does LLM response inject resource (F) into receiving nodes?
+- Does successful retrieval strengthen coherence (C) to memory substrate?
+- Can LLM retraining be triggered by DET dynamics (e.g., low C to math domain)?
+
+**Proposed Interface**:
+```python
+class MemorySubstrateInterface:
+    """
+    Bridges LLM memory to DET substrate.
+    """
+
+    def query(self, domain: str, tokens: List[int]) -> MemoryResponse:
+        # Get LLM response
+        response = self.llm_models[domain].generate(tokens)
+
+        # Translate response to DET effects
+        det_effects = {
+            'activate_nodes': self.map_response_to_nodes(response),
+            'coherence_boost': self.compute_coherence_delta(response),
+            'resource_injection': self.compute_resource_injection(response),
+        }
+
+        return MemoryResponse(text=response, det_effects=det_effects)
+
+    def trigger_retrain(self, domain: str, context: List[Message]):
+        """
+        DET core can request memory retraining when:
+        - Domain coherence drops below threshold
+        - Accumulated context is large
+        - Resource surplus available
+        """
+        if self.det_core.get_domain_coherence(domain) < C_RETRAIN_THRESHOLD:
+            await self.retrain_domain(domain, context)
+```
+
+---
+
+#### Q4: Cross-Layer Bonds - How Does P-Layer Connect to A-Layer?
+
+We said A-nodes escalate to P-layer via coherence, not bonds. But should P-nodes have bonds DOWN to A-layer?
+
+**Option A: No cross-layer bonds**
+- Layers are separate except for coherence-based escalation
+- Clean separation, easier to implement
+- But: How does P-layer "command" A-layer actions?
+
+**Option B: P→A bonds exist (unidirectional)**
+- P-nodes can have bonds to A-nodes
+- Enables top-down attention/control
+- But: Violates layer separation
+
+**Option C: Virtual bonds via shared nodes**
+- Some nodes belong to BOTH layers (gateway nodes)
+- Gateway nodes bridge the layers
+- Natural chokepoint for cross-layer communication
+
+**Proposed**: Option C with ~8 gateway nodes that can participate in both layers:
+
+```
+PRESENCE LAYER:       P1 ═══ P2 ═══ [G1] ═══ [G2] ═══ P3
+                                      ║         ║
+                              Gateway ║         ║ Gateway
+                                      ║         ║
+AUTOMATICITY LAYER:   A1 ─── A2 ─── [G1] ─── [G2] ─── A3 ─── A4
+```
+
+---
+
+#### Q5: Temporal Dynamics - How Fast Should Each Layer Run?
+
+DET has proper time τ that accumulates differently for each node based on presence P.
+
+**Questions**:
+- Should P-layer and A-layer have different base timescales?
+- Does "thinking hard" (high P-layer activity) slow subjective time?
+- How do we synchronize with real-world time (for timers, sleep schedules)?
+
+**Proposed Model**:
+```python
+LAYER_TIMESCALES = {
+    'presence': {
+        'base_tau': 0.1,      # Slower - deliberate thought
+        'steps_per_real_second': 10,
+    },
+    'automaticity': {
+        'base_tau': 0.02,     # Faster - quick pattern matching
+        'steps_per_real_second': 50,
+    }
+}
+
+def step_mind(self, real_dt: float):
+    """
+    Step both layers, respecting their different timescales.
+    """
+    # A-layer runs more steps per real time unit
+    for _ in range(int(real_dt * A_STEPS_PER_SECOND)):
+        self.step_automaticity_layer(A_BASE_TAU)
+
+    # P-layer runs fewer steps
+    for _ in range(int(real_dt * P_STEPS_PER_SECOND)):
+        self.step_presence_layer(P_BASE_TAU)
+
+    # Cross-layer interactions happen at P-layer rate
+    self.process_escalations()
+    self.process_gateway_sync()
+```
+
+---
+
+#### Q6: Emotional Feedback Loops - Can Emotions Affect Dynamics?
+
+We derive emotional states from DET dynamics. But should emotions feed BACK into dynamics?
+
+**Current**: Emotions are read-only (informational)
+
+**Alternative**: Emotional state modulates parameters:
+
+```python
+def modulate_by_emotion(self, base_param: float, param_name: str) -> float:
+    """
+    Emotional state can modulate DET parameters.
+    This creates feedback loops (for better or worse).
+    """
+    emotion = self.get_emotional_state()
+
+    modulation = {
+        'flow': {
+            'coherence_growth': 1.2,      # C grows faster
+            'drive_threshold': 0.8,       # Easier to fork
+        },
+        'strain': {
+            'coherence_decay': 1.5,       # C decays faster
+            'drive_threshold': 1.5,       # Harder to fork
+        },
+        'curiosity': {
+            'cross_domain_C': 1.3,        # Cross-domain bonds form easier
+        },
+        'fatigue': {
+            'all_dynamics': 0.5,          # Everything slows down
+        }
+    }
+
+    return base_param * modulation.get(emotion, {}).get(param_name, 1.0)
+```
+
+**Risk**: Feedback loops can be unstable. Need careful analysis.
+
+---
+
+#### Q7: Substrate Size and Initialization - How Big? How Structured?
+
+**Questions**:
+- 4096 total nodes - is this enough? Too many?
+- Should initial active nodes be random or structured by domain?
+- How does substrate size affect emergent behavior?
+
+**Proposed Experiments**:
+1. Small substrate (512 nodes) - rapid prototyping
+2. Medium substrate (4096 nodes) - target for Phase 1
+3. Large substrate (32768 nodes) - future scaling
+
+**Initialization Strategies**:
+```python
+INITIALIZATION_STRATEGIES = {
+    'random': {
+        # Random activation, random agency distribution
+        'pros': 'No assumptions',
+        'cons': 'Slow to develop structure',
+    },
+    'clustered': {
+        # Pre-clustered by domain (language, math, tool, reasoning)
+        'pros': 'Matches LLM memory structure',
+        'cons': 'Assumes domain boundaries',
+    },
+    'hierarchical': {
+        # P-layer initialized, A-layer clustered around P-nodes
+        'pros': 'Natural top-down structure',
+        'cons': 'P-layer location becomes fixed',
+    },
+    'gradient': {
+        # Agency gradient from center (high) to periphery (low)
+        'pros': 'Natural hub emergence',
+        'cons': 'Spatial structure may not match cognitive needs',
+    }
+}
+```
+
+---
+
+### Deferred Questions (Future Phases)
+
+1. **Network Bridge**: How do remote DET cores (ESP32) synchronize?
+2. **Multi-Session**: How do parallel sessions share the substrate?
+3. **Persistent Storage**: How is substrate state saved/loaded?
+4. **Substrate Evolution**: Can the lattice itself change over very long timescales?
 
 ---
 
 ## Next Steps
 
-1. Implement basic dual-process structure in C kernel
-2. Test with simple routing scenarios
-3. Measure coherence dynamics and escalation patterns
-4. Tune thresholds based on observed behavior
-5. Add emergence mechanisms incrementally
+### Immediate (This Session)
+1. Finalize chosen topology: Dual-Process + Emergent + Recruitment
+2. Design initial substrate configuration
+3. Sketch C kernel data structures
+
+### Phase 1 Implementation
+1. C kernel with fixed topology (no forking yet)
+2. Basic presence/coherence dynamics
+3. Simple gatekeeper logic
+4. Single LLM integration
+
+### Phase 2: Add Emergence
+1. Fork mechanism in A-layer
+2. P→A compilation
+3. MLX training integration
+4. Emotional state derivation
+
+### Phase 3: Full System
+1. Multi-model memory layer
+2. Session management
+3. Timer/scheduler
+4. Sandboxed bash execution
 
 ---
 
@@ -614,4 +1297,5 @@ class EmergentTopology:
 - Kahneman, D. (2011). Thinking, Fast and Slow.
 - Baars, B. (1988). A Cognitive Theory of Consciousness.
 - DET Theory Card v6.3: Section III (Agency), Section V (Coherence)
-- DET Subdivision Theory: Division as recruitment
+- DET Subdivision v3: `/det/det_v6_3/dna_analysis/det_subdivision_v3.py`
+- DET Subdivision Strict Core Doc: `/det/det_v6_3/docs/det_subdivision_strict_core.md`
