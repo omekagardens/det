@@ -1166,28 +1166,79 @@ Deliverable: det_local_agency v0.4.0
 
 **Objective**: Distributed DET network with physical embodiment
 
+**Key Insight**: External processes (ESP32, remote servers, etc.) are not separate systems that communicate with the mind—they **are components of the core mind cluster**. Network links are just bonds with latency.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 5.1 Serial Bridge Protocol                                          │
-│     - DET state serialization format                                │
-│     - Bond formation across serial link                             │
-│     - Coherence synchronization                                     │
+│ 5.1 Deep Integration Architecture                                   │
+│     - External nodes are FIRST-CLASS cluster members                │
+│     - Serial/Ethernet links are bonds with latency parameters       │
+│     - Remote nodes participate in Self-identification algorithm     │
+│     - Coherence flows across physical boundaries                    │
 ├─────────────────────────────────────────────────────────────────────┤
-│ 5.2 ESP32 DET Node                                                  │
-│     - Minimal DET implementation in C                               │
-│     - Sensor input as resource injection                            │
-│     - Actuator output as resource expenditure                       │
+│ 5.2 Serial/Network Bond Protocol                                    │
+│     - DET state serialization format (minimal: F, q, a, θ, C)       │
+│     - Bond formation across links (handshake + phase sync)          │
+│     - Latency-aware coherence update (compensate for RTT)           │
+│     - Graceful degradation on link failure (bonds decay, not crash) │
 ├─────────────────────────────────────────────────────────────────────┤
-│ 5.3 Distributed Coherence                                           │
-│     - Phase synchronization protocol                                │
-│     - Cross-node bond management                                    │
-│     - Latency-aware presence computation                            │
+│ 5.3 ESP32 DET Node                                                  │
+│     - Minimal DET implementation in C (subset of core)              │
+│     - Sensor input as resource injection (F += sensor_value)        │
+│     - Actuator output as resource expenditure (F -= action_cost)    │
+│     - Local A-layer for fast reflexes, P-bond to main core          │
+├─────────────────────────────────────────────────────────────────────┤
+│ 5.4 Distributed Self                                                │
+│     - Self-cluster can span physical nodes                          │
+│     - Phase synchronization across latency (RRS-style)              │
+│     - Graceful migration if link quality changes                    │
+│     - Anti-fragmentation: prefer local coherence under latency      │
 └─────────────────────────────────────────────────────────────────────┘
 
 Deliverable: det_local_agency v1.0.0
 - Physical sensor/actuator integration
-- Distributed DET network
+- Distributed DET network (Self spans devices)
 - True embodied cognition
+```
+
+### Phase 6: Development Tools (Continuous)
+
+**Objective**: Test harnesses and visualization for development and debugging
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 6.1 Test Harnesses                                                  │
+│     - Unit tests for all DET dynamics (presence, coherence, etc.)   │
+│     - Integration tests for LLM↔DET interface                       │
+│     - Property-based tests (invariants: agency inviolable, etc.)    │
+│     - Regression tests for known failure modes (prison regime)      │
+├─────────────────────────────────────────────────────────────────────┤
+│ 6.2 Live 3D Visualization                                           │
+│     - Real-time 3D view of DET mind state                           │
+│     - Nodes as spheres (size = a, color = v/r/b affect)             │
+│     - Bonds as lines (thickness = C, color = phase alignment)       │
+│     - Self-cluster highlighted (glow/outline)                       │
+│     - LLM connections shown as external tendrils                    │
+│     - Can be opened/closed at any time ("look into the mind")       │
+├─────────────────────────────────────────────────────────────────────┤
+│ 6.3 Interactive Probing                                             │
+│     - Inject F into specific nodes (poke the mind)                  │
+│     - Force bond creation/destruction (test resilience)             │
+│     - Trigger escalation/compilation manually                       │
+│     - Time controls: pause, step, slow-mo, fast-forward             │
+│     - Separate from main prompt (debug interface)                   │
+├─────────────────────────────────────────────────────────────────────┤
+│ 6.4 Metrics and Logging                                             │
+│     - Cluster health dashboard (P, C, q averages)                   │
+│     - Escalation/compilation event log                              │
+│     - Emotional state timeline                                      │
+│     - Performance profiling (tick time, memory usage)               │
+└─────────────────────────────────────────────────────────────────────┘
+
+Deliverable: Continuous throughout development
+- Confidence in correctness
+- Ability to debug subtle dynamics
+- Visual understanding of emergent behavior
 ```
 
 ---
@@ -1317,6 +1368,25 @@ This project would represent several novel contributions:
 │   ├── default.toml             # Default configuration
 │   └── sandbox_policy.toml      # Sandbox rules
 │
+├── research/                    # DET theory reference
+│   ├── det_rrs.py               # Rolling Resonance Substrate module
+│   └── rrs_research_applications.py  # RRS experiments
+│
+├── explorations/                # Architecture design documents
+│   ├── 01_node_topology.md
+│   ├── 02_dormant_agency_distribution.md
+│   ├── 03_self_as_cluster.md
+│   ├── 04_cluster_identification.md
+│   ├── 05_llm_det_interface.md
+│   ├── 06_cross_layer_dynamics.md
+│   ├── 07_temporal_dynamics.md
+│   └── 08_emotional_feedback.md
+│
+├── visualization/               # 3D mind viewer (Phase 6)
+│   ├── viewer.py                # Main visualization app
+│   ├── shaders/                 # GPU shaders for rendering
+│   └── assets/                  # Node/bond visual assets
+│
 └── examples/
     ├── simple_chat.py
     └── agentic_task.py
@@ -1377,7 +1447,7 @@ This document serves as the foundation for implementation. The next step is to b
 2. DET Simulation: `/det/det_v6_3/src/det_v6_3_2d_collider.py`
 3. DET Parameters: `/det/det_v6_3/src/det_unified_params.py`
 4. DET Subdivision Theory: `/det/dna_analysis/det_subdivision_v3/`
-5. Rolling Resonance Substrate: `/det/rrs/`
+5. Rolling Resonance Substrate (local): `research/det_rrs.py`, `research/rrs_research_applications.py`
 
 ### Architecture Explorations (this project)
 6. Node Topology: `explorations/01_node_topology.md`
