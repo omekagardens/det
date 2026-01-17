@@ -288,25 +288,44 @@
     - `reasoning`: DeepSeek R1 8B (REASONING, SCIENCE)
 - **Tests**: 28/28 passing (`test_phase5.py`)
 
-### Phase 5 Integration (Current)
-- **Tests**: 28/28 passing (`test_phase5.py`)
-- **Version**: 0.5.0
-- **Total Tests**: 135/135 Python (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 28 Phase5.1)
+### 5.2 Sleep/Consolidation Cycle ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/consolidation.py`
+- **Features**:
+  - `IdleDetector`: Activity tracking and idle detection
+    - Configurable idle threshold
+    - Idle duration tracking
+  - `ConsolidationConfig`: Cycle configuration
+    - Timing (idle threshold, interval, max duration)
+    - Training settings (min examples, max domains)
+    - DET integration (valence gating, grace injection)
+  - `ConsolidationCycle`: Cycle state tracking
+    - Phases: MEMORY_SCAN → DATA_GENERATION → MODEL_TRAINING → GRACE_INJECTION → VERIFICATION
+    - Domain and job tracking
+  - `ConsolidationManager`: Full lifecycle management
+    - Automatic idle monitoring (threaded)
+    - Scheduled consolidation via TimerSystem
+    - MLX training integration via MemoryRetuner
+    - DET affect-gated training (positive valence required)
+    - Grace injection during recovery
+  - `setup_consolidation()`: Convenience setup function
+- **Tests**: 18 new tests (46 total Phase 5)
+
+### Phase 5 Integration ✅
+- **Tests**: 46/46 passing (`test_phase5.py`)
+- **Version**: 0.5.1
+- **Total Tests**: 153/153 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 46 Phase5)
 
 ---
 
 ## Next Steps
 
-1. **Phase 5.2: Sleep/Consolidation Cycle**:
-   - [ ] Automated memory training during idle periods
-   - [ ] Integration with timer system
-   - [ ] MLX training triggers
-
-2. **Phase 5.3: Network Integration**:
+1. **Phase 5.3: Network Integration**:
    - [ ] ESP32/serial protocol for distributed DET nodes
    - [ ] External components as mind extensions
 
-3. **Phase 6: Polish**:
+2. **Phase 6: Polish**:
    - [ ] Performance profiling and optimization
    - [ ] Documentation and API reference
 
@@ -366,4 +385,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 5.1 Multi-LLM Routing Complete)*
+*Last Updated: 2026-01-17 (Phase 5.2 Sleep/Consolidation Complete)*

@@ -12,6 +12,8 @@ emotional state integration, and multi-session support.
 Phase 2.2 adds: MLX training pipeline for memory model retraining.
 
 Phase 5.1 adds: Multi-LLM routing with domain-specialized models.
+
+Phase 5.2 adds: Sleep/consolidation cycles with MLX training integration.
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
@@ -34,8 +36,12 @@ from .training import (
     TrainingConfig, TrainingExample, TrainingJob, TrainingStatus,
     TrainingDataGenerator, LoRATrainer, MemoryRetuner, is_mlx_available
 )
+from .consolidation import (
+    ConsolidationManager, ConsolidationConfig, ConsolidationState,
+    ConsolidationPhase, ConsolidationCycle, IdleDetector, setup_consolidation
+)
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -62,4 +68,7 @@ __all__ = [
     # Phase 2.2: MLX Training
     "TrainingConfig", "TrainingExample", "TrainingJob", "TrainingStatus",
     "TrainingDataGenerator", "LoRATrainer", "MemoryRetuner", "is_mlx_available",
+    # Phase 5.2: Sleep/Consolidation
+    "ConsolidationManager", "ConsolidationConfig", "ConsolidationState",
+    "ConsolidationPhase", "ConsolidationCycle", "IdleDetector", "setup_consolidation",
 ]
