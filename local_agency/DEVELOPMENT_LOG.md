@@ -348,14 +348,55 @@
 
 ---
 
+## Phase 6: Development Tools (In Progress)
+
+### 6.1 CLI Test Harness ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/harness.py`
+  - `src/python/test_phase6.py`
+- **Features**:
+  - **HarnessController**: Programmatic control for debugging
+    - Resource injection (F, q, agency)
+    - Bond manipulation (create, destroy, set coherence)
+    - Time controls (pause, resume, step, speed)
+    - State inspection (nodes, bonds, aggregates, affect)
+    - Snapshot/restore for state comparison
+    - Event logging with callbacks
+    - Watchers for conditional triggers
+  - **HarnessCLI**: Interactive cmd-based CLI
+    - Status commands (status, node, bond, self, affect, emotional)
+    - Injection commands (inject_f, inject_q, inject_all, set_agency)
+    - Bond commands (create_bond, destroy_bond, set_coherence)
+    - Time commands (step, pause, resume, speed, run, stop)
+    - Snapshot commands (snapshot, restore, snapshots, delete_snapshot)
+    - Event commands (events, clear_events)
+  - `create_harness()`: Convenience factory function
+  - `run_harness_cli()`: Launch interactive CLI
+- **Tests**: 35/35 passing (`test_phase6.py`)
+- **Note**: Foundation for future webapp-based visualization
+
+### Phase 6 Integration (In Progress)
+- **Tests**: 35/35 passing (`test_phase6.py`)
+- **Version**: 0.6.0
+- **Total Tests**: 217/217 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 75 Phase5 + 35 Phase6)
+
+---
+
 ## Next Steps
 
-1. **Phase 5.3+: Network Hardware Integration** (Future):
+1. **Phase 6.2: Web Visualization** (Planned):
+   - [ ] Local webapp for 3D mind visualization
+   - [ ] Real-time data feed from harness
+   - [ ] Info stats and log display
+   - [ ] Integration with CLI harness
+
+2. **Phase 5.3+: Network Hardware Integration** (Future):
    - [ ] Implement SerialTransport with pyserial
    - [ ] ESP32 firmware development
    - [ ] Full external node protocol implementation
 
-2. **Phase 6: Polish**:
+3. **Phase 6+: Polish**:
    - [ ] Performance profiling and optimization
    - [ ] Documentation and API reference
 
@@ -415,4 +456,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 5.3 Network Integration Foundation Complete)*
+*Last Updated: 2026-01-17 (Phase 6.1 CLI Test Harness Complete)*

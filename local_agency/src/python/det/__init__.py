@@ -16,9 +16,15 @@ Phase 5.1 adds: Multi-LLM routing with domain-specialized models.
 Phase 5.2 adds: Sleep/consolidation cycles with MLX training integration.
 
 Phase 5.3 adds: Network protocol and interfaces for distributed DET nodes (preliminary).
+
+Phase 6.1 adds: Test harness for DET debugging and probing.
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
+from .harness import (
+    HarnessController, HarnessCLI, HarnessEvent, HarnessEventType,
+    Snapshot, create_harness, run_harness_cli
+)
 from .llm import DETLLMInterface, OllamaClient, DetIntentPacket, IntentType, DomainType
 from .memory import MemoryManager, MemoryDomain, MemoryEntry, DomainRouter, ContextWindow
 from .routing import (
@@ -48,10 +54,13 @@ from .network import (
     NetworkRegistry, create_stub_network
 )
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
+    # Harness (Phase 6.1)
+    "HarnessController", "HarnessCLI", "HarnessEvent", "HarnessEventType",
+    "Snapshot", "create_harness", "run_harness_cli",
     # LLM
     "DETLLMInterface", "OllamaClient", "DetIntentPacket", "IntentType", "DomainType",
     # Memory
