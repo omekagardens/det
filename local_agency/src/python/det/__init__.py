@@ -8,6 +8,8 @@ and agentic operations (sandbox, tasks, timer, code execution).
 
 Phase 4 adds: Extended DET dynamics, learning via recruitment,
 emotional state integration, and multi-session support.
+
+Phase 2.2 adds: MLX training pipeline for memory model retraining.
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
@@ -22,8 +24,12 @@ from .emotional import (
     EmotionalIntegration, EmotionalMode, BehaviorModulation,
     RecoveryState, MultiSessionManager, SessionContext
 )
+from .training import (
+    TrainingConfig, TrainingExample, TrainingJob, TrainingStatus,
+    TrainingDataGenerator, LoRATrainer, MemoryRetuner, is_mlx_available
+)
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -44,4 +50,7 @@ __all__ = [
     # Phase 4: Emotional Integration
     "EmotionalIntegration", "EmotionalMode", "BehaviorModulation",
     "RecoveryState", "MultiSessionManager", "SessionContext",
+    # Phase 2.2: MLX Training
+    "TrainingConfig", "TrainingExample", "TrainingJob", "TrainingStatus",
+    "TrainingDataGenerator", "LoRATrainer", "MemoryRetuner", "is_mlx_available",
 ]

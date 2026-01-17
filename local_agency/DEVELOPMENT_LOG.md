@@ -85,12 +85,28 @@
   - Coherence-tracked domain routing
   - Memory consolidation for training data
 
-### 2.2 MLX Training Pipeline 🔄
-- **Status**: Deferred (requires MLX hardware)
-- **Planned**:
-  - LoRA adapter training
-  - Training data generation from memories (implemented in memory.py)
-  - Model weight merging
+### 2.2 MLX Training Pipeline ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/training.py`
+  - `src/python/test_training.py`
+- **Features**:
+  - `TrainingConfig`: Configurable LoRA parameters (rank, alpha, dropout, layers)
+  - `TrainingExample`: Training data representation with chat format conversion
+  - `TrainingDataGenerator`: Generate Q&A pairs from memories and context
+    - Domain-specific templates (MATH, CODE, REASONING, etc.)
+    - Q&A extraction from content
+    - Conversation context extraction
+    - JSONL dataset export
+  - `LoRATrainer`: MLX-based LoRA fine-tuning
+    - Model loading with LoRA layers
+    - Training with checkpointing
+    - Adapter management (save, load, list, delete)
+  - `MemoryRetuner`: High-level integration
+    - DET core approval checking before training
+    - Memory-to-training-data conversion
+    - Session consolidation support
+- **Tests**: 22/22 passing (`test_training.py`)
 
 ### 2.3 Context Window Management ✅
 - **Status**: Complete (in memory.py)
@@ -235,8 +251,8 @@
 
 ### Phase 4 Integration ✅
 - **Tests**: 25/25 passing (`test_phase4.py`)
-- **Version**: 0.4.0
-- **Total Tests**: 85/85 (22 C + 11 Bridge + 10 Phase2 + 17 Phase3 + 25 Phase4)
+- **Version**: 0.4.1
+- **Total Tests**: 107/107 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4)
 
 ---
 
@@ -305,4 +321,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 4 Complete)*
+*Last Updated: 2026-01-17 (Phase 2.2 MLX Training Complete)*
