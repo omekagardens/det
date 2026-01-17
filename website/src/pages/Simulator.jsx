@@ -28,6 +28,7 @@ function Simulator() {
   const [drawMode, setDrawMode] = useState(false);
   const [boundaryEnabled, setBoundaryEnabled] = useState(true);
   const [graceEnabled, setGraceEnabled] = useState(true);
+  const [replicationEnabled, setReplicationEnabled] = useState(false);
 
   // Drawing state
   const isDrawing = useRef(false);
@@ -49,6 +50,7 @@ function Simulator() {
       height: canvas.height,
       boundaryEnabled,
       graceEnabled,
+      replicationEnabled,
     });
 
     universeRef.current.setupScenario(scenario);
@@ -167,6 +169,7 @@ function Simulator() {
       // Draw particles
       for (const p of universe.particles) {
         if (!p.alive) continue; // Skip dead particles
+        if (p.isDormant) continue; // Skip dormant particles (they're not visible)
 
         // Boundary particles rendered differently
         if (p.isBoundary) {
@@ -314,6 +317,7 @@ function Simulator() {
     { id: 'expansion', label: 'Big Bang', desc: 'Expansion from singularity' },
     { id: 'quantum', label: 'Quantum Coherent', desc: 'High coherence, phase-aligned' },
     { id: 'grace-demo', label: 'Grace Demo', desc: 'Resource redistribution via grace' },
+    { id: 'replication-demo', label: 'Replication', desc: 'Node division via fork mechanism' },
     { id: 'random', label: 'Random', desc: 'Random initial conditions' },
   ];
 
@@ -385,6 +389,18 @@ function Simulator() {
             <span className="label">Grace</span>
             <span className="value" style={{ color: stats.graceFlow > 0.1 ? '#0f8' : '#0ff' }}>{stats.graceFlow?.toFixed(2) || 0}</span>
           </div>
+        )}
+        {replicationEnabled && (
+          <>
+            <div className="sim-stat">
+              <span className="label">Replications</span>
+              <span className="value" style={{ color: stats.replications > 0 ? '#f80' : '#0ff' }}>{stats.replications || 0}</span>
+            </div>
+            <div className="sim-stat">
+              <span className="label">Dormant</span>
+              <span className="value" style={{ color: '#888' }}>{stats.dormant || 0}</span>
+            </div>
+          </>
         )}
       </div>
 
@@ -512,6 +528,17 @@ function Simulator() {
               }}
             />
             <span>Grace Injection</span>
+          </label>
+          <label className="sim-checkbox">
+            <input
+              type="checkbox"
+              checked={replicationEnabled}
+              onChange={(e) => {
+                setReplicationEnabled(e.target.checked);
+                universeRef.current?.setReplicationEnabled(e.target.checked);
+              }}
+            />
+            <span>Node Replication</span>
           </label>
         </div>
 
