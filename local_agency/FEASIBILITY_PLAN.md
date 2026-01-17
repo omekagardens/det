@@ -34,6 +34,7 @@ This inverts the typical paradigm: rather than LLMs being the reasoning engine w
 | **Self identification** | Coherence-weighted edge filtering + continuity | exploration 04 |
 | **LLM-to-DET interface** | Port Protocol: stimulus injection via sensory membrane | exploration 05 |
 | **Cross-layer dynamics** | One law, three regimes; local novelty/stability triggers | exploration 06 |
+| **Temporal dynamics** | Dual EMAs, local cadence, windowed membrane events | exploration 07 |
 
 ---
 
@@ -1336,19 +1337,9 @@ This project would represent several novel contributions:
 | **Self-identification** | Algorithm: w_ij = C_ij × \|J_ij\| × √(a_i × a_j), edge filtering, continuity-weighted selection | `04_cluster_identification.md` |
 | **LLM-to-DET interface** | Port Protocol: LLM emits DetIntentPacket → Sensory membrane (16-64 port nodes) → Resource injection + temporary bonds. DET dynamics decide recruitment. | `05_llm_det_interface.md` |
 | **Cross-layer dynamics** | One bond law, three parameter regimes. A→P escalation via local novelty score. P→A compilation via local stability score. Anti-prison decay rules. | `06_cross_layer_dynamics.md` |
+| **Temporal dynamics** | Per-node local cadence counters, dual EMAs (short α=0.3 for escalation, long α=0.05 for compilation), windowed membrane events with quiet acceleration. | `07_temporal_dynamics.md` |
 
-### 9.2 OPEN: Temporal Dynamics
-
-**Question**: What are the timescales for different operations?
-
-**Sub-questions**:
-- How long does P→A compilation take? (hours? days? sessions?)
-- What's the coherence decay rate for inactive bonds?
-- How does "sleep" consolidation affect cluster structure?
-
-**Initial direction**: Session-based granularity, explore finer timing in Phase 4.
-
-### 9.3 OPEN: Emotional Feedback Integration
+### 9.2 OPEN: Emotional Feedback Integration
 
 **Question**: How should emotional state affect behavior?
 
@@ -1360,7 +1351,7 @@ This project would represent several novel contributions:
 
 **Initial direction**: Start with 1 and 4, expand to 2 and 3 later.
 
-### 9.4 OPEN: Substrate Sizing
+### 9.3 OPEN: Substrate Sizing
 
 **Question**: How many nodes and what pool sizes?
 
@@ -1405,8 +1396,9 @@ This document serves as the foundation for implementation. The next step is to b
 9. Self-Identification Algorithm: `explorations/04_cluster_identification.md`
 10. LLM-to-DET Interface: `explorations/05_llm_det_interface.md`
 11. Cross-Layer Dynamics: `explorations/06_cross_layer_dynamics.md`
+12. Temporal Dynamics: `explorations/07_temporal_dynamics.md`
 
 ### External Tools & Frameworks
-12. Orla Project: https://github.com/dorcha-inc/orla
-13. MLX Documentation: https://ml-explore.github.io/mlx/
-14. Ollama: https://ollama.ai/
+13. Orla Project: https://github.com/dorcha-inc/orla
+14. MLX Documentation: https://ml-explore.github.io/mlx/
+15. Ollama: https://ollama.ai/
