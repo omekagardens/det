@@ -1,0 +1,9 @@
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/det_core.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/det_core_test.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/test.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/edit_cache.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/rebuild_cache.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/list_install_components.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/install.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/install/local.dir
+/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/det_core/build/CMakeFiles/install/strip.dir

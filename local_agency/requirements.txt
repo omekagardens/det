@@ -1,0 +1,2 @@
+# DET Local Agency Dependencies
+requests>=2.28.0
