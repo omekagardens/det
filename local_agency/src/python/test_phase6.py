@@ -4,6 +4,7 @@ DET Phase 6 Tests
 =================
 
 Phase 6.1: Test harness for DET debugging and probing.
+Phase 6.2: Web application for 3D visualization and real-time monitoring.
 """
 
 import sys
@@ -17,7 +18,13 @@ from det import (
     DETCore,
     HarnessController, HarnessCLI, HarnessEvent, HarnessEventType,
     Snapshot, create_harness, run_harness_cli,
+    WEBAPP_AVAILABLE,
 )
+
+# Conditional webapp imports
+if WEBAPP_AVAILABLE:
+    from det import create_app, run_server, DETStateAPI
+    from det.webapp.api import DETStateAPI as APIClass
 
 
 # ============================================================================
@@ -763,6 +770,252 @@ def test_harness_with_storage():
 
 
 # ============================================================================
+# Phase 6.2: Web Application Tests
+# ============================================================================
+
+def test_webapp_available():
+    """Test that webapp is available."""
+    print("  test_webapp_available...", end=" ")
+
+    assert WEBAPP_AVAILABLE is True
+
+    print("PASS")
+
+
+def test_state_api_init():
+    """Test DETStateAPI initialization."""
+    print("  test_state_api_init...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    api = APIClass()
+    assert api.core is None
+    assert api.harness is None
+
+    print("PASS")
+
+
+def test_state_api_with_core():
+    """Test DETStateAPI with DET core."""
+    print("  test_state_api_with_core...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        assert api.core is core
+        assert api.harness is harness
+
+    print("PASS")
+
+
+def test_state_api_get_status():
+    """Test status retrieval."""
+    print("  test_state_api_get_status...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        for _ in range(5):
+            core.step(0.1)
+
+        status = api.get_status()
+
+        assert status["connected"] is True
+        assert "tick" in status
+        assert "num_active" in status
+
+    print("PASS")
+
+
+def test_state_api_get_nodes():
+    """Test nodes retrieval."""
+    print("  test_state_api_get_nodes...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        for _ in range(5):
+            core.step(0.1)
+
+        nodes = api.get_nodes()
+
+        assert len(nodes) > 0
+        assert "index" in nodes[0]
+        assert "layer" in nodes[0]
+        assert "F" in nodes[0]
+
+    print("PASS")
+
+
+def test_state_api_get_bonds():
+    """Test bonds retrieval."""
+    print("  test_state_api_get_bonds...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        bonds = api.get_bonds()
+
+        assert isinstance(bonds, list)
+
+    print("PASS")
+
+
+def test_state_api_get_visualization_data():
+    """Test visualization data retrieval."""
+    print("  test_state_api_get_visualization_data...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        data = api.get_visualization_data()
+
+        assert "nodes" in data
+        assert "bonds" in data
+        assert "self_cluster" in data
+
+        if len(data["nodes"]) > 0:
+            node = data["nodes"][0]
+            assert "x" in node
+            assert "y" in node
+            assert "z" in node
+            assert "color" in node
+
+    print("PASS")
+
+
+def test_state_api_control():
+    """Test control methods."""
+    print("  test_state_api_control...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        # Test step
+        result = api.step(5, 0.1)
+        assert result["steps"] == 5
+
+        # Test pause
+        assert api.pause() is True
+        assert harness.paused is True
+
+        # Test resume
+        assert api.resume() is True
+        assert harness.paused is False
+
+        # Test speed
+        speed = api.set_speed(2.0)
+        assert speed == 2.0
+
+    print("PASS")
+
+
+def test_state_api_inject():
+    """Test injection methods."""
+    print("  test_state_api_inject...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        api = APIClass(core=core, harness=harness)
+
+        for _ in range(5):
+            core.step(0.1)
+
+        # Test inject_f
+        result = api.inject_f(0, 0.5)
+        assert result is True
+
+        # Test inject_q
+        result = api.inject_q(0, 0.1)
+        assert result is True
+
+    print("PASS")
+
+
+def test_create_app():
+    """Test create_app function."""
+    print("  test_create_app...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        app = create_app(core=core, harness=harness)
+
+        assert app is not None
+        assert hasattr(app, "routes")
+
+    print("PASS")
+
+
+def test_webapp_routes():
+    """Test that webapp has expected routes."""
+    print("  test_webapp_routes...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        app = create_app(core=core, harness=harness)
+
+        routes = [route.path for route in app.routes]
+
+        # Check API routes exist
+        assert "/" in routes
+        assert "/api/status" in routes
+        assert "/api/nodes" in routes
+        assert "/ws" in routes
+
+    print("PASS")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -827,6 +1080,19 @@ def run_tests():
         # Integration
         test_full_harness_flow,
         test_harness_with_storage,
+
+        # Phase 6.2: Webapp
+        test_webapp_available,
+        test_state_api_init,
+        test_state_api_with_core,
+        test_state_api_get_status,
+        test_state_api_get_nodes,
+        test_state_api_get_bonds,
+        test_state_api_get_visualization_data,
+        test_state_api_control,
+        test_state_api_inject,
+        test_create_app,
+        test_webapp_routes,
     ]
 
     passed = 0

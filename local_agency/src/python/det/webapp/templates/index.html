@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DET Mind Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        #container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 3D Visualization Panel */
+        #visualization {
+            flex: 1;
+            position: relative;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Side Panel */
+        #panel {
+            width: 320px;
+            background: #12122a;
+            border-left: 1px solid #2a2a4a;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, #1a1a3a 0%, #0d0d1f 100%);
+            padding: 15px;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .panel-header h1 {
+            font-size: 1.2rem;
+            color: #00d4ff;
+            margin-bottom: 5px;
+        }
+
+        .panel-header .subtitle {
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: #0d0d1f;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #888;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: #ccc;
+            background: rgba(255,255,255,0.05);
+        }
+
+        .tab.active {
+            color: #00d4ff;
+            background: rgba(0,212,255,0.1);
+            border-bottom: 2px solid #00d4ff;
+        }
+
+        /* Tab Content */
+        .tab-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        /* Status Section */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .status-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .status-card .label {
+            font-size: 0.7rem;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .status-card .value {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .status-card.emotion .value {
+            font-size: 1rem;
+            color: #00d4ff;
+        }
+
+        /* Affect Display */
+        .affect-bars {
+            margin-bottom: 20px;
+        }
+
+        .affect-bar {
+            margin-bottom: 12px;
+        }
+
+        .affect-bar .header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 0.75rem;
+        }
+
+        .affect-bar .bar {
+            height: 8px;
+            background: #1a1a3a;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .affect-bar .fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .affect-bar.valence .fill {
+            background: linear-gradient(90deg, #ff4444, #888, #44ff44);
+        }
+
+        .affect-bar.arousal .fill {
+            background: linear-gradient(90deg, #333, #ff8800);
+        }
+
+        .affect-bar.bondedness .fill {
+            background: linear-gradient(90deg, #333, #00d4ff);
+        }
+
+        /* Controls */
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #00d4ff;
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background: #00a8cc;
+        }
+
+        .btn-secondary {
+            background: #2a2a4a;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #3a3a5a;
+        }
+
+        .btn-danger {
+            background: #ff4444;
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #cc3333;
+        }
+
+        .btn.active {
+            background: #ff8800;
+            color: #000;
+        }
+
+        /* Speed Control */
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .speed-control label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .speed-control input {
+            flex: 1;
+        }
+
+        .speed-control .value {
+            width: 50px;
+            text-align: right;
+            font-size: 0.85rem;
+        }
+
+        /* Log Panel */
+        .log-container {
+            background: #0a0a1a;
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+
+        .log-entry {
+            padding: 6px 10px;
+            border-bottom: 1px solid #1a1a2a;
+        }
+
+        .log-entry:hover {
+            background: rgba(255,255,255,0.03);
+        }
+
+        .log-entry .time {
+            color: #666;
+            margin-right: 8px;
+        }
+
+        .log-entry .type {
+            color: #00d4ff;
+            margin-right: 8px;
+        }
+
+        /* Node List */
+        .node-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .node-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            border-bottom: 1px solid #1a1a2a;
+            cursor: pointer;
+        }
+
+        .node-item:hover {
+            background: rgba(255,255,255,0.03);
+        }
+
+        .node-item .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+
+        .node-item .info {
+            flex: 1;
+        }
+
+        .node-item .name {
+            font-size: 0.85rem;
+        }
+
+        .node-item .stats {
+            font-size: 0.7rem;
+            color: #888;
+        }
+
+        .node-item.in-self {
+            background: rgba(0,212,255,0.1);
+        }
+
+        /* Connection Status */
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            z-index: 100;
+        }
+
+        .connection-status.connected {
+            background: rgba(68, 255, 68, 0.2);
+            color: #44ff44;
+        }
+
+        .connection-status.disconnected {
+            background: rgba(255, 68, 68, 0.2);
+            color: #ff4444;
+        }
+
+        /* Overlay info */
+        #overlay-info {
+            position: absolute;
+            top: 10px;
+            right: 330px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+        }
+
+        #overlay-info .row {
+            margin-bottom: 5px;
+        }
+
+        #overlay-info .label {
+            color: #888;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="visualization">
+            <div id="canvas-container"></div>
+            <div id="overlay-info">
+                <div class="row"><span class="label">Tick:</span><span id="info-tick">0</span></div>
+                <div class="row"><span class="label">Nodes:</span><span id="info-nodes">0</span></div>
+                <div class="row"><span class="label">Bonds:</span><span id="info-bonds">0</span></div>
+                <div class="row"><span class="label">Self:</span><span id="info-self">0</span></div>
+            </div>
+        </div>
+
+        <div id="panel">
+            <div class="panel-header">
+                <h1>DET Mind Viewer</h1>
+                <div class="subtitle">Deep Existence Theory Visualization</div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" data-tab="status">Status</button>
+                <button class="tab" data-tab="control">Control</button>
+                <button class="tab" data-tab="nodes">Nodes</button>
+                <button class="tab" data-tab="log">Log</button>
+            </div>
+
+            <div class="tab-content">
+                <!-- Status Tab -->
+                <div class="tab-pane active" id="tab-status">
+                    <div class="status-grid">
+                        <div class="status-card">
+                            <div class="label">Presence</div>
+                            <div class="value" id="stat-presence">0.00</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="label">Coherence</div>
+                            <div class="value" id="stat-coherence">0.00</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="label">Resource</div>
+                            <div class="value" id="stat-resource">0.00</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="label">Debt</div>
+                            <div class="value" id="stat-debt">0.00</div>
+                        </div>
+                        <div class="status-card emotion" style="grid-column: span 2;">
+                            <div class="label">Emotional State</div>
+                            <div class="value" id="stat-emotion">NEUTRAL</div>
+                        </div>
+                    </div>
+
+                    <h3 style="font-size: 0.9rem; margin-bottom: 10px; color: #888;">Affect</h3>
+                    <div class="affect-bars">
+                        <div class="affect-bar valence">
+                            <div class="header">
+                                <span>Valence</span>
+                                <span id="affect-valence-val">0.00</span>
+                            </div>
+                            <div class="bar">
+                                <div class="fill" id="affect-valence-bar" style="width: 50%;"></div>
+                            </div>
+                        </div>
+                        <div class="affect-bar arousal">
+                            <div class="header">
+                                <span>Arousal</span>
+                                <span id="affect-arousal-val">0.00</span>
+                            </div>
+                            <div class="bar">
+                                <div class="fill" id="affect-arousal-bar" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                        <div class="affect-bar bondedness">
+                            <div class="header">
+                                <span>Bondedness</span>
+                                <span id="affect-bondedness-val">0.00</span>
+                            </div>
+                            <div class="bar">
+                                <div class="fill" id="affect-bondedness-bar" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Control Tab -->
+                <div class="tab-pane" id="tab-control">
+                    <div class="controls">
+                        <div class="control-row">
+                            <button class="btn btn-primary" id="btn-step">Step</button>
+                            <button class="btn btn-secondary" id="btn-step10">Step 10</button>
+                        </div>
+                        <div class="control-row">
+                            <button class="btn btn-secondary" id="btn-pause">Pause</button>
+                            <button class="btn btn-secondary" id="btn-resume">Resume</button>
+                        </div>
+                        <div class="speed-control">
+                            <label>Speed:</label>
+                            <input type="range" id="speed-slider" min="0.1" max="5" step="0.1" value="1">
+                            <span class="value" id="speed-value">1.0x</span>
+                        </div>
+                        <div class="control-row">
+                            <button class="btn btn-secondary" id="btn-snapshot">Snapshot</button>
+                            <button class="btn btn-secondary" id="btn-restore">Restore</button>
+                        </div>
+                    </div>
+
+                    <h3 style="font-size: 0.9rem; margin-bottom: 10px; color: #888;">Inject Resources</h3>
+                    <div class="control-row">
+                        <input type="number" id="inject-node" placeholder="Node" style="width: 60px; padding: 8px; border-radius: 4px; border: 1px solid #2a2a4a; background: #0a0a1a; color: #fff;">
+                        <input type="number" id="inject-amount" placeholder="Amount" step="0.1" value="0.5" style="flex: 1; padding: 8px; border-radius: 4px; border: 1px solid #2a2a4a; background: #0a0a1a; color: #fff;">
+                        <button class="btn btn-primary" id="btn-inject">Inject F</button>
+                    </div>
+                </div>
+
+                <!-- Nodes Tab -->
+                <div class="tab-pane" id="tab-nodes">
+                    <div class="node-list" id="node-list">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Log Tab -->
+                <div class="tab-pane" id="tab-log">
+                    <div class="log-container" id="log-container">
+                        <!-- Populated dynamically -->
+                    </div>
+                    <div class="control-row" style="margin-top: 10px;">
+                        <button class="btn btn-secondary" id="btn-clear-log">Clear Log</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="connection-status disconnected" id="connection-status">
+        Disconnected
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // ============================================================
+        // DET Mind Viewer - Main Application
+        // ============================================================
+
+        class DETViewer {
+            constructor() {
+                this.ws = null;
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.nodes = new Map();
+                this.bonds = [];
+                this.selfCluster = new Set();
+
+                this.state = {
+                    tick: 0,
+                    paused: false,
+                    speed: 1.0,
+                    numActive: 0,
+                    numBonds: 0,
+                };
+
+                this.logs = [];
+                this.maxLogs = 100;
+
+                this.init();
+            }
+
+            init() {
+                this.initThree();
+                this.initWebSocket();
+                this.initControls();
+                this.initTabs();
+                this.animate();
+            }
+
+            // --------------------------------------------------------
+            // Three.js Setup
+            // --------------------------------------------------------
+
+            initThree() {
+                const container = document.getElementById('canvas-container');
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+
+                // Scene
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x0a0a1a);
+
+                // Camera
+                this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+                this.camera.position.set(8, 6, 8);
+                this.camera.lookAt(0, 0, 0);
+
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(width, height);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                container.appendChild(this.renderer.domElement);
+
+                // Controls
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+
+                // Lights
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+                this.scene.add(ambientLight);
+
+                const pointLight = new THREE.PointLight(0xffffff, 1);
+                pointLight.position.set(10, 10, 10);
+                this.scene.add(pointLight);
+
+                // Grid helper
+                const gridHelper = new THREE.GridHelper(20, 20, 0x1a1a3a, 0x1a1a3a);
+                gridHelper.position.y = -2;
+                this.scene.add(gridHelper);
+
+                // Bond line material
+                this.bondMaterial = new THREE.LineBasicMaterial({
+                    color: 0x00d4ff,
+                    transparent: true,
+                    opacity: 0.3,
+                });
+
+                // Resize handler
+                window.addEventListener('resize', () => {
+                    const w = container.clientWidth;
+                    const h = container.clientHeight;
+                    this.camera.aspect = w / h;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(w, h);
+                });
+            }
+
+            // --------------------------------------------------------
+            // WebSocket
+            // --------------------------------------------------------
+
+            initWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                this.ws = new WebSocket(wsUrl);
+
+                this.ws.onopen = () => {
+                    this.setConnectionStatus(true);
+                    this.addLog('system', 'Connected to DET server');
+                };
+
+                this.ws.onclose = () => {
+                    this.setConnectionStatus(false);
+                    this.addLog('system', 'Disconnected from server');
+                    // Reconnect after delay
+                    setTimeout(() => this.initWebSocket(), 3000);
+                };
+
+                this.ws.onerror = (error) => {
+                    this.addLog('error', 'WebSocket error');
+                };
+
+                this.ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+                    this.handleMessage(msg);
+                };
+            }
+
+            handleMessage(msg) {
+                switch (msg.type) {
+                    case 'init':
+                        this.handleInit(msg.data);
+                        break;
+                    case 'state':
+                        this.handleState(msg.data);
+                        break;
+                    case 'event':
+                        this.handleEvent(msg.data);
+                        break;
+                    case 'ping':
+                        this.ws.send(JSON.stringify({ type: 'pong' }));
+                        break;
+                }
+            }
+
+            handleInit(data) {
+                this.state = {
+                    tick: data.tick || 0,
+                    paused: data.paused || false,
+                    speed: data.speed || 1.0,
+                    numActive: data.num_active || 0,
+                    numBonds: data.num_bonds || 0,
+                };
+
+                if (data.nodes) {
+                    this.updateNodes(data.nodes);
+                }
+                if (data.bonds) {
+                    this.updateBonds(data.bonds);
+                }
+
+                this.updateUI(data);
+                this.addLog('system', 'Initialized with full state');
+            }
+
+            handleState(data) {
+                this.state.tick = data.tick;
+                this.state.paused = data.paused;
+                this.state.speed = data.speed;
+                this.state.numActive = data.num_active;
+                this.state.numBonds = data.num_bonds;
+
+                this.updateUI(data);
+            }
+
+            handleEvent(event) {
+                this.addLog(event.type, JSON.stringify(event.params));
+            }
+
+            // --------------------------------------------------------
+            // 3D Visualization
+            // --------------------------------------------------------
+
+            updateNodes(nodesData) {
+                // Clear existing nodes
+                this.nodes.forEach((mesh, id) => {
+                    this.scene.remove(mesh);
+                });
+                this.nodes.clear();
+
+                // Create new nodes
+                nodesData.forEach(node => {
+                    const geometry = new THREE.SphereGeometry(node.size || 0.2, 16, 16);
+                    const color = new THREE.Color(
+                        node.color?.r || 0.5,
+                        node.color?.g || 0.5,
+                        node.color?.b || 0.5
+                    );
+
+                    const material = new THREE.MeshPhongMaterial({
+                        color: color,
+                        emissive: node.in_self ? new THREE.Color(0x00d4ff) : new THREE.Color(0x000000),
+                        emissiveIntensity: node.in_self ? 0.3 : 0,
+                    });
+
+                    const mesh = new THREE.Mesh(geometry, material);
+                    mesh.position.set(node.x, node.y, node.z);
+                    mesh.userData = node;
+
+                    this.scene.add(mesh);
+                    this.nodes.set(node.id, mesh);
+                });
+            }
+
+            updateBonds(bondsData) {
+                // Clear existing bonds
+                this.bonds.forEach(line => {
+                    this.scene.remove(line);
+                });
+                this.bonds = [];
+
+                // Create new bonds
+                bondsData.forEach(bond => {
+                    const sourceNode = this.nodes.get(bond.source);
+                    const targetNode = this.nodes.get(bond.target);
+
+                    if (sourceNode && targetNode) {
+                        const points = [
+                            sourceNode.position.clone(),
+                            targetNode.position.clone()
+                        ];
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                        const material = new THREE.LineBasicMaterial({
+                            color: bond.is_cross_layer ? 0xff8800 : 0x00d4ff,
+                            transparent: true,
+                            opacity: Math.min(bond.strength, 0.8),
+                        });
+
+                        const line = new THREE.Line(geometry, material);
+                        this.scene.add(line);
+                        this.bonds.push(line);
+                    }
+                });
+            }
+
+            // --------------------------------------------------------
+            // UI Updates
+            // --------------------------------------------------------
+
+            updateUI(data) {
+                // Overlay info
+                document.getElementById('info-tick').textContent = data.tick || 0;
+                document.getElementById('info-nodes').textContent = data.num_active || 0;
+                document.getElementById('info-bonds').textContent = data.num_bonds || 0;
+                document.getElementById('info-self').textContent = data.self_cluster_size || 0;
+
+                // Status cards
+                if (data.aggregates) {
+                    document.getElementById('stat-presence').textContent = (data.aggregates.presence || 0).toFixed(3);
+                    document.getElementById('stat-coherence').textContent = (data.aggregates.coherence || 0).toFixed(3);
+                    document.getElementById('stat-resource').textContent = (data.aggregates.resource || 0).toFixed(3);
+                    document.getElementById('stat-debt').textContent = (data.aggregates.debt || 0).toFixed(3);
+                }
+
+                // Emotional state
+                document.getElementById('stat-emotion').textContent = data.emotional_state || 'UNKNOWN';
+
+                // Affect bars
+                if (data.affect) {
+                    const valence = data.affect.valence || 0;
+                    const arousal = data.affect.arousal || 0;
+                    const bondedness = data.affect.bondedness || 0;
+
+                    document.getElementById('affect-valence-val').textContent = valence.toFixed(2);
+                    document.getElementById('affect-arousal-val').textContent = arousal.toFixed(2);
+                    document.getElementById('affect-bondedness-val').textContent = bondedness.toFixed(2);
+
+                    // Valence bar (centered, -1 to 1)
+                    document.getElementById('affect-valence-bar').style.width = `${((valence + 1) / 2) * 100}%`;
+                    document.getElementById('affect-arousal-bar').style.width = `${arousal * 100}%`;
+                    document.getElementById('affect-bondedness-bar').style.width = `${bondedness * 100}%`;
+                }
+
+                // Speed slider
+                document.getElementById('speed-value').textContent = `${(data.speed || 1.0).toFixed(1)}x`;
+            }
+
+            updateNodeList(nodes) {
+                const container = document.getElementById('node-list');
+                container.innerHTML = '';
+
+                nodes.forEach(node => {
+                    const div = document.createElement('div');
+                    div.className = `node-item ${node.in_self ? 'in-self' : ''}`;
+
+                    const color = node.color || { r: 0.5, g: 0.5, b: 0.5 };
+                    const colorStr = `rgb(${Math.floor(color.r * 255)}, ${Math.floor(color.g * 255)}, ${Math.floor(color.b * 255)})`;
+
+                    div.innerHTML = `
+                        <div class="dot" style="background: ${colorStr};"></div>
+                        <div class="info">
+                            <div class="name">${node.layer}-${node.id}</div>
+                            <div class="stats">P: ${node.P?.toFixed(2) || '?'} | a: ${node.a?.toFixed(2) || '?'}</div>
+                        </div>
+                    `;
+
+                    container.appendChild(div);
+                });
+            }
+
+            // --------------------------------------------------------
+            // Controls
+            // --------------------------------------------------------
+
+            initControls() {
+                // Step buttons
+                document.getElementById('btn-step').addEventListener('click', () => {
+                    this.sendCommand('step', { n: 1, dt: 0.1 });
+                });
+
+                document.getElementById('btn-step10').addEventListener('click', () => {
+                    this.sendCommand('step', { n: 10, dt: 0.1 });
+                });
+
+                // Pause/Resume
+                document.getElementById('btn-pause').addEventListener('click', () => {
+                    this.sendCommand('pause');
+                });
+
+                document.getElementById('btn-resume').addEventListener('click', () => {
+                    this.sendCommand('resume');
+                });
+
+                // Speed slider
+                const speedSlider = document.getElementById('speed-slider');
+                speedSlider.addEventListener('input', (e) => {
+                    const speed = parseFloat(e.target.value);
+                    document.getElementById('speed-value').textContent = `${speed.toFixed(1)}x`;
+                });
+                speedSlider.addEventListener('change', (e) => {
+                    const speed = parseFloat(e.target.value);
+                    this.sendCommand('speed', { speed });
+                });
+
+                // Snapshot
+                document.getElementById('btn-snapshot').addEventListener('click', () => {
+                    const name = `snap_${Date.now()}`;
+                    this.sendCommand('snapshot', { name });
+                    this.addLog('snapshot', `Saved: ${name}`);
+                });
+
+                // Inject
+                document.getElementById('btn-inject').addEventListener('click', () => {
+                    const node = parseInt(document.getElementById('inject-node').value) || 0;
+                    const amount = parseFloat(document.getElementById('inject-amount').value) || 0.5;
+                    this.sendCommand('inject_f', { node, amount });
+                });
+
+                // Clear log
+                document.getElementById('btn-clear-log').addEventListener('click', () => {
+                    this.logs = [];
+                    document.getElementById('log-container').innerHTML = '';
+                });
+            }
+
+            sendCommand(type, params = {}) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({ type, ...params }));
+                }
+            }
+
+            // --------------------------------------------------------
+            // Tabs
+            // --------------------------------------------------------
+
+            initTabs() {
+                const tabs = document.querySelectorAll('.tab');
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        const tabId = tab.dataset.tab;
+
+                        // Update tab buttons
+                        tabs.forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+
+                        // Update tab panes
+                        document.querySelectorAll('.tab-pane').forEach(pane => {
+                            pane.classList.remove('active');
+                        });
+                        document.getElementById(`tab-${tabId}`).classList.add('active');
+                    });
+                });
+            }
+
+            // --------------------------------------------------------
+            // Logging
+            // --------------------------------------------------------
+
+            addLog(type, message) {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString();
+
+                this.logs.push({ time: timeStr, type, message });
+                if (this.logs.length > this.maxLogs) {
+                    this.logs.shift();
+                }
+
+                const container = document.getElementById('log-container');
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.innerHTML = `
+                    <span class="time">${timeStr}</span>
+                    <span class="type">${type}</span>
+                    <span class="message">${message}</span>
+                `;
+                container.appendChild(entry);
+                container.scrollTop = container.scrollHeight;
+            }
+
+            setConnectionStatus(connected) {
+                const status = document.getElementById('connection-status');
+                if (connected) {
+                    status.className = 'connection-status connected';
+                    status.textContent = 'Connected';
+                } else {
+                    status.className = 'connection-status disconnected';
+                    status.textContent = 'Disconnected';
+                }
+            }
+
+            // --------------------------------------------------------
+            // Animation Loop
+            // --------------------------------------------------------
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', () => {
+            window.viewer = new DETViewer();
+        });
+    </script>
+</body>
+</html>

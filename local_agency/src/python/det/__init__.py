@@ -18,6 +18,8 @@ Phase 5.2 adds: Sleep/consolidation cycles with MLX training integration.
 Phase 5.3 adds: Network protocol and interfaces for distributed DET nodes (preliminary).
 
 Phase 6.1 adds: Test harness for DET debugging and probing.
+
+Phase 6.2 adds: Web application for 3D visualization and real-time monitoring.
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
@@ -25,6 +27,16 @@ from .harness import (
     HarnessController, HarnessCLI, HarnessEvent, HarnessEventType,
     Snapshot, create_harness, run_harness_cli
 )
+
+# Web app imports (optional - may not have FastAPI installed)
+try:
+    from .webapp import create_app, run_server, DETStateAPI
+    WEBAPP_AVAILABLE = True
+except ImportError:
+    WEBAPP_AVAILABLE = False
+    create_app = None
+    run_server = None
+    DETStateAPI = None
 from .llm import DETLLMInterface, OllamaClient, DetIntentPacket, IntentType, DomainType
 from .memory import MemoryManager, MemoryDomain, MemoryEntry, DomainRouter, ContextWindow
 from .routing import (
@@ -54,13 +66,15 @@ from .network import (
     NetworkRegistry, create_stub_network
 )
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
     # Harness (Phase 6.1)
     "HarnessController", "HarnessCLI", "HarnessEvent", "HarnessEventType",
     "Snapshot", "create_harness", "run_harness_cli",
+    # Webapp (Phase 6.2)
+    "create_app", "run_server", "DETStateAPI", "WEBAPP_AVAILABLE",
     # LLM
     "DETLLMInterface", "OllamaClient", "DetIntentPacket", "IntentType", "DomainType",
     # Memory
