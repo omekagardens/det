@@ -33,6 +33,7 @@ This inverts the typical paradigm: rather than LLMs being the reasoning engine w
 | **Forgetting/Retirement** | Cluster shedding with debt export | exploration 03 |
 | **Self identification** | Coherence-weighted edge filtering + continuity | exploration 04 |
 | **LLM-to-DET interface** | Port Protocol: stimulus injection via sensory membrane | exploration 05 |
+| **Cross-layer dynamics** | One law, three regimes; local novelty/stability triggers | exploration 06 |
 
 ---
 
@@ -1334,19 +1335,9 @@ This project would represent several novel contributions:
 | **Forgetting** | Cluster shedding: nodes drift below coherence threshold, return to dormant pool with debt export | `03_self_as_cluster.md` |
 | **Self-identification** | Algorithm: w_ij = C_ij × \|J_ij\| × √(a_i × a_j), edge filtering, continuity-weighted selection | `04_cluster_identification.md` |
 | **LLM-to-DET interface** | Port Protocol: LLM emits DetIntentPacket → Sensory membrane (16-64 port nodes) → Resource injection + temporary bonds. DET dynamics decide recruitment. | `05_llm_det_interface.md` |
+| **Cross-layer dynamics** | One bond law, three parameter regimes. A→P escalation via local novelty score. P→A compilation via local stability score. Anti-prison decay rules. | `06_cross_layer_dynamics.md` |
 
-### 9.2 OPEN: Cross-Layer Bond Dynamics
-
-**Question**: How do bonds between P-layer and A-layer form and break?
-
-**Sub-questions**:
-- What triggers A→P escalation (novelty detection)?
-- What criteria determine P→A compilation (pattern stabilization)?
-- Should cross-layer bonds have different dynamics than within-layer bonds?
-
-**Initial direction**: Threshold-based escalation, stability-based compilation.
-
-### 9.3 OPEN: Temporal Dynamics
+### 9.2 OPEN: Temporal Dynamics
 
 **Question**: What are the timescales for different operations?
 
@@ -1357,7 +1348,7 @@ This project would represent several novel contributions:
 
 **Initial direction**: Session-based granularity, explore finer timing in Phase 4.
 
-### 9.4 OPEN: Emotional Feedback Integration
+### 9.3 OPEN: Emotional Feedback Integration
 
 **Question**: How should emotional state affect behavior?
 
@@ -1369,7 +1360,7 @@ This project would represent several novel contributions:
 
 **Initial direction**: Start with 1 and 4, expand to 2 and 3 later.
 
-### 9.5 OPEN: Substrate Sizing
+### 9.4 OPEN: Substrate Sizing
 
 **Question**: How many nodes and what pool sizes?
 
@@ -1413,8 +1404,9 @@ This document serves as the foundation for implementation. The next step is to b
 8. Self as Cluster (RRS/ACX.1): `explorations/03_self_as_cluster.md`
 9. Self-Identification Algorithm: `explorations/04_cluster_identification.md`
 10. LLM-to-DET Interface: `explorations/05_llm_det_interface.md`
+11. Cross-Layer Dynamics: `explorations/06_cross_layer_dynamics.md`
 
 ### External Tools & Frameworks
-11. Orla Project: https://github.com/dorcha-inc/orla
-12. MLX Documentation: https://ml-explore.github.io/mlx/
-13. Ollama: https://ollama.ai/
+12. Orla Project: https://github.com/dorcha-inc/orla
+13. MLX Documentation: https://ml-explore.github.io/mlx/
+14. Ollama: https://ollama.ai/
