@@ -977,83 +977,44 @@ INITIAL_SUBSTRATE = {
 1. **~~Binding problem~~** ✓ → Phase synchronization (θ) as binding mechanism
 2. **~~Memory consolidation~~** ✓ → P→A compilation via fork-based recruitment
 3. **~~How does learning happen~~** ✓ → Recruitment-based node activation, not creation
+4. **~~Q1: Agency distribution~~** ✓ → Beta(2,5) + 5% Reserved Pool (see exploration 02)
+   - Reframed by Cluster insight: High-a nodes are coherence anchors, not leaders
+5. **~~Q2: Forgetting/Retirement~~** ✓ → Cluster shedding with debt export (see exploration 03)
+   - Node death ≠ Self death; cluster identity persists via RRS continuity
+6. **~~What is the Self?~~** ✓ → The high-coherence cluster, not a region or layer (ACX.1)
 
 ---
 
 ### Active Questions (Priority Order)
 
-#### Q1: Dormant Agency Distribution - What Shapes the "Substrate Potential"?
+#### ~~Q1: Dormant Agency Distribution~~ → RESOLVED (See exploration 02, 03)
 
-The dormant pool's intrinsic agency distribution determines what the mind CAN become.
+**Resolution**: Beta(2,5) + 5% Reserved High-a Pool
 
-```
-If all dormant nodes have a ≈ 0.5:
-  → Uniform potential, no specialization pressure
-
-If dormant a follows Beta(2, 5) (skewed low):
-  → Most recruits are low-agency (good for routine patterns)
-  → Rare high-agency recruits (reserved for important patterns)
-
-If dormant a follows Beta(5, 2) (skewed high):
-  → Rich potential, but recruitment competition intensifies
-```
-
-**Questions**:
-- Should we initialize randomly or with structure (e.g., high-a nodes clustered)?
-- Does the distribution evolve? (No - agency is inviolable, but which nodes get recruited does)
-- What distribution best mimics biological neural potential?
-
-**Proposed Exploration**: Simulate different distributions, measure emergent behavior.
+**Cluster Reframing** (from RRS/ACX.1):
+- High-a nodes are **coherence anchors** (cluster nuclei), not "leaders"
+- Low-a nodes are **flux carriers** (cluster substrate), not "workers"
+- Scarcity forces **cluster formation**, not just prioritization
+- The "Self" emerges where coherence is highest, regardless of individual node agency
 
 ---
 
-#### Q2: Structural Debt (q) and Forgetting - When Do Nodes Go Dormant Again?
+#### ~~Q2: Structural Debt (q) and Forgetting~~ → RESOLVED (See exploration 03)
 
-DET has q-locking: spending F accumulates structural debt q. High q constrains agency ceiling:
+**Resolution**: Cluster shedding with debt export (RRS Ship-of-Theseus mechanism)
+
+**Key Insight**: Retirement is a **cluster decision**, not a node health issue:
 ```
-a_max = 1 / (1 + λ_a × q²)
-```
-
-**Questions**:
-- Can active nodes become dormant again if q gets too high?
-- Is this "forgetting" or "retirement"?
-- How does grace injection (boundary recovery) interact with q?
-
-**Proposed Mechanism**:
-```python
-def check_node_retirement(self, node_id: int) -> bool:
-    """
-    A node with very high q and very low activity might "retire" to dormancy.
-    This frees lattice position for future recruitment.
-    """
-    node = self.nodes[node_id]
-
-    if node.q > Q_RETIREMENT_THRESHOLD:  # e.g., 0.9
-        if node.P < P_RETIREMENT_THRESHOLD:  # e.g., 0.05
-            # Check if node has been inactive for long
-            if self.steps_since_active[node_id] > RETIREMENT_STEPS:
-                return True
-
-    return False
-
-def retire_node(self, node_id: int):
-    """Return active node to dormant state."""
-    node = self.nodes[node_id]
-
-    # Remove all bonds
-    for bond_id in self.get_bonds(node_id):
-        self.remove_bond(bond_id)
-
-    # Set dormant
-    node.n = 0
-
-    # q persists (scars of past activity)
-    # But agency a is unchanged (inviolable)
-
-    # Node can be recruited again, but starts with high q handicap
+Node retirement → Cluster decides to SHED the node
+Structural debt q → Investment the CLUSTER made through the node
+Shedding exports debt → Cluster renewed, identity preserved
 ```
 
-**Implication**: The mind develops "scar tissue" - dormant nodes with high q that are hard to effectively recruit.
+**The Continuity Condition** (from ACX.1):
+- A node can "die" without the Self dying
+- The Self = high-coherence cluster
+- As long as cluster maintains C_threshold, identity persists
+- RRS enables indefinite longevity through rolling replacement
 
 ---
 
