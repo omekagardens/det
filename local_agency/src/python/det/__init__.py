@@ -14,6 +14,8 @@ Phase 2.2 adds: MLX training pipeline for memory model retraining.
 Phase 5.1 adds: Multi-LLM routing with domain-specialized models.
 
 Phase 5.2 adds: Sleep/consolidation cycles with MLX training integration.
+
+Phase 5.3 adds: Network protocol and interfaces for distributed DET nodes (preliminary).
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
@@ -40,8 +42,13 @@ from .consolidation import (
     ConsolidationManager, ConsolidationConfig, ConsolidationState,
     ConsolidationPhase, ConsolidationCycle, IdleDetector, setup_consolidation
 )
+from .network import (
+    MessageType, NodeType, NodeStatus, DETMessage, NodeInfo,
+    Transport, ExternalNode, StubTransport, StubExternalNode,
+    NetworkRegistry, create_stub_network
+)
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -71,4 +78,8 @@ __all__ = [
     # Phase 5.2: Sleep/Consolidation
     "ConsolidationManager", "ConsolidationConfig", "ConsolidationState",
     "ConsolidationPhase", "ConsolidationCycle", "IdleDetector", "setup_consolidation",
+    # Phase 5.3: Network Integration (Preliminary)
+    "MessageType", "NodeType", "NodeStatus", "DETMessage", "NodeInfo",
+    "Transport", "ExternalNode", "StubTransport", "StubExternalNode",
+    "NetworkRegistry", "create_stub_network",
 ]

@@ -5,6 +5,7 @@ DET Phase 5 Tests
 
 Phase 5.1: Multi-LLM routing with domain-specialized models.
 Phase 5.2: Sleep/consolidation cycles with MLX training integration.
+Phase 5.3: Network protocol and interfaces for distributed DET nodes.
 """
 
 import sys
@@ -21,6 +22,10 @@ from det import (
     ConsolidationManager, ConsolidationConfig, ConsolidationState,
     ConsolidationPhase, ConsolidationCycle, IdleDetector, setup_consolidation,
     is_mlx_available,
+    # Phase 5.3: Network
+    MessageType, NodeType, NodeStatus, DETMessage, NodeInfo,
+    Transport, ExternalNode, StubTransport, StubExternalNode,
+    NetworkRegistry, create_stub_network,
 )
 
 
@@ -848,6 +853,569 @@ def test_consolidation_full_flow():
 
 
 # ============================================================================
+# Phase 5.3: Network Protocol Tests
+# ============================================================================
+
+def test_message_type_enum():
+    """Test MessageType enum values."""
+    print("  test_message_type_enum...", end=" ")
+
+    assert MessageType.HEARTBEAT == 0x01
+    assert MessageType.ACK == 0x02
+    assert MessageType.STATE_UPDATE == 0x12
+    assert MessageType.STIMULUS_INJECT == 0x30
+    assert MessageType.GRACE_INJECT == 0x51
+
+    print("PASS")
+
+
+def test_node_type_enum():
+    """Test NodeType enum values."""
+    print("  test_node_type_enum...", end=" ")
+
+    assert NodeType.UNKNOWN == 0
+    assert NodeType.ESP32 == 1
+    assert NodeType.RASPBERRY_PI == 2
+    assert NodeType.PYTHON_AGENT == 3
+
+    print("PASS")
+
+
+def test_node_status_enum():
+    """Test NodeStatus enum values."""
+    print("  test_node_status_enum...", end=" ")
+
+    assert NodeStatus.UNKNOWN == 0
+    assert NodeStatus.CONNECTING == 1
+    assert NodeStatus.CONNECTED == 2
+    assert NodeStatus.DISCONNECTED == 3
+    assert NodeStatus.ERROR == 4
+
+    print("PASS")
+
+
+def test_det_message_creation():
+    """Test DETMessage creation."""
+    print("  test_det_message_creation...", end=" ")
+
+    msg = DETMessage(
+        msg_type=MessageType.HEARTBEAT,
+        sequence=42,
+        payload=b"\x01\x02\x03",
+    )
+
+    assert msg.msg_type == MessageType.HEARTBEAT
+    assert msg.sequence == 42
+    assert msg.payload == b"\x01\x02\x03"
+    assert msg.timestamp > 0
+
+    print("PASS")
+
+
+def test_det_message_serialization():
+    """Test DETMessage binary serialization."""
+    print("  test_det_message_serialization...", end=" ")
+
+    msg = DETMessage(
+        msg_type=MessageType.STATE_UPDATE,
+        sequence=100,
+        payload=b"\xDE\xAD\xBE\xEF",
+    )
+
+    data = msg.to_bytes()
+
+    # Check magic bytes
+    assert data[:2] == bytes([0xDE, 0x7A])
+
+    # Check length (4 bytes payload)
+    assert data[2:4] == b"\x04\x00"  # Little-endian uint16
+
+    # Check message type
+    assert data[4] == MessageType.STATE_UPDATE
+
+    print("PASS")
+
+
+def test_det_message_deserialization():
+    """Test DETMessage binary deserialization."""
+    print("  test_det_message_deserialization...", end=" ")
+
+    original = DETMessage(
+        msg_type=MessageType.AFFECT_UPDATE,
+        sequence=255,
+        payload=b"\x00\x11\x22\x33\x44",
+    )
+
+    data = original.to_bytes()
+    restored = DETMessage.from_bytes(data)
+
+    assert restored is not None
+    assert restored.msg_type == MessageType.AFFECT_UPDATE
+    assert restored.sequence == 255
+    assert restored.payload == b"\x00\x11\x22\x33\x44"
+
+    print("PASS")
+
+
+def test_det_message_invalid_magic():
+    """Test DETMessage rejects invalid magic bytes."""
+    print("  test_det_message_invalid_magic...", end=" ")
+
+    # Invalid magic bytes
+    data = b"\xFF\xFF\x00\x00\x01\x00\x00\x00"
+
+    msg = DETMessage.from_bytes(data)
+    assert msg is None
+
+    print("PASS")
+
+
+def test_det_message_to_dict():
+    """Test DETMessage dict conversion."""
+    print("  test_det_message_to_dict...", end=" ")
+
+    msg = DETMessage(
+        msg_type=MessageType.HEARTBEAT,
+        sequence=1,
+        payload=b"\xAB\xCD",
+    )
+
+    data = msg.to_dict()
+
+    assert data["type"] == "HEARTBEAT"
+    assert data["sequence"] == 1
+    assert data["payload"] == "abcd"
+    assert "timestamp" in data
+
+    print("PASS")
+
+
+def test_node_info_creation():
+    """Test NodeInfo creation."""
+    print("  test_node_info_creation...", end=" ")
+
+    info = NodeInfo(
+        node_id="node-001",
+        node_type=NodeType.ESP32,
+        name="Test ESP32",
+        address="/dev/ttyUSB0",
+    )
+
+    assert info.node_id == "node-001"
+    assert info.node_type == NodeType.ESP32
+    assert info.name == "Test ESP32"
+    assert info.address == "/dev/ttyUSB0"
+    assert info.status == NodeStatus.UNKNOWN
+    assert info.assigned_nodes == []
+
+    print("PASS")
+
+
+def test_node_info_to_dict():
+    """Test NodeInfo dict conversion."""
+    print("  test_node_info_to_dict...", end=" ")
+
+    info = NodeInfo(
+        node_id="node-002",
+        node_type=NodeType.PYTHON_AGENT,
+        capabilities=["state_sync", "training"],
+    )
+
+    data = info.to_dict()
+
+    assert data["node_id"] == "node-002"
+    assert data["node_type"] == "PYTHON_AGENT"
+    assert "state_sync" in data["capabilities"]
+
+    print("PASS")
+
+
+# ============================================================================
+# Phase 5.3: Stub Transport Tests
+# ============================================================================
+
+def test_stub_transport_init():
+    """Test StubTransport initialization."""
+    print("  test_stub_transport_init...", end=" ")
+
+    transport = StubTransport(name="test")
+
+    assert transport.name == "test"
+    assert not transport.is_connected()
+    assert len(transport._sent_messages) == 0
+
+    print("PASS")
+
+
+def test_stub_transport_connect():
+    """Test StubTransport connection."""
+    print("  test_stub_transport_connect...", end=" ")
+
+    transport = StubTransport()
+
+    assert transport.connect() is True
+    assert transport.is_connected() is True
+
+    transport.disconnect()
+    assert transport.is_connected() is False
+
+    print("PASS")
+
+
+def test_stub_transport_send():
+    """Test StubTransport send."""
+    print("  test_stub_transport_send...", end=" ")
+
+    transport = StubTransport()
+    transport.connect()
+
+    result = transport.send(b"\x01\x02\x03")
+
+    assert result is True
+    assert len(transport._sent_messages) == 1
+    assert transport._sent_messages[0] == b"\x01\x02\x03"
+
+    print("PASS")
+
+
+def test_stub_transport_receive():
+    """Test StubTransport receive."""
+    print("  test_stub_transport_receive...", end=" ")
+
+    transport = StubTransport()
+    transport.connect()
+
+    # No data yet
+    assert transport.receive() is None
+
+    # Inject data
+    transport.inject_receive(b"\xAB\xCD")
+    data = transport.receive()
+
+    assert data == b"\xAB\xCD"
+    assert transport.receive() is None  # Queue empty
+
+    print("PASS")
+
+
+# ============================================================================
+# Phase 5.3: Stub External Node Tests
+# ============================================================================
+
+def test_stub_node_init():
+    """Test StubExternalNode initialization."""
+    print("  test_stub_node_init...", end=" ")
+
+    node = StubExternalNode(
+        node_id="stub-001",
+        node_type=NodeType.ESP32,
+        name="Test Node",
+    )
+
+    assert node.node_id == "stub-001"
+    assert node.node_info.node_type == NodeType.ESP32
+    assert node.node_info.name == "Test Node"
+    assert node.node_info.status == NodeStatus.DISCONNECTED
+
+    print("PASS")
+
+
+def test_stub_node_connect():
+    """Test StubExternalNode connection."""
+    print("  test_stub_node_connect...", end=" ")
+
+    node = StubExternalNode(node_id="stub-002")
+
+    assert node.connect() is True
+    assert node.node_info.status == NodeStatus.CONNECTED
+    assert node.node_info.last_seen > 0
+
+    node.disconnect()
+    assert node.node_info.status == NodeStatus.DISCONNECTED
+
+    print("PASS")
+
+
+def test_stub_node_update_state():
+    """Test StubExternalNode state updates."""
+    print("  test_stub_node_update_state...", end=" ")
+
+    node = StubExternalNode(node_id="stub-003")
+    node.connect()
+
+    node.update_state(
+        presence=0.8,
+        coherence=0.6,
+        affect=(0.5, 0.4, 0.7),
+    )
+
+    state = node.get_state()
+
+    assert state["presence"] == 0.8
+    assert state["coherence"] == 0.6
+    assert state["valence"] == 0.5
+    assert state["arousal"] == 0.4
+    assert state["bondedness"] == 0.7
+
+    print("PASS")
+
+
+def test_stub_node_send_message():
+    """Test StubExternalNode message sending."""
+    print("  test_stub_node_send_message...", end=" ")
+
+    node = StubExternalNode(node_id="stub-004")
+    node.connect()
+
+    msg = DETMessage(
+        msg_type=MessageType.HEARTBEAT,
+        sequence=1,
+    )
+
+    result = node.send_message(msg)
+
+    assert result is True
+    assert node.node_info.message_count == 1
+
+    print("PASS")
+
+
+# ============================================================================
+# Phase 5.3: Network Registry Tests
+# ============================================================================
+
+def test_network_registry_init():
+    """Test NetworkRegistry initialization."""
+    print("  test_network_registry_init...", end=" ")
+
+    registry = NetworkRegistry()
+
+    assert registry.core is None
+    assert len(registry.list_nodes()) == 0
+
+    print("PASS")
+
+
+def test_network_registry_with_core():
+    """Test NetworkRegistry with DET core."""
+    print("  test_network_registry_with_core...", end=" ")
+
+    with DETCore() as core:
+        registry = NetworkRegistry(core=core)
+
+        assert registry.core is core
+
+    print("PASS")
+
+
+def test_network_registry_register():
+    """Test node registration."""
+    print("  test_network_registry_register...", end=" ")
+
+    registry = NetworkRegistry()
+
+    node = StubExternalNode(node_id="reg-001")
+
+    result = registry.register_node(node)
+    assert result is True
+
+    # Duplicate registration should fail
+    result = registry.register_node(node)
+    assert result is False
+
+    assert len(registry.list_nodes()) == 1
+
+    print("PASS")
+
+
+def test_network_registry_unregister():
+    """Test node unregistration."""
+    print("  test_network_registry_unregister...", end=" ")
+
+    registry = NetworkRegistry()
+
+    node = StubExternalNode(node_id="reg-002")
+    registry.register_node(node)
+    node.connect()
+
+    result = registry.unregister_node("reg-002")
+    assert result is True
+    assert len(registry.list_nodes()) == 0
+
+    # Unregister non-existent should fail
+    result = registry.unregister_node("non-existent")
+    assert result is False
+
+    print("PASS")
+
+
+def test_network_registry_get_node():
+    """Test getting a node by ID."""
+    print("  test_network_registry_get_node...", end=" ")
+
+    registry = NetworkRegistry()
+
+    node = StubExternalNode(node_id="reg-003")
+    registry.register_node(node)
+
+    fetched = registry.get_node("reg-003")
+    assert fetched is node
+
+    assert registry.get_node("non-existent") is None
+
+    print("PASS")
+
+
+def test_network_registry_connect_all():
+    """Test connecting all nodes."""
+    print("  test_network_registry_connect_all...", end=" ")
+
+    registry = NetworkRegistry()
+
+    for i in range(3):
+        node = StubExternalNode(node_id=f"conn-{i}")
+        registry.register_node(node)
+
+    connected = registry.connect_all()
+
+    assert connected == 3
+
+    for info in registry.list_nodes():
+        assert info.status == NodeStatus.CONNECTED
+
+    print("PASS")
+
+
+def test_network_registry_broadcast_state():
+    """Test broadcasting DET state."""
+    print("  test_network_registry_broadcast_state...", end=" ")
+
+    with DETCore() as core:
+        registry = NetworkRegistry(core=core)
+
+        node1 = StubExternalNode(node_id="broadcast-1")
+        node2 = StubExternalNode(node_id="broadcast-2")
+
+        registry.register_node(node1)
+        registry.register_node(node2)
+        registry.connect_all()
+
+        # Run some DET steps
+        for _ in range(10):
+            core.step(0.1)
+
+        registry.broadcast_state()
+
+        # Check that states were updated
+        state1 = node1.get_state()
+        state2 = node2.get_state()
+
+        assert "presence" in state1
+        assert "coherence" in state2
+
+    print("PASS")
+
+
+def test_network_registry_message_handler():
+    """Test message handler registration."""
+    print("  test_network_registry_message_handler...", end=" ")
+
+    registry = NetworkRegistry()
+
+    received = []
+
+    def handler(node_id: str, msg: DETMessage):
+        received.append((node_id, msg))
+
+    registry.register_handler(MessageType.HEARTBEAT, handler)
+
+    assert MessageType.HEARTBEAT in registry._message_handlers
+    assert len(registry._message_handlers[MessageType.HEARTBEAT]) == 1
+
+    print("PASS")
+
+
+def test_network_registry_status():
+    """Test registry status reporting."""
+    print("  test_network_registry_status...", end=" ")
+
+    with DETCore() as core:
+        registry = NetworkRegistry(core=core)
+
+        for i in range(2):
+            node = StubExternalNode(node_id=f"status-{i}")
+            registry.register_node(node)
+
+        registry.connect_all()
+
+        status = registry.get_status()
+
+        assert status["total_nodes"] == 2
+        assert status["connected"] == 2
+        assert status["has_core"] is True
+        assert len(status["nodes"]) == 2
+
+    print("PASS")
+
+
+def test_create_stub_network():
+    """Test create_stub_network convenience function."""
+    print("  test_create_stub_network...", end=" ")
+
+    with DETCore() as core:
+        registry = create_stub_network(core=core, num_nodes=3)
+
+        assert registry.core is core
+        assert len(registry.list_nodes()) == 3
+
+        nodes = registry.list_nodes()
+        assert all(n.node_id.startswith("stub_") for n in nodes)
+
+    print("PASS")
+
+
+def test_network_full_flow():
+    """Test full network flow with DET integration."""
+    print("  test_network_full_flow...", end=" ")
+
+    with DETCore() as core:
+        # Create network
+        registry = create_stub_network(core=core, num_nodes=2)
+
+        # Connect all nodes
+        connected = registry.connect_all()
+        assert connected == 2
+
+        # Run DET simulation
+        for _ in range(20):
+            core.step(0.1)
+
+        # Broadcast state to all nodes
+        registry.broadcast_state()
+
+        # Verify nodes received state
+        for info in registry.list_nodes():
+            node = registry.get_node(info.node_id)
+            state = node.get_state()
+
+            assert state["presence"] > 0
+            assert state["coherence"] > 0
+
+        # Get status
+        status = registry.get_status()
+        assert status["total_nodes"] == 2
+        assert status["connected"] == 2
+
+        # Disconnect all
+        registry.disconnect_all()
+
+        for info in registry.list_nodes():
+            assert info.status == NodeStatus.DISCONNECTED
+
+    print("PASS")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -927,6 +1495,45 @@ def run_tests():
         # Phase 5.2: Integration
         test_setup_consolidation,
         test_consolidation_full_flow,
+
+        # Phase 5.3: Protocol
+        test_message_type_enum,
+        test_node_type_enum,
+        test_node_status_enum,
+        test_det_message_creation,
+        test_det_message_serialization,
+        test_det_message_deserialization,
+        test_det_message_invalid_magic,
+        test_det_message_to_dict,
+        test_node_info_creation,
+        test_node_info_to_dict,
+
+        # Phase 5.3: Stub Transport
+        test_stub_transport_init,
+        test_stub_transport_connect,
+        test_stub_transport_send,
+        test_stub_transport_receive,
+
+        # Phase 5.3: Stub External Node
+        test_stub_node_init,
+        test_stub_node_connect,
+        test_stub_node_update_state,
+        test_stub_node_send_message,
+
+        # Phase 5.3: Network Registry
+        test_network_registry_init,
+        test_network_registry_with_core,
+        test_network_registry_register,
+        test_network_registry_unregister,
+        test_network_registry_get_node,
+        test_network_registry_connect_all,
+        test_network_registry_broadcast_state,
+        test_network_registry_message_handler,
+        test_network_registry_status,
+        test_create_stub_network,
+
+        # Phase 5.3: Integration
+        test_network_full_flow,
     ]
 
     passed = 0

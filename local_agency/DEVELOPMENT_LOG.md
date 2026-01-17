@@ -312,18 +312,48 @@
   - `setup_consolidation()`: Convenience setup function
 - **Tests**: 18 new tests (46 total Phase 5)
 
+### 5.3 Network Integration (Preliminary) ✅
+- **Status**: Complete (Foundation)
+- **Files Created**:
+  - `src/python/det/network.py`
+- **Features**:
+  - **Protocol Definitions**:
+    - `MessageType`: Binary message types (HEARTBEAT, STATE_UPDATE, AFFECT_UPDATE, STIMULUS_INJECT, GRACE_INJECT, etc.)
+    - `NodeType`: Node types (ESP32, RASPBERRY_PI, PYTHON_AGENT, SENSOR, ACTUATOR)
+    - `NodeStatus`: Connection states (CONNECTING, CONNECTED, DISCONNECTED, ERROR, SLEEPING)
+    - `DETMessage`: Binary protocol with magic bytes, checksums, serialization/deserialization
+    - `NodeInfo`: Node metadata with capabilities and DET assignments
+  - **Abstract Interfaces**:
+    - `Transport`: Abstract transport interface (connect, send, receive)
+    - `ExternalNode`: Abstract interface for external DET nodes (state sync, messaging)
+  - **Stub Implementations**:
+    - `StubTransport`: Testing transport with message injection
+    - `StubExternalNode`: Simulated external node for development
+  - **Network Registry**:
+    - `NetworkRegistry`: Node registration, discovery, and management
+    - State broadcasting to all connected nodes
+    - Message handler registration
+    - Status reporting
+  - **Future Integration Points**:
+    - `SerialTransport`: Placeholder for ESP32/serial communication
+    - `ESP32Node`: Placeholder for ESP32 hardware node
+  - `create_stub_network()`: Convenience function for testing
+- **Tests**: 29 new tests (75 total Phase 5)
+- **Note**: This is a preliminary/foundation implementation. Full ESP32/serial integration deferred to future module.
+
 ### Phase 5 Integration ✅
-- **Tests**: 46/46 passing (`test_phase5.py`)
-- **Version**: 0.5.1
-- **Total Tests**: 153/153 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 46 Phase5)
+- **Tests**: 75/75 passing (`test_phase5.py`)
+- **Version**: 0.5.2
+- **Total Tests**: 182/182 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 75 Phase5)
 
 ---
 
 ## Next Steps
 
-1. **Phase 5.3: Network Integration**:
-   - [ ] ESP32/serial protocol for distributed DET nodes
-   - [ ] External components as mind extensions
+1. **Phase 5.3+: Network Hardware Integration** (Future):
+   - [ ] Implement SerialTransport with pyserial
+   - [ ] ESP32 firmware development
+   - [ ] Full external node protocol implementation
 
 2. **Phase 6: Polish**:
    - [ ] Performance profiling and optimization
@@ -385,4 +415,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 5.2 Sleep/Consolidation Complete)*
+*Last Updated: 2026-01-17 (Phase 5.3 Network Integration Foundation Complete)*
