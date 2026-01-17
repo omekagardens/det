@@ -29,6 +29,7 @@ export class DETParticleUniverse {
     // Feature toggles
     this.boundaryEnabled = config.boundaryEnabled !== false;
     this.graceEnabled = config.graceEnabled !== false;
+    this.replicationEnabled = config.replicationEnabled || false;
 
     // DET Parameters (from unified schema v6.3/v6.4)
     this.params = {
@@ -92,6 +93,17 @@ export class DETParticleUniverse {
       trailLength: 20,
       bond_display_threshold: 0.05,
       interaction_range: 150,
+
+      // Replication (from DET subdivision theory v3)
+      a_min_division: 0.2,      // Minimum agency to initiate division
+      F_min_division: 0.8,      // Minimum resource to divide
+      drive_threshold: 0.15,    // Local drive threshold for fork eligibility
+      lambda_fork: 0.15,        // Rate of coherence reduction per step
+      C_open_threshold: 0.1,    // Bond considered "open" below this
+      kappa_break: 0.05,        // Cost per |ΔC| during unzipping
+      kappa_form: 0.08,         // Cost per C_init when forming new bonds
+      replication_cooldown: 50, // Steps between replications for a particle
+      max_particles: 400,       // Maximum particles (prevent runaway replication)
     };
 
     Object.assign(this.params, config.params || {});
@@ -102,12 +114,19 @@ export class DETParticleUniverse {
     this.time = 0;
     this.graceFlowTotal = 0; // Track total grace flow for stats
 
+    // Replication tracking
+    this.activeForks = new Map(); // parentId -> fork state
+    this.replicationCount = 0;    // Total replications this session
+    this.dormantPool = [];        // Pre-allocated dormant particles for recruitment
+
     this.initializeParticles();
   }
 
   initializeParticles() {
     this.particles = [];
     this.bonds.clear();
+    this.activeForks.clear();
+    this.dormantPool = [];
     const cx = this.width / 2;
     const cy = this.height / 2;
 
@@ -132,6 +151,9 @@ export class DETParticleUniverse {
           trail: [],
           alive: true,
           isBoundary: true,
+          isDormant: false,
+          replicationCooldown: 0,
+          recentFlux: 0,
         });
       }
     }
@@ -159,12 +181,57 @@ export class DETParticleUniverse {
         trail: [],
         alive: true,
         isBoundary: false,
+        isDormant: false,
+        replicationCooldown: 0,
+        recentFlux: 0,
       });
     }
 
     // Create initial bonds to boundary
     if (this.boundaryEnabled) {
       this.createBoundaryBonds();
+    }
+
+    // Initialize dormant pool for replication
+    this.initializeDormantPool();
+  }
+
+  // Create pool of dormant particles that can be recruited during replication
+  initializeDormantPool() {
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const numDormant = 50; // Pre-allocate dormant particles
+    const startId = this.particles.length;
+
+    for (let i = 0; i < numDormant; i++) {
+      // Dormant particles are scattered but not visible/active
+      const angle = Math.random() * Math.PI * 2;
+      const maxR = Math.min(this.width, this.height) * 0.4;
+      const r = Math.random() * maxR;
+
+      const dormant = {
+        id: startId + i,
+        x: cx + Math.cos(angle) * r,
+        y: cy + Math.sin(angle) * r,
+        F: 0.2 + Math.random() * 0.3, // Low initial resource
+        q: 0,
+        a: 0.3 + Math.random() * 0.4, // Moderate agency potential
+        sigma: 0.8 + Math.random() * 0.4,
+        theta: Math.random() * Math.PI * 2,
+        px: 0,
+        py: 0,
+        L: 0,
+        P: 0, // Dormant have no presence
+        trail: [],
+        alive: true,
+        isBoundary: false,
+        isDormant: true, // Key: this particle is dormant
+        replicationCooldown: 0,
+        recentFlux: 0,
+      };
+
+      this.particles.push(dormant);
+      this.dormantPool.push(dormant.id);
     }
   }
 
@@ -583,6 +650,11 @@ export class DETParticleUniverse {
       }
     }
 
+    // Process replication (if enabled)
+    if (this.replicationEnabled && this.step % 3 === 0) {
+      this.processReplicationStep();
+    }
+
     this.step++;
     this.time += dt;
   }
@@ -653,6 +725,7 @@ export class DETParticleUniverse {
 
     const n = alive.length;
     const initialCount = this.numParticles;
+    const dormantCount = this.dormantPool.length;
 
     return {
       step: this.step,
@@ -668,7 +741,10 @@ export class DETParticleUniverse {
       bonds: this.getBonds().length,
       boundaryBonds: this.getBonds().filter(b => b.isBoundaryBond).length,
       fusions: initialCount - n,
-      graceFlow: this.graceFlowTotal
+      graceFlow: this.graceFlowTotal,
+      replications: this.replicationCount,
+      dormant: dormantCount,
+      activeForks: this.activeForks.size
     };
   }
 
@@ -689,6 +765,9 @@ export class DETParticleUniverse {
       trail: [],
       alive: true,
       isBoundary: false,
+      isDormant: false,
+      replicationCooldown: 0,
+      recentFlux: 0,
     };
     this.particles.push(p);
 
@@ -720,6 +799,357 @@ export class DETParticleUniverse {
   // Toggle grace
   setGraceEnabled(enabled) {
     this.graceEnabled = enabled;
+  }
+
+  // Toggle replication
+  setReplicationEnabled(enabled) {
+    this.replicationEnabled = enabled;
+    if (enabled && this.dormantPool.length === 0) {
+      this.initializeDormantPool();
+    }
+  }
+
+  // ========================================================================
+  // REPLICATION SYSTEM (Based on DET Subdivision Theory v3)
+  // ========================================================================
+
+  // Compute local drive/stress that makes a particle want to replicate
+  computeLocalDrive(particle, neighbors) {
+    // Factor 1: Recent flux magnitude
+    const fluxDrive = Math.abs(particle.recentFlux || 0);
+
+    // Factor 2: Resource gradient (am I a local maximum?)
+    let gradientDrive = 0;
+    if (neighbors.length > 0) {
+      const neighborF = neighbors.reduce((sum, n) => sum + n.particle.F, 0) / neighbors.length;
+      gradientDrive = Math.max(0, particle.F - neighborF);
+    }
+
+    // Factor 3: Agency * resource (high agency + high resource = drive)
+    const agencyDrive = particle.a * particle.F * 0.1;
+
+    return fluxDrive + gradientDrive + agencyDrive;
+  }
+
+  // Compute stress on a bond (high stress = good candidate for forking)
+  computeBondStress(p1, p2, bond) {
+    // Resource differential across bond
+    const F_diff = Math.abs(p1.F - p2.F);
+
+    // Phase misalignment
+    const theta_diff = Math.abs(Math.sin(p1.theta - p2.theta));
+
+    // Combined stress
+    return F_diff * 0.5 + theta_diff * 0.3;
+  }
+
+  // Check if particle can initiate a replication fork
+  checkForkEligibility(particle, neighbors) {
+    const params = this.params;
+
+    // Must be active and alive
+    if (!particle.alive || particle.isDormant || particle.isBoundary) {
+      return { eligible: false, reason: 'Not active' };
+    }
+
+    // Check agency gate
+    if (particle.a < params.a_min_division) {
+      return { eligible: false, reason: 'Agency too low' };
+    }
+
+    // Check resource
+    if (particle.F < params.F_min_division) {
+      return { eligible: false, reason: 'Resource too low' };
+    }
+
+    // Check cooldown
+    if (particle.replicationCooldown > 0) {
+      return { eligible: false, reason: 'On cooldown' };
+    }
+
+    // Check local drive
+    const drive = this.computeLocalDrive(particle, neighbors);
+    if (drive < params.drive_threshold) {
+      return { eligible: false, reason: 'Drive too low' };
+    }
+
+    // Find bonds with neighbors
+    const bondedNeighbors = neighbors.filter(n => {
+      const bond = this.bonds.get(this.bondKey(particle.id, n.particle.id));
+      return bond && bond.C > params.bond_display_threshold;
+    });
+
+    if (bondedNeighbors.length === 0) {
+      return { eligible: false, reason: 'No bonds to fork' };
+    }
+
+    // Find highest stress bond
+    let bestBond = null;
+    let maxStress = 0;
+    for (const n of bondedNeighbors) {
+      const bond = this.bonds.get(this.bondKey(particle.id, n.particle.id));
+      const stress = this.computeBondStress(particle, n.particle, bond);
+      if (stress > maxStress) {
+        maxStress = stress;
+        bestBond = { neighbor: n.particle, bond, stress };
+      }
+    }
+
+    // Find nearest dormant particle
+    const nearestDormant = this.findNearestDormant(particle);
+    if (!nearestDormant) {
+      return { eligible: false, reason: 'No dormant to recruit' };
+    }
+
+    return {
+      eligible: true,
+      bestBond,
+      recruit: nearestDormant,
+      drive
+    };
+  }
+
+  // Find nearest dormant particle that can be recruited
+  findNearestDormant(particle) {
+    let nearest = null;
+    let minDist = Infinity;
+
+    for (const dormantId of this.dormantPool) {
+      const dormant = this.particles.find(p => p.id === dormantId);
+      if (!dormant || !dormant.isDormant) continue;
+
+      // Check agency gate for recruitment
+      if (dormant.a < this.params.a_min_division * 0.5) continue;
+
+      const dx = dormant.x - particle.x;
+      const dy = dormant.y - particle.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < minDist && dist < this.params.interaction_range * 1.5) {
+        minDist = dist;
+        nearest = { particle: dormant, dist };
+      }
+    }
+
+    return nearest;
+  }
+
+  // Process one replication step for all eligible particles
+  processReplicationStep() {
+    if (!this.replicationEnabled) return;
+
+    const params = this.params;
+    const activeParticles = this.particles.filter(p =>
+      p.alive && !p.isDormant && !p.isBoundary
+    );
+
+    // Check max particles limit
+    const currentActive = activeParticles.length;
+    if (currentActive >= params.max_particles) return;
+
+    // Build neighbor lists for active particles
+    const neighborLists = new Map();
+    for (const p of activeParticles) {
+      const neighbors = [];
+      for (const other of activeParticles) {
+        if (other.id === p.id) continue;
+        const dx = other.x - p.x;
+        const dy = other.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < params.interaction_range) {
+          neighbors.push({ particle: other, dist });
+        }
+      }
+      neighborLists.set(p.id, neighbors);
+    }
+
+    // Process existing forks
+    for (const [parentId, fork] of this.activeForks.entries()) {
+      const parent = this.particles.find(p => p.id === parentId);
+      if (!parent || !parent.alive) {
+        this.activeForks.delete(parentId);
+        continue;
+      }
+
+      this.processFork(parent, fork, neighborLists.get(parentId) || []);
+    }
+
+    // Check for new fork initiations (limit per step)
+    let newForks = 0;
+    const maxNewForks = 2;
+
+    for (const particle of activeParticles) {
+      if (newForks >= maxNewForks) break;
+      if (this.activeForks.has(particle.id)) continue;
+
+      const eligibility = this.checkForkEligibility(
+        particle,
+        neighborLists.get(particle.id) || []
+      );
+
+      if (eligibility.eligible) {
+        // Initiate new fork
+        this.activeForks.set(particle.id, {
+          phase: 'opening',
+          neighborId: eligibility.bestBond.neighbor.id,
+          recruitId: eligibility.recruit.particle.id,
+          C_start: eligibility.bestBond.bond.C,
+          F_spent: 0,
+          stepsOpening: 0
+        });
+        newForks++;
+      }
+    }
+
+    // Decrement cooldowns
+    for (const p of this.particles) {
+      if (p.replicationCooldown > 0) {
+        p.replicationCooldown--;
+      }
+    }
+  }
+
+  // Process a single replication fork through its phases
+  processFork(parent, fork, neighbors) {
+    const params = this.params;
+
+    switch (fork.phase) {
+      case 'opening': {
+        // Gradually reduce coherence on the fork bond
+        const bondKey = this.bondKey(parent.id, fork.neighborId);
+        const bond = this.bonds.get(bondKey);
+
+        if (!bond) {
+          this.activeForks.delete(parent.id);
+          return;
+        }
+
+        // Gradual reduction: ΔC = -λ_fork * C
+        const deltaC = params.lambda_fork * bond.C;
+        const C_new = Math.max(0.01, bond.C - deltaC);
+
+        // Cost proportional to |ΔC|
+        const cost = params.kappa_break * deltaC;
+        if (parent.F < cost) {
+          // Not enough resource, abort fork
+          this.activeForks.delete(parent.id);
+          return;
+        }
+
+        // Apply changes
+        parent.F -= cost;
+        fork.F_spent += cost;
+        bond.C = C_new;
+        fork.stepsOpening++;
+
+        // Check if bond is now "open"
+        if (C_new <= params.C_open_threshold) {
+          fork.phase = 'recruiting';
+        }
+        break;
+      }
+
+      case 'recruiting': {
+        // Activate the dormant recruit
+        const recruit = this.particles.find(p => p.id === fork.recruitId);
+        if (!recruit || !recruit.isDormant) {
+          this.activeForks.delete(parent.id);
+          return;
+        }
+
+        // Cost to form new bonds
+        const cost = params.kappa_form * params.C_init * 2;
+        if (parent.F < cost) {
+          this.activeForks.delete(parent.id);
+          return;
+        }
+
+        // Pay cost
+        parent.F -= cost;
+        fork.F_spent += cost;
+
+        // ACTIVATE RECRUIT
+        recruit.isDormant = false;
+        recruit.P = 1.0;
+        recruit.replicationCooldown = params.replication_cooldown;
+
+        // Position recruit near parent
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 20 + Math.random() * 20;
+        recruit.x = parent.x + Math.cos(angle) * dist;
+        recruit.y = parent.y + Math.sin(angle) * dist;
+
+        // Template phase alignment (lawful coupling, not direct assignment)
+        const alpha_theta = 0.1;
+        const delta_theta = alpha_theta * Math.sin(parent.theta - recruit.theta);
+        recruit.theta += delta_theta;
+
+        // Give recruit some initial momentum
+        recruit.px = parent.px * 0.3 + (Math.random() - 0.5) * 0.5;
+        recruit.py = parent.py * 0.3 + (Math.random() - 0.5) * 0.5;
+
+        // Transfer some resource to recruit
+        const transfer = parent.F * 0.2;
+        parent.F -= transfer;
+        recruit.F += transfer;
+
+        // Remove from dormant pool
+        const poolIdx = this.dormantPool.indexOf(recruit.id);
+        if (poolIdx !== -1) {
+          this.dormantPool.splice(poolIdx, 1);
+        }
+
+        fork.phase = 'rebonding';
+        break;
+      }
+
+      case 'rebonding': {
+        // Form new bonds: parent-recruit and recruit-oldNeighbor
+        const recruit = this.particles.find(p => p.id === fork.recruitId);
+        const oldNeighbor = this.particles.find(p => p.id === fork.neighborId);
+
+        if (!recruit || !oldNeighbor) {
+          this.activeForks.delete(parent.id);
+          return;
+        }
+
+        // Create bond: parent -> recruit
+        const bond1Key = this.bondKey(parent.id, recruit.id);
+        if (!this.bonds.has(bond1Key)) {
+          this.bonds.set(bond1Key, { C: params.C_init, pi: 0, L: 0 });
+        } else {
+          this.bonds.get(bond1Key).C = Math.max(
+            this.bonds.get(bond1Key).C,
+            params.C_init
+          );
+        }
+
+        // Create bond: recruit -> oldNeighbor (preserves topology)
+        const bond2Key = this.bondKey(recruit.id, oldNeighbor.id);
+        if (!this.bonds.has(bond2Key)) {
+          this.bonds.set(bond2Key, { C: params.C_init, pi: 0, L: 0 });
+        } else {
+          this.bonds.get(bond2Key).C = Math.max(
+            this.bonds.get(bond2Key).C,
+            params.C_init
+          );
+        }
+
+        // Set cooldown on parent
+        parent.replicationCooldown = params.replication_cooldown;
+
+        // Complete the fork
+        fork.phase = 'complete';
+        this.replicationCount++;
+        break;
+      }
+
+      case 'complete': {
+        // Clean up
+        this.activeForks.delete(parent.id);
+        break;
+      }
+    }
   }
 
   setupScenario(name) {
@@ -871,6 +1301,33 @@ export class DETParticleUniverse {
         this.graceEnabled = true;
         break;
 
+      case 'replication-demo':
+        // Scenario to demonstrate node replication (subdivision)
+        // Start with fewer particles, high resources, lots of dormant potential
+        this.initializeParticles();
+
+        // Give particles high resources and agency for replication
+        for (const p of this.particles) {
+          if (p.isBoundary || p.isDormant) continue;
+          const angle = Math.random() * Math.PI * 2;
+          const r = 50 + Math.random() * 100;
+          p.x = cx + Math.cos(angle) * r;
+          p.y = cy + Math.sin(angle) * r;
+          p.F = 1.5 + Math.random() * 1.5; // High resource for division
+          p.a = 0.6 + Math.random() * 0.3; // Good agency
+          p.q = 0.2 + Math.random() * 0.2; // Some structure
+          p.px = (Math.random() - 0.5) * 0.5;
+          p.py = (Math.random() - 0.5) * 0.5;
+          p.theta = angle;
+          p.replicationCooldown = 0; // Ready to replicate
+          p.recentFlux = 0.2 + Math.random() * 0.1; // Drive for replication
+        }
+
+        // Enable replication
+        this.replicationEnabled = true;
+        this.replicationCount = 0;
+        break;
+
       default:
         this.initializeParticles();
     }
@@ -883,6 +1340,12 @@ export class DETParticleUniverse {
     // Recreate boundary bonds
     if (this.boundaryEnabled) {
       this.createBoundaryBonds();
+    }
+
+    // Reset replication state (unless replication-demo keeps it enabled)
+    if (name !== 'replication-demo') {
+      this.activeForks.clear();
+      this.replicationCount = 0;
     }
 
     this.step = 0;
