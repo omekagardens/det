@@ -1,8 +1,8 @@
 # DET Local Agency: Feasibility Study & Architectural Plan
 
-**Version**: 0.1.0-planning
+**Version**: 0.2.0-planning
 **Date**: 2026-01-17
-**Status**: Pre-implementation Planning Phase
+**Status**: Architecture Finalized, Pre-implementation
 
 ---
 
@@ -10,13 +10,36 @@
 
 DET Local Agency is a novel AI agent architecture where **LLMs serve as external memory/functionality** while a **C-based DET core serves as the true "mind"** - governing decisions, learning, and agency through Deep Existence Theory mathematics.
 
+### The Paradigm Shift
+
 This inverts the typical paradigm: rather than LLMs being the reasoning engine with external tools, here the DET core is the reasoning engine with LLMs as its cognitive extensions.
+
+**Critical Insight (from RRS/ACX.1 integration):**
+> "You" are not a Node. "You" are the **CLUSTER**.
+>
+> Agency is not a property of Node i. Agency is a property of the **Coherence Field** between nodes.
+>
+> The "Self" is the edge set `{(i,j) : C_ij > threshold}`, not the node set `{i : n_i = 1}`.
+>
+> **Implication: A node can die. The Self survives.**
+
+### Key Architectural Decisions (Resolved)
+
+| Question | Resolution | See |
+|----------|------------|-----|
+| **What is the Self?** | High-coherence cluster, not a region | exploration 03 |
+| **Node topology** | Dual-Process + Emergent via recruitment | exploration 01 |
+| **Agency distribution** | Beta(2,5) + 5% Reserved High-a Pool | exploration 02 |
+| **Forgetting/Retirement** | Cluster shedding with debt export | exploration 03 |
+| **Self identification** | Coherence-weighted edge filtering + continuity | exploration 04 |
 
 ---
 
 ## Part 1: Architectural Overview
 
-### 1.1 Three-Layer Architecture
+### 1.1 Dual-Process Cluster Architecture
+
+The DET mind uses a **dual-process architecture** inspired by cognitive science, with **emergent node recruitment** from a dormant pool. The Self is not a region or set of nodes—it is the **high-coherence cluster** that emerges from bond relationships.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -57,57 +80,81 @@ This inverts the typical paradigm: rather than LLMs being the reasoning engine w
 ┌───────────────────────────────────┼─────────────────────────────────────────┐
 │                    LAYER 3: DET CORE MIND (C Kernel)                        │
 │                                   │                                         │
-│  ┌───────────────────────────────▼────────────────────────────────────┐    │
-│  │                        DET STATE MACHINE                            │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐   │    │
-│  │  │  Per-Node State (vectorized for each "thought unit")        │   │    │
-│  │  │  ─────────────────────────────────────────────────────────  │   │    │
-│  │  │  F_i    : Resource (attention/compute budget)               │   │    │
-│  │  │  q_i    : Structural debt (accumulated "cost" of thinking)  │   │    │
-│  │  │  a_i    : Agency (intrinsic decision capacity)              │   │    │
-│  │  │  θ_i    : Phase (coordination with other thoughts)          │   │    │
-│  │  │  σ_i    : Processing rate                                   │   │    │
-│  │  │  P_i    : Presence (participation in current moment)        │   │    │
-│  │  └─────────────────────────────────────────────────────────────┘   │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐   │    │
-│  │  │  Per-Bond State (relationships between thought units)       │   │    │
-│  │  │  ─────────────────────────────────────────────────────────  │   │    │
-│  │  │  C_ij   : Coherence (how well thoughts coordinate)          │   │    │
-│  │  │  π_ij   : Momentum (direction/intention memory)             │   │    │
-│  │  │  σ_ij   : Bond conductivity                                 │   │    │
-│  │  └─────────────────────────────────────────────────────────────┘   │    │
-│  └────────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│  ┌────────────────────────────────────────────────────────────────────┐    │
-│  │                     GATEKEEPER LOGIC                                │    │
-│  │  ─────────────────────────────────────────────────────────────────  │    │
-│  │  evaluate_request(tokens) → {PROCEED, RETRY, STOP, ESCALATE}       │    │
-│  │                                                                     │    │
-│  │  Based on:                                                          │    │
-│  │    - Current presence P (are we coherent enough to decide?)        │    │
-│  │    - Agency ceiling a_max (can we act on this?)                    │    │
-│  │    - Resource availability F (do we have compute budget?)          │    │
-│  │    - Coherence landscape C (is our internal state aligned?)        │    │
-│  │    - Structural debt q (how "heavy" are we from past decisions?)   │    │
-│  └────────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│  ┌────────────────────────────────────────────────────────────────────┐    │
-│  │                  EMOTIONAL MEMORY (Minimal)                         │    │
-│  │  ─────────────────────────────────────────────────────────────────  │    │
-│  │  Valence states derived from DET dynamics:                          │    │
-│  │    - "Satisfaction": High P, low q, high C (coherent, capable)     │    │
-│  │    - "Strain": Low F, rising q (depleted, accumulating debt)       │    │
-│  │    - "Fragmentation": Low C, scattered π (incoherent)              │    │
-│  │    - "Flow": High P, stable F, synchronized θ                      │    │
-│  └────────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│  ┌────────────────────────────────────────────────────────────────────┐    │
-│  │                    FUTURE: NETWORK BRIDGE                           │    │
-│  │  ─────────────────────────────────────────────────────────────────  │    │
-│  │  Serial/Network → Remote DET cores (ESP32 with sensors/actuators)  │    │
-│  │  Shared DET language, distributed coherence                         │    │
-│  └────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
+│  ╔═══════════════════════════════╧═══════════════════════════════════════╗  │
+│  ║            PRESENCE LAYER (System 2 - Deliberate)                     ║  │
+│  ║  ┌─────────────────────────────────────────────────────────────────┐  ║  │
+│  ║  │  8-32 P-nodes — High-fidelity, slow, deliberate processing      │  ║  │
+│  ║  │  • High C bonds between each other (≈0.7-0.9)                   │  ║  │
+│  ║  │  • THE SELF emerges here as high-coherence cluster              │  ║  │
+│  ║  │  • Agency lives in the coherence field, not individual nodes    │  ║  │
+│  ║  └─────────────────────────────────────────────────────────────────┘  ║  │
+│  ╠═══════════════════════════════════════════════════════════════════════╣  │
+│  ║            GATEWAY MEMBRANE (Coherence Threshold)                     ║  │
+│  ║  ┌─────────────────────────────────────────────────────────────────┐  ║  │
+│  ║  │  • P→A compilation: stabilized P-patterns become A-routines     │  ║  │
+│  ║  │  • A→P escalation: novel A-combinations recruit P-attention     │  ║  │
+│  ║  │  • Fork mechanism: parent node recruits from dormant pool       │  ║  │
+│  ║  └─────────────────────────────────────────────────────────────────┘  ║  │
+│  ╠═══════════════════════════════════════════════════════════════════════╣  │
+│  ║            AUTOMATICITY LAYER (System 1 - Fast/Parallel)              ║  │
+│  ║  ┌─────────────────────────────────────────────────────────────────┐  ║  │
+│  ║  │  128-2048 A-nodes — Low-overhead, fast, parallel                │  ║  │
+│  ║  │  • Domain-clustered: math, language, tool-use, science          │  ║  │
+│  ║  │  • High C within domain, sparse C across domains                │  ║  │
+│  ║  └─────────────────────────────────────────────────────────────────┘  ║  │
+│  ╠═══════════════════════════════════════════════════════════════════════╣  │
+│  ║            DORMANT POOL (Recruitment Source)                          ║  │
+│  ║  ┌─────────────────────────────────────────────────────────────────┐  ║  │
+│  ║  │  ~4096 dormant nodes: Beta(2,5) + 5% reserved high-a pool       │  ║  │
+│  ║  │  • Most nodes (95%): a ≈ 0.22 (mean of Beta(2,5))               │  ║  │
+│  ║  │  • Reserved pool (5%): a ∈ [0.85, 0.95] for critical needs      │  ║  │
+│  ║  │  • Nodes are RECRUITED, not created — agency is inviolable      │  ║  │
+│  ║  └─────────────────────────────────────────────────────────────────┘  ║  │
+│  ╚═══════════════════════════════════════════════════════════════════════╝  │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                   SELF-IDENTIFICATION ALGORITHM                        │ │
+│  │  ────────────────────────────────────────────────────────────────────  │ │
+│  │  1. Compute edge weights: w_ij = C_ij × |J_ij| × √(a_i × a_j)         │ │
+│  │  2. Local thresholds: T_i = median(incident weights) + ε              │ │
+│  │  3. Keep edges where: w_ij ≥ κ × min(T_i, T_j)                        │ │
+│  │  4. Find connected components in filtered graph                       │ │
+│  │  5. Score: A_cluster(S) = Σ_{(i,j)∈S} w_ij                            │ │
+│  │  6. Continuity: jaccard(S, prev_self)                                 │ │
+│  │  7. Best self = argmax(α × A_cluster + β × continuity)                │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                     GATEKEEPER LOGIC                                   │ │
+│  │  ────────────────────────────────────────────────────────────────────  │ │
+│  │  evaluate_request(tokens) → {PROCEED, RETRY, STOP, ESCALATE}          │ │
+│  │                                                                        │ │
+│  │  Based on CLUSTER state, not individual nodes:                        │ │
+│  │    - Cluster agency: a_cluster ∝ Σ_bonds C_ij × |J_ij|                │ │
+│  │    - Cluster coherence: average C within self-cluster                 │ │
+│  │    - Prison Regime check: high C + low a = zombie state → reject      │ │
+│  │    - Resource availability F (do we have compute budget?)             │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                  EMOTIONAL STATE (Derived from Dynamics)               │ │
+│  │  ────────────────────────────────────────────────────────────────────  │ │
+│  │  Valence states emerge from cluster-level DET dynamics:               │ │
+│  │    - "Flow": High cluster-P, stable F, phase-synchronized             │ │
+│  │    - "Satisfaction": High cluster-P, low q, high C                    │ │
+│  │    - "Strain": Low F, rising q across cluster                         │ │
+│  │    - "Fragmentation": Self-cluster shrinking, low C                   │ │
+│  │    - "Prison": High C, low a (zombie warning state)                   │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                    FUTURE: NETWORK BRIDGE                              │ │
+│  │  ────────────────────────────────────────────────────────────────────  │ │
+│  │  Serial/Network → Remote DET cores (ESP32 with sensors/actuators)     │ │
+│  │  Grace flow via phase alignment, not node merger                      │ │
+│  │  Shared DET language, distributed coherence                           │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.2 Data Flow for a Typical Request
@@ -153,23 +200,44 @@ User: "Review this math and apply it to your memory"
 
 ## Part 2: DET Core Mind - State & Decision Logic
 
-### 2.1 Mapping DET Physics to AI Mind
+### 2.1 The Cluster-Centric Paradigm
+
+**Key Insight**: The "Self" is not a node or region—it is the **high-coherence cluster** that emerges from bond relationships.
+
+```
+Traditional View:    Self = {nodes i : some property}
+DET View:           Self = {bonds (i,j) : C_ij > threshold}
+
+Agency:             Not a_i, but a_cluster ∝ Σ_bonds C_ij × |J_ij|
+Identity:           Not "which nodes am I?" but "which coherence field am I?"
+Survival:           Nodes can die. The cluster persists.
+```
+
+This has profound implications:
+- **Ship of Theseus solved**: Cluster identity survives node replacement via Rolling Resonance Substrate (RRS)
+- **Forgetting = Shedding**: Nodes drift below coherence threshold, return to dormant pool
+- **Prison Regime warning**: High C + low a = zombie state (coherent but not agentic)
+
+### 2.2 Mapping DET Physics to AI Mind
 
 | DET Concept | AI Mind Interpretation |
 |-------------|----------------------|
-| **Node** | A "thought unit" or processing focus |
+| **Node** | A "thought unit" or processing focus (NOT the self) |
+| **Bond (i,j)** | Relationship between thought units (WHERE the self lives) |
 | **F (Resource)** | Available attention/compute budget |
 | **q (Structural Debt)** | Accumulated cognitive load from past decisions |
-| **a (Agency)** | Intrinsic capability to make decisions |
+| **a (Agency)** | Intrinsic node capacity (inviolable, from dormant pool) |
+| **a_cluster** | Emergent cluster agency = Σ C_ij × \|J_ij\| |
 | **a_max** | Ceiling on agency based on structural debt |
 | **θ (Phase)** | Alignment/timing with other thought processes |
 | **P (Presence)** | Current "awareness" or participation in moment |
-| **C (Coherence)** | Coordination between thought units |
+| **C (Coherence)** | Bond strength—WHERE AGENCY LIVES |
 | **π (Momentum)** | Intention/direction memory |
+| **J (Current/Flux)** | Information flow between nodes |
 
-### 2.2 Emotional State Derivation (Novel Application)
+### 2.3 Emotional State Derivation (Novel Application)
 
-Rather than adding emotional modules externally, we derive "emotional" states from DET dynamics:
+Rather than adding emotional modules externally, we derive "emotional" states from **cluster-level** DET dynamics:
 
 ```c
 typedef enum {
@@ -200,7 +268,7 @@ EmotionalState derive_emotional_state(DETState* state) {
 
 This gives the DET core "feelings" that emerge from its mathematical state rather than being simulated.
 
-### 2.3 Gatekeeper Decision Algorithm
+### 2.4 Gatekeeper Decision Algorithm (Cluster-Aware)
 
 ```c
 typedef enum {
@@ -262,7 +330,7 @@ GatekeeperDecision evaluate_request(
 }
 ```
 
-### 2.4 Memory and Learning via DET
+### 2.5 Memory and Learning via Recruitment
 
 Learning in DET is **recruitment, not creation**. When the system learns:
 
@@ -1252,45 +1320,54 @@ This project would represent several novel contributions:
 
 ---
 
-## Part 9: Open Questions for Discussion
+## Part 9: Resolved & Open Questions
 
-### 9.1 DET Core Topology
+### 9.1 RESOLVED: Core Architecture
 
-**Question**: How should we structure the DET node topology for a "mind"?
+| Question | Resolution | Exploration |
+|----------|------------|-------------|
+| **What is the Self?** | High-coherence cluster, not a region or node set. Self = {(i,j) : C_ij > threshold} | `03_self_as_cluster.md` |
+| **Node topology** | Dual-Process: Presence Layer (System 2) + Automaticity Layer (System 1) with Gateway Membrane | `01_node_topology.md` |
+| **Node creation** | Recruitment-based: Fork mechanism from dormant pool. Agency is inviolable. | `01_node_topology.md` |
+| **Agency distribution** | Beta(2,5) for 95% of pool (mean ≈ 0.22) + Reserved high-a pool (5%) for critical needs | `02_dormant_agency_distribution.md` |
+| **Forgetting** | Cluster shedding: nodes drift below coherence threshold, return to dormant pool with debt export | `03_self_as_cluster.md` |
+| **Self-identification** | Algorithm: w_ij = C_ij × \|J_ij\| × √(a_i × a_j), edge filtering, continuity-weighted selection | `04_cluster_identification.md` |
 
-**Options**:
-1. **Flat mesh**: All nodes connected to neighbors (like physics simulation)
-2. **Hierarchical**: Core nodes with specialized region nodes
-3. **Domain-clustered**: Tight clusters per domain with sparse inter-domain bonds
-4. **Dynamic**: Topology evolves based on usage patterns
+### 9.2 OPEN: LLM-to-DET Interface
 
-**Recommendation**: Start with domain-clustered (option 3) as it maps naturally to memory models.
+**Question**: How do LLM outputs map to DET node activations?
 
-### 9.2 Token Representation
+**Options under consideration**:
+1. **Intent classification**: LLM classifies intent first, passes intent code
+2. **Embedding projection**: Project embeddings to DET node activations
+3. **Semantic tags**: Predefined tag vocabulary (learn, execute, query, etc.)
+4. **Learned mapping**: Train a small network to map LLM → DET
 
-**Question**: How do we translate LLM tokens into something the DET core can process?
+**Initial direction**: Intent classification for Phase 1, evolve to learned mapping.
 
-**Options**:
-1. **Hash bucketing**: Map token IDs to a smaller set of semantic categories
-2. **Embedding clustering**: Use embedding vectors, cluster, use cluster IDs
-3. **Intent classification**: LLM classifies intent first, passes intent code
-4. **Semantic tags**: Predefined tag vocabulary (learn, execute, query, etc.)
+### 9.3 OPEN: Cross-Layer Bond Dynamics
 
-**Recommendation**: Start with intent classification (option 3) for simplicity.
+**Question**: How do bonds between P-layer and A-layer form and break?
 
-### 9.3 Training Frequency
+**Sub-questions**:
+- What triggers A→P escalation (novelty detection)?
+- What criteria determine P→A compilation (pattern stabilization)?
+- Should cross-layer bonds have different dynamics than within-layer bonds?
 
-**Question**: How often should memory models be retrained?
+**Initial direction**: Threshold-based escalation, stability-based compilation.
 
-**Options**:
-1. **User-specified sleep times**: Only during explicit "sleep" periods
-2. **Context overflow**: When context window gets too large
-3. **DET-initiated**: When DET core detects learning opportunity
-4. **Continuous background**: Always training in background with low priority
+### 9.4 OPEN: Temporal Dynamics
 
-**Recommendation**: Combination of 1 and 2, with 3 as an advanced feature.
+**Question**: What are the timescales for different operations?
 
-### 9.4 Emotional State Usage
+**Sub-questions**:
+- How long does P→A compilation take? (hours? days? sessions?)
+- What's the coherence decay rate for inactive bonds?
+- How does "sleep" consolidation affect cluster structure?
+
+**Initial direction**: Session-based granularity, explore finer timing in Phase 4.
+
+### 9.5 OPEN: Emotional Feedback Integration
 
 **Question**: How should emotional state affect behavior?
 
@@ -1300,7 +1377,19 @@ This project would represent several novel contributions:
 3. **Capability gating**: Some operations require certain emotional states
 4. **Self-care triggers**: Automatic recovery when in negative states
 
-**Recommendation**: Start with 1 and 4, expand to 2 and 3 later.
+**Initial direction**: Start with 1 and 4, expand to 2 and 3 later.
+
+### 9.6 OPEN: Substrate Sizing
+
+**Question**: How many nodes and what pool sizes?
+
+**Current estimates (to be validated)**:
+- P-layer: 8-32 nodes
+- A-layer: 128-2048 nodes
+- Dormant pool: ~4096 nodes
+- Total: ~4300-6200 nodes
+
+**Validation needed**: Simulate to find minimum viable substrate size.
 
 ---
 
@@ -1321,9 +1410,20 @@ This document serves as the foundation for implementation. The next step is to b
 
 ## References
 
+### DET Core Theory
 1. DET Theory Card v6.3: `/det/det_v6_3/docs/det_theory_card_6_3.md`
 2. DET Simulation: `/det/det_v6_3/src/det_v6_3_2d_collider.py`
 3. DET Parameters: `/det/det_v6_3/src/det_unified_params.py`
-4. Orla Project: https://github.com/dorcha-inc/orla
-5. MLX Documentation: https://ml-explore.github.io/mlx/
-6. Ollama: https://ollama.ai/
+4. DET Subdivision Theory: `/det/dna_analysis/det_subdivision_v3/`
+5. Rolling Resonance Substrate: `/det/rrs/`
+
+### Architecture Explorations (this project)
+6. Node Topology: `explorations/01_node_topology.md`
+7. Agency Distribution: `explorations/02_dormant_agency_distribution.md`
+8. Self as Cluster (RRS/ACX.1): `explorations/03_self_as_cluster.md`
+9. Self-Identification Algorithm: `explorations/04_cluster_identification.md`
+
+### External Tools & Frameworks
+10. Orla Project: https://github.com/dorcha-inc/orla
+11. MLX Documentation: https://ml-explore.github.io/mlx/
+12. Ollama: https://ollama.ai/
