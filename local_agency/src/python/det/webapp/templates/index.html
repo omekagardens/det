@@ -684,6 +684,14 @@
                 this.state.numActive = data.num_active;
                 this.state.numBonds = data.num_bonds;
 
+                // Update 3D visualization if nodes/bonds included
+                if (data.nodes && data.nodes.length > 0) {
+                    this.updateNodes(data.nodes);
+                }
+                if (data.bonds) {
+                    this.updateBonds(data.bonds);
+                }
+
                 this.updateUI(data);
             }
 

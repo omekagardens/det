@@ -311,11 +311,20 @@ class DETWebApp:
                 self.harness.take_snapshot(name)
 
     async def _broadcast_loop(self):
-        """Background task to broadcast state updates."""
+        """Background task to broadcast state updates and run simulation."""
         while self._running:
             try:
+                # Auto-step simulation if not paused
+                if self.harness and not self.harness.paused and self.core:
+                    dt = 0.1 * self.harness.speed
+                    self.core.step(dt)
+
                 if self.connection_manager.connection_count > 0:
+                    # Send full state with visualization data
                     state = self._get_state()
+                    state["nodes"] = self._get_nodes_viz()
+                    state["bonds"] = self._get_bonds()
+
                     await self.connection_manager.broadcast({
                         "type": "state",
                         "data": state,
@@ -323,7 +332,8 @@ class DETWebApp:
                 await asyncio.sleep(self.update_interval)
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except Exception as e:
+                print(f"Broadcast error: {e}")
                 await asyncio.sleep(1.0)  # Back off on error
 
     def _get_state(self) -> Dict[str, Any]:
@@ -347,7 +357,7 @@ class DETWebApp:
     def _get_full_state(self) -> Dict[str, Any]:
         """Get full state including nodes and bonds."""
         state = self._get_state()
-        state["nodes"] = self._get_nodes()
+        state["nodes"] = self._get_nodes_viz()  # Use viz data with positions
         state["bonds"] = self._get_bonds()
         return state
 
@@ -372,6 +382,59 @@ class DETWebApp:
                 "r": node.affect.r,
                 "b": node.affect.b,
             })
+        return nodes
+
+    def _get_nodes_viz(self) -> List[Dict[str, Any]]:
+        """Get nodes with 3D visualization data."""
+        if not self.core:
+            return []
+
+        import math
+
+        # Get self-cluster for highlighting
+        self.core._lib.det_core_identify_self(self.core._core)
+        self_struct = self.core._core.contents.self
+        self_cluster = set()
+        for i in range(self_struct.num_nodes):
+            self_cluster.add(self_struct.nodes[i])
+
+        nodes = []
+        for i in range(self.core.num_active):
+            node = self.core._core.contents.nodes[i]
+
+            # Position based on layer and index
+            if i < 16:  # P-layer: inner ring
+                angle = (i / 16) * 2 * math.pi
+                radius = 2.0
+                y = 0.0
+            else:  # A-layer: outer ring
+                a_idx = i - 16
+                angle = (a_idx / 256) * 2 * math.pi
+                radius = 4.0
+                y = 0.0
+
+            x = math.cos(angle) * radius
+            z = math.sin(angle) * radius
+
+            # Color based on affect (valence: red-green, arousal: brightness)
+            v = (node.affect.v + 1) / 2  # Normalize to 0-1
+            brightness = 0.3 + node.affect.r * 0.7
+            red = (1 - v) * brightness
+            green = v * brightness
+            blue = node.affect.b * brightness
+
+            nodes.append({
+                "id": i,
+                "x": round(x, 3),
+                "y": round(y, 3),
+                "z": round(z, 3),
+                "size": round(0.15 + node.a * 0.2, 3),
+                "color": {"r": round(red, 3), "g": round(green, 3), "b": round(blue, 3)},
+                "layer": "P" if i < 16 else "A",
+                "in_self": i in self_cluster,
+                "P": round(node.P, 3),
+            })
+
         return nodes
 
     def _get_bonds(self) -> List[Dict[str, Any]]:
