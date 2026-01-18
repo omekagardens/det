@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 6 - Development Tools (6.3 Complete)
+**Current Phase**: Phase 6 - Development Tools (Complete)
 
 ---
 
@@ -438,10 +438,61 @@
     - `gatekeeper <tokens...>` - Evaluate request
 - **Tests**: 11 new tests (57 total Phase 6)
 
+### 6.4 Metrics and Logging ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/metrics.py` - Metrics collector and profiler
+  - `setup_det.py` - Automated setup script
+  - `GETTING_STARTED.md` - Getting started documentation
+- **Files Modified**:
+  - `src/python/det/webapp/server.py` - Added metrics API endpoints
+  - `src/python/test_phase6.py` - Added 17 new tests
+- **Features**:
+  - **MetricsCollector**:
+    - Sample DET state (P, C, F, q, V/A/B, tick times)
+    - Rolling window storage with configurable limits
+    - Timeline data retrieval for any field
+    - Dashboard with current values and trends
+    - Statistical summary (min, max, mean, stdev)
+  - **DET Event Logging**:
+    - Escalation, compilation, recruitment events
+    - Bond formed/broken events
+    - Prison regime detection
+    - Grace injection, domain activation
+    - Gatekeeper decisions
+    - Event callbacks and filtering
+  - **Performance Profiler**:
+    - Tick timing (avg, min, max, p50, p95)
+    - Step-level timing within ticks
+    - Memory usage tracking
+    - Full profiling report
+  - **Webapp API Endpoints**:
+    - `GET /api/metrics/dashboard` - Dashboard data
+    - `GET /api/metrics/samples` - Recent samples
+    - `GET /api/metrics/timeline/{field}` - Timeline data
+    - `GET /api/metrics/events` - Event log
+    - `GET /api/metrics/statistics` - Statistical summary
+    - `GET /api/metrics/profiling` - Performance profiling
+  - **Setup Script** (`setup_det.py`):
+    - System requirements check
+    - Virtual environment creation
+    - Python dependencies installation
+    - C kernel build
+    - Ollama model downloads
+    - Verification tests
+  - **Getting Started Guide** (`GETTING_STARTED.md`):
+    - Prerequisites and installation
+    - Automated and manual setup
+    - Running CLI and web visualization
+    - Configuration options
+    - API reference
+    - Troubleshooting
+- **Tests**: 17 new tests (74 total Phase 6)
+
 ### Phase 6 Integration ✅
-- **Tests**: 57/57 passing (`test_phase6.py`)
-- **Version**: 0.6.3
-- **Total Tests**: 239/239 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 75 Phase5 + 57 Phase6)
+- **Tests**: 74/74 passing (`test_phase6.py`)
+- **Version**: 0.6.4
+- **Total Tests**: 256/256 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 75 Phase5 + 74 Phase6)
 
 ---
 
@@ -512,4 +563,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 6.3 Advanced Interactive Probing Complete)*
+*Last Updated: 2026-01-17 (Phase 6 Development Tools Complete)*

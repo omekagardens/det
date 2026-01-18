@@ -23,6 +23,7 @@ except ImportError:
 
 from ..core import DETCore
 from ..harness import HarnessController, HarnessEvent, create_harness
+from ..metrics import MetricsCollector, DETEventType, Profiler, create_metrics_collector, create_profiler
 
 
 class ConnectionManager:
@@ -92,6 +93,12 @@ class DETWebApp:
         # Event history for new connections
         self._event_history: List[Dict[str, Any]] = []
         self._max_history = 100
+
+        # Phase 6.4: Metrics and profiling
+        self.metrics = create_metrics_collector(max_samples=1000, max_events=500)
+        self.profiler = create_profiler(window_size=100)
+        self._metrics_interval = 1.0  # Sample metrics every second
+        self._last_metrics_sample = 0.0
 
         # Setup FastAPI app
         self.app = self._create_app()
@@ -235,6 +242,38 @@ class DETWebApp:
                 return self.harness.get_events(limit=limit)
             return []
 
+        # Phase 6.4: Metrics endpoints
+        @app.get("/api/metrics/dashboard")
+        async def get_dashboard():
+            """Get metrics dashboard data."""
+            return self.metrics.get_dashboard()
+
+        @app.get("/api/metrics/samples")
+        async def get_samples(limit: int = 100):
+            """Get recent metric samples."""
+            return self.metrics.get_samples(limit=limit)
+
+        @app.get("/api/metrics/timeline/{field}")
+        async def get_timeline(field: str, limit: int = 200):
+            """Get timeline data for a specific field."""
+            return self.metrics.get_timeline(field, limit=limit)
+
+        @app.get("/api/metrics/events")
+        async def get_metric_events(limit: int = 100, event_type: Optional[str] = None):
+            """Get DET events (escalation, compilation, etc.)."""
+            et = DETEventType(event_type) if event_type else None
+            return self.metrics.get_events(limit=limit, event_type=et)
+
+        @app.get("/api/metrics/statistics")
+        async def get_statistics():
+            """Get statistical summary of all metrics."""
+            return self.metrics.get_statistics()
+
+        @app.get("/api/metrics/profiling")
+        async def get_profiling():
+            """Get performance profiling data."""
+            return self.profiler.get_report()
+
         @app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             """WebSocket endpoint for real-time updates."""
@@ -316,8 +355,22 @@ class DETWebApp:
             try:
                 # Auto-step simulation if not paused
                 if self.harness and not self.harness.paused and self.core:
+                    # Profile the step
+                    self.profiler.start_tick()
+                    self.metrics.start_tick()
+
                     dt = 0.1 * self.harness.speed
                     self.core.step(dt)
+
+                    self.profiler.end_tick()
+                    self.metrics.end_tick()
+
+                # Sample metrics periodically
+                now = time.time()
+                if now - self._last_metrics_sample >= self._metrics_interval:
+                    self.metrics.sample(self.core)
+                    self.profiler.sample_memory()
+                    self._last_metrics_sample = now
 
                 if self.connection_manager.connection_count > 0:
                     # Send full state with visualization data

@@ -20,6 +20,10 @@ Phase 5.3 adds: Network protocol and interfaces for distributed DET nodes (preli
 Phase 6.1 adds: Test harness for DET debugging and probing.
 
 Phase 6.2 adds: Web application for 3D visualization and real-time monitoring.
+
+Phase 6.3 adds: Advanced interactive probing (escalation, grace, domains, gatekeeper).
+
+Phase 6.4 adds: Metrics and logging (dashboard, event log, timeline, profiling).
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
@@ -65,8 +69,12 @@ from .network import (
     Transport, ExternalNode, StubTransport, StubExternalNode,
     NetworkRegistry, create_stub_network
 )
+from .metrics import (
+    MetricsCollector, MetricsSample, DETEvent, DETEventType, Profiler,
+    create_metrics_collector, create_profiler
+)
 
-__version__ = "0.6.1"
+__version__ = "0.6.4"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -105,4 +113,7 @@ __all__ = [
     "MessageType", "NodeType", "NodeStatus", "DETMessage", "NodeInfo",
     "Transport", "ExternalNode", "StubTransport", "StubExternalNode",
     "NetworkRegistry", "create_stub_network",
+    # Phase 6.4: Metrics and Logging
+    "MetricsCollector", "MetricsSample", "DETEvent", "DETEventType", "Profiler",
+    "create_metrics_collector", "create_profiler",
 ]

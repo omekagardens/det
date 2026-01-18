@@ -6,6 +6,7 @@ DET Phase 6 Tests
 Phase 6.1: Test harness for DET debugging and probing.
 Phase 6.2: Web application for 3D visualization and real-time monitoring.
 Phase 6.3: Advanced interactive probing (escalation, grace, domains, gatekeeper).
+Phase 6.4: Metrics and logging (dashboard, event log, timeline, profiling).
 """
 
 import sys
@@ -20,6 +21,9 @@ from det import (
     HarnessController, HarnessCLI, HarnessEvent, HarnessEventType,
     Snapshot, create_harness, run_harness_cli,
     WEBAPP_AVAILABLE,
+    # Phase 6.4: Metrics
+    MetricsCollector, MetricsSample, DETEvent, DETEventType, Profiler,
+    create_metrics_collector, create_profiler,
 )
 
 # Conditional webapp imports
@@ -1209,6 +1213,364 @@ def test_webapp_routes():
 
 
 # ============================================================================
+# Phase 6.4: Metrics and Logging Tests
+# ============================================================================
+
+def test_metrics_collector_init():
+    """Test MetricsCollector initialization."""
+    print("  test_metrics_collector_init...", end=" ")
+
+    collector = create_metrics_collector()
+
+    assert collector is not None
+    assert len(collector.get_samples()) == 0
+    assert len(collector.get_events()) == 0
+
+    print("PASS")
+
+
+def test_metrics_sample():
+    """Test metric sampling."""
+    print("  test_metrics_sample...", end=" ")
+
+    with DETCore() as core:
+        collector = create_metrics_collector()
+
+        for _ in range(10):
+            core.step(0.1)
+
+        sample = collector.sample(core)
+
+        assert sample is not None
+        assert sample.tick == core.tick
+        assert isinstance(sample.presence, float)
+        assert isinstance(sample.coherence, float)
+        assert isinstance(sample.valence, float)
+        assert isinstance(sample.arousal, float)
+        assert isinstance(sample.bondedness, float)
+
+    print("PASS")
+
+
+def test_metrics_multiple_samples():
+    """Test multiple metric samples."""
+    print("  test_metrics_multiple_samples...", end=" ")
+
+    with DETCore() as core:
+        collector = create_metrics_collector()
+
+        for _ in range(10):
+            core.step(0.1)
+            collector.sample(core)
+
+        samples = collector.get_samples()
+        assert len(samples) == 10
+
+    print("PASS")
+
+
+def test_metrics_event_logging():
+    """Test DET event logging."""
+    print("  test_metrics_event_logging...", end=" ")
+
+    collector = create_metrics_collector()
+
+    collector.log_event(DETEventType.ESCALATION, tick=1, node=5)
+    collector.log_event(DETEventType.COMPILATION, tick=2, node=10)
+    collector.log_event(DETEventType.BOND_FORMED, tick=3, node_i=1, node_j=5)
+
+    events = collector.get_events()
+    assert len(events) == 3
+
+    assert events[0]["type"] == "escalation"
+    assert events[1]["type"] == "compilation"
+    assert events[2]["type"] == "bond_formed"
+
+    print("PASS")
+
+
+def test_metrics_event_filter():
+    """Test event filtering by type."""
+    print("  test_metrics_event_filter...", end=" ")
+
+    collector = create_metrics_collector()
+
+    collector.log_event(DETEventType.ESCALATION, tick=1)
+    collector.log_event(DETEventType.COMPILATION, tick=2)
+    collector.log_event(DETEventType.ESCALATION, tick=3)
+
+    events = collector.get_events(event_type=DETEventType.ESCALATION)
+    assert len(events) == 2
+
+    print("PASS")
+
+
+def test_metrics_event_callback():
+    """Test event callbacks."""
+    print("  test_metrics_event_callback...", end=" ")
+
+    collector = create_metrics_collector()
+    received = []
+
+    def callback(event):
+        received.append(event)
+
+    collector.add_event_callback(callback)
+    collector.log_event(DETEventType.ESCALATION, tick=1)
+
+    assert len(received) == 1
+    assert received[0].event_type == DETEventType.ESCALATION
+
+    collector.remove_event_callback(callback)
+    collector.log_event(DETEventType.ESCALATION, tick=2)
+
+    assert len(received) == 1  # No new events
+
+    print("PASS")
+
+
+def test_metrics_timeline():
+    """Test timeline data retrieval."""
+    print("  test_metrics_timeline...", end=" ")
+
+    with DETCore() as core:
+        collector = create_metrics_collector()
+
+        for _ in range(10):
+            core.step(0.1)
+            collector.sample(core)
+
+        timeline = collector.get_timeline("valence")
+        assert len(timeline) == 10
+
+        for point in timeline:
+            assert "timestamp" in point
+            assert "tick" in point
+            assert "value" in point
+
+    print("PASS")
+
+
+def test_metrics_dashboard():
+    """Test dashboard data retrieval."""
+    print("  test_metrics_dashboard...", end=" ")
+
+    with DETCore() as core:
+        collector = create_metrics_collector()
+
+        for _ in range(25):
+            core.step(0.1)
+            collector.sample(core)
+
+        collector.log_event(DETEventType.ESCALATION, tick=10)
+
+        dashboard = collector.get_dashboard()
+
+        assert "current" in dashboard
+        assert "trends" in dashboard
+        assert "events_count" in dashboard
+        assert "recent_events" in dashboard
+
+        assert dashboard["current"] is not None
+        assert dashboard["events_count"] == 1
+
+    print("PASS")
+
+
+def test_metrics_statistics():
+    """Test statistical summary."""
+    print("  test_metrics_statistics...", end=" ")
+
+    with DETCore() as core:
+        collector = create_metrics_collector()
+
+        for _ in range(20):
+            core.step(0.1)
+            collector.sample(core)
+
+        stats = collector.get_statistics()
+
+        assert "sample_count" in stats
+        assert stats["sample_count"] == 20
+
+        for field in ["presence", "coherence", "valence"]:
+            assert field in stats
+            assert "min" in stats[field]
+            assert "max" in stats[field]
+            assert "mean" in stats[field]
+
+    print("PASS")
+
+
+def test_profiler_init():
+    """Test Profiler initialization."""
+    print("  test_profiler_init...", end=" ")
+
+    profiler = create_profiler()
+
+    assert profiler is not None
+
+    stats = profiler.get_tick_stats()
+    assert stats["count"] == 0
+
+    print("PASS")
+
+
+def test_profiler_tick_timing():
+    """Test tick timing."""
+    print("  test_profiler_tick_timing...", end=" ")
+
+    profiler = create_profiler()
+
+    for _ in range(10):
+        profiler.start_tick()
+        time.sleep(0.001)  # Small delay
+        profiler.end_tick()
+
+    stats = profiler.get_tick_stats()
+
+    assert stats["count"] == 10
+    assert stats["avg_ms"] > 0
+    assert stats["min_ms"] > 0
+    assert stats["max_ms"] >= stats["min_ms"]
+
+    print("PASS")
+
+
+def test_profiler_step_timing():
+    """Test step timing within ticks."""
+    print("  test_profiler_step_timing...", end=" ")
+
+    profiler = create_profiler()
+
+    profiler.start_tick()
+    profiler.start_step("dynamics")
+    time.sleep(0.001)
+    profiler.end_step()
+    profiler.start_step("bonds")
+    time.sleep(0.001)
+    profiler.end_step()
+    profiler.end_tick()
+
+    step_stats = profiler.get_step_stats()
+
+    assert "dynamics" in step_stats
+    assert "bonds" in step_stats
+    assert step_stats["dynamics"]["count"] == 1
+
+    print("PASS")
+
+
+def test_profiler_memory():
+    """Test memory sampling."""
+    print("  test_profiler_memory...", end=" ")
+
+    profiler = create_profiler()
+
+    profiler.sample_memory()
+
+    stats = profiler.get_memory_stats()
+
+    assert stats["count"] == 1
+    assert stats["current_mb"] > 0
+
+    print("PASS")
+
+
+def test_profiler_report():
+    """Test full profiling report."""
+    print("  test_profiler_report...", end=" ")
+
+    profiler = create_profiler()
+
+    for _ in range(5):
+        profiler.start_tick()
+        profiler.start_step("test")
+        profiler.end_step()
+        profiler.end_tick()
+
+    profiler.sample_memory()
+
+    report = profiler.get_report()
+
+    assert "tick" in report
+    assert "steps" in report
+    assert "memory" in report
+
+    assert report["tick"]["count"] == 5
+
+    print("PASS")
+
+
+def test_metrics_clear():
+    """Test clearing metrics data."""
+    print("  test_metrics_clear...", end=" ")
+
+    with DETCore() as core:
+        collector = create_metrics_collector()
+
+        for _ in range(5):
+            core.step(0.1)
+            collector.sample(core)
+
+        collector.log_event(DETEventType.ESCALATION, tick=1)
+
+        assert len(collector.get_samples()) == 5
+        assert len(collector.get_events()) == 1
+
+        collector.clear()
+
+        assert len(collector.get_samples()) == 0
+        assert len(collector.get_events()) == 0
+
+    print("PASS")
+
+
+def test_det_event_to_dict():
+    """Test DETEvent serialization."""
+    print("  test_det_event_to_dict...", end=" ")
+
+    event = DETEvent(
+        event_type=DETEventType.ESCALATION,
+        timestamp=time.time(),
+        tick=42,
+        details={"node": 5, "novelty": 0.8},
+    )
+
+    d = event.to_dict()
+
+    assert d["type"] == "escalation"
+    assert d["tick"] == 42
+    assert d["details"]["node"] == 5
+    assert "time_str" in d
+
+    print("PASS")
+
+
+def test_webapp_metrics_routes():
+    """Test that webapp has metrics routes."""
+    print("  test_webapp_metrics_routes...", end=" ")
+
+    if not WEBAPP_AVAILABLE:
+        print("SKIP (webapp not available)")
+        return
+
+    with DETCore() as core:
+        harness = create_harness(core=core)
+        app = create_app(core=core, harness=harness)
+
+        routes = [route.path for route in app.routes]
+
+        # Check metrics routes exist
+        assert "/api/metrics/dashboard" in routes
+        assert "/api/metrics/samples" in routes
+        assert "/api/metrics/statistics" in routes
+        assert "/api/metrics/profiling" in routes
+
+    print("PASS")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -1299,6 +1661,25 @@ def run_tests():
         test_state_api_inject,
         test_create_app,
         test_webapp_routes,
+
+        # Phase 6.4: Metrics and Logging
+        test_metrics_collector_init,
+        test_metrics_sample,
+        test_metrics_multiple_samples,
+        test_metrics_event_logging,
+        test_metrics_event_filter,
+        test_metrics_event_callback,
+        test_metrics_timeline,
+        test_metrics_dashboard,
+        test_metrics_statistics,
+        test_profiler_init,
+        test_profiler_tick_timing,
+        test_profiler_step_timing,
+        test_profiler_memory,
+        test_profiler_report,
+        test_metrics_clear,
+        test_det_event_to_dict,
+        test_webapp_metrics_routes,
     ]
 
     passed = 0
