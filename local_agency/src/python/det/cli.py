@@ -264,7 +264,7 @@ def run_repl(
 
                     try:
                         from .harness import create_harness
-                        from .webapp import create_app, WEBAPP_AVAILABLE
+                        from . import WEBAPP_AVAILABLE
 
                         if not WEBAPP_AVAILABLE:
                             print("\nWebapp not available. Install: pip install fastapi uvicorn")
