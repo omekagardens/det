@@ -203,6 +203,7 @@ local_agency/
 │           ├── llm.py         # LLM interface
 │           └── webapp/        # Web visualization
 ├── setup_det.py               # Setup script
+├── upgrade.py                 # Upgrade script
 ├── requirements.txt           # Python dependencies
 ├── GETTING_STARTED.md         # This file
 ├── DEVELOPMENT_LOG.md         # Development history
@@ -336,6 +337,37 @@ When running the web server:
 - `GET /api/metrics/dashboard` - Metrics dashboard
 - `GET /api/metrics/timeline/{field}` - Timeline data
 - `WebSocket /ws` - Real-time state updates
+
+## Upgrading
+
+To upgrade to the latest version:
+
+```bash
+python3 upgrade.py
+```
+
+This will:
+- Check for updates from the repository
+- Pull latest changes
+- Update Python dependencies
+- Rebuild the C kernel
+- Run verification tests
+
+### Upgrade Options
+
+```bash
+# Check for updates without applying
+python3 upgrade.py --check
+
+# Force rebuild even if no updates
+python3 upgrade.py --force
+
+# Rebuild only (skip git pull)
+python3 upgrade.py --skip-pull
+
+# Skip model check
+python3 upgrade.py --skip-models
+```
 
 ## Support
 
