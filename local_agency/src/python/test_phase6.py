@@ -5,6 +5,7 @@ DET Phase 6 Tests
 
 Phase 6.1: Test harness for DET debugging and probing.
 Phase 6.2: Web application for 3D visualization and real-time monitoring.
+Phase 6.3: Advanced interactive probing (escalation, grace, domains, gatekeeper).
 """
 
 import sys
@@ -689,6 +690,198 @@ def test_remove_watcher():
 
 
 # ============================================================================
+# Advanced Probing Tests (Phase 6.3)
+# ============================================================================
+
+def test_trigger_escalation():
+    """Test escalation triggering."""
+    print("  test_trigger_escalation...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(5):
+            core.step(0.1)
+
+        result = controller.trigger_escalation(0)
+        assert result is True
+
+        # Check node has escalation pending
+        node = core._core.contents.nodes[0]
+        assert node.escalation_pending is True
+
+    print("PASS")
+
+
+def test_trigger_escalation_invalid():
+    """Test escalation with invalid node."""
+    print("  test_trigger_escalation_invalid...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        result = controller.trigger_escalation(9999)
+        assert result is False
+
+        result = controller.trigger_escalation(-1)
+        assert result is False
+
+    print("PASS")
+
+
+def test_inject_grace():
+    """Test grace injection."""
+    print("  test_inject_grace...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(5):
+            core.step(0.1)
+
+        result = controller.inject_grace(0, 0.5)
+        assert result is True
+
+    print("PASS")
+
+
+def test_inject_grace_all():
+    """Test grace injection to all needing nodes."""
+    print("  test_inject_grace_all...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        count = controller.inject_grace_all(0.5)
+        # Count can be 0 if no nodes need grace
+        assert isinstance(count, int)
+        assert count >= 0
+
+    print("PASS")
+
+
+def test_get_total_grace_needed():
+    """Test total grace needed retrieval."""
+    print("  test_get_total_grace_needed...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        total = controller.get_total_grace_needed()
+        assert isinstance(total, float)
+        assert total >= 0.0
+
+    print("PASS")
+
+
+def test_get_learning_capacity():
+    """Test learning capacity retrieval."""
+    print("  test_get_learning_capacity...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        capacity = controller.get_learning_capacity()
+        assert isinstance(capacity, float)
+
+    print("PASS")
+
+
+def test_can_learn():
+    """Test learning capability check."""
+    print("  test_can_learn...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        result = controller.can_learn(0.5)
+        assert isinstance(result, bool)
+
+    print("PASS")
+
+
+def test_activate_domain():
+    """Test domain activation."""
+    print("  test_activate_domain...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        result = controller.activate_domain("test_domain", 4, 0.3)
+        # May or may not succeed depending on available dormant nodes
+        assert isinstance(result, bool)
+
+    print("PASS")
+
+
+def test_transfer_pattern():
+    """Test pattern transfer."""
+    print("  test_transfer_pattern...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        result = controller.transfer_pattern(0, 1, 0.5)
+        # May or may not succeed depending on domains
+        assert isinstance(result, bool)
+
+    print("PASS")
+
+
+def test_evaluate_request():
+    """Test gatekeeper request evaluation."""
+    print("  test_evaluate_request...", end=" ")
+
+    with DETCore() as core:
+        controller = create_harness(core=core)
+
+        for _ in range(10):
+            core.step(0.1)
+
+        decision = controller.evaluate_request([1, 2, 3])
+        assert decision in ["PROCEED", "RETRY", "STOP", "ESCALATE"]
+
+    print("PASS")
+
+
+def test_advanced_probing_without_core():
+    """Test advanced probing methods without core."""
+    print("  test_advanced_probing_without_core...", end=" ")
+
+    controller = create_harness()
+
+    assert controller.trigger_escalation(0) is False
+    assert controller.inject_grace(0, 0.5) is False
+    assert controller.inject_grace_all(0.5) == 0
+    assert controller.get_total_grace_needed() == 0.0
+    assert controller.get_learning_capacity() == 0.0
+    assert controller.can_learn(0.5) is False
+    assert controller.activate_domain("test", 4) is False
+    assert controller.transfer_pattern(0, 1) is False
+    assert controller.evaluate_request([1, 2, 3]) == "STOP"
+
+    print("PASS")
+
+
+# ============================================================================
 # CLI Tests
 # ============================================================================
 
@@ -1073,6 +1266,19 @@ def run_tests():
         # Watchers
         test_add_watcher,
         test_remove_watcher,
+
+        # Advanced Probing (Phase 6.3)
+        test_trigger_escalation,
+        test_trigger_escalation_invalid,
+        test_inject_grace,
+        test_inject_grace_all,
+        test_get_total_grace_needed,
+        test_get_learning_capacity,
+        test_can_learn,
+        test_activate_domain,
+        test_transfer_pattern,
+        test_evaluate_request,
+        test_advanced_probing_without_core,
 
         # CLI
         test_harness_cli_init,

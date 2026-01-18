@@ -349,6 +349,185 @@ class HarnessController:
         return True
 
     # =========================================================================
+    # Advanced Probing (Phase 6.3)
+    # =========================================================================
+
+    def trigger_escalation(self, node_index: int) -> bool:
+        """
+        Trigger escalation on a specific node.
+
+        Args:
+            node_index: Index of the node to escalate.
+
+        Returns:
+            True if escalation was triggered.
+        """
+        if not self.core:
+            return False
+
+        if node_index < 0 or node_index >= self.core.num_active:
+            return False
+
+        node = self.core._core.contents.nodes[node_index]
+        node.escalation_pending = True
+        node.novelty_score = 1.0  # High novelty triggers escalation
+
+        self._log_event(HarnessEventType.STEP, action="escalation", node=node_index)
+        return True
+
+    def inject_grace(self, node_index: int, amount: float) -> bool:
+        """
+        Inject grace into a node (boundary recovery mechanism).
+
+        Args:
+            node_index: Index of the node.
+            amount: Amount of grace to inject.
+
+        Returns:
+            True if successful.
+        """
+        if not self.core:
+            return False
+
+        if node_index < 0 or node_index >= self.core.num_active:
+            return False
+
+        # Use the C function for grace injection
+        self.core._lib.det_core_inject_grace(self.core._core, node_index, amount)
+
+        self._log_event(HarnessEventType.INJECT_F, action="grace", node=node_index, amount=amount)
+        return True
+
+    def inject_grace_all(self, amount: float) -> int:
+        """
+        Inject grace into all nodes that need it.
+
+        Args:
+            amount: Amount of grace per node.
+
+        Returns:
+            Number of nodes that received grace.
+        """
+        if not self.core:
+            return 0
+
+        count = 0
+        for i in range(self.core.num_active):
+            if self.core._lib.det_core_needs_grace(self.core._core, i):
+                self.core._lib.det_core_inject_grace(self.core._core, i, amount)
+                count += 1
+
+        return count
+
+    def activate_domain(self, name: str, num_nodes: int, initial_coherence: float = 0.3) -> bool:
+        """
+        Activate a new domain by recruiting dormant nodes.
+
+        Args:
+            name: Name for the domain.
+            num_nodes: Number of nodes to recruit.
+            initial_coherence: Initial coherence for domain bonds.
+
+        Returns:
+            True if domain was activated.
+        """
+        if not self.core:
+            return False
+
+        result = self.core._lib.det_core_activate_domain(
+            self.core._core,
+            name.encode('utf-8'),
+            num_nodes,
+            initial_coherence
+        )
+
+        if result:
+            self._log_event(HarnessEventType.STEP, action="activate_domain", name=name, nodes=num_nodes)
+
+        return result
+
+    def transfer_pattern(self, source_domain: int, target_domain: int, strength: float = 0.5) -> bool:
+        """
+        Transfer pattern from source to target domain.
+
+        Args:
+            source_domain: Source domain index.
+            target_domain: Target domain index.
+            strength: Transfer strength (0-1).
+
+        Returns:
+            True if transfer was successful.
+        """
+        if not self.core:
+            return False
+
+        result = self.core._lib.det_core_transfer_pattern(
+            self.core._core,
+            source_domain,
+            target_domain,
+            strength
+        )
+
+        if result:
+            self._log_event(HarnessEventType.STEP, action="transfer_pattern",
+                          source=source_domain, target=target_domain, strength=strength)
+
+        return result
+
+    def get_learning_capacity(self) -> float:
+        """
+        Get current learning capacity (available agency for recruitment).
+
+        Returns:
+            Learning capacity value.
+        """
+        if not self.core:
+            return 0.0
+
+        return self.core._lib.det_core_learning_capacity(self.core._core)
+
+    def can_learn(self, complexity: float, domain: int = 0) -> bool:
+        """
+        Check if learning/recruitment is possible.
+
+        Args:
+            complexity: Task complexity.
+            domain: Target domain.
+
+        Returns:
+            True if learning is possible.
+        """
+        if not self.core:
+            return False
+
+        return self.core._lib.det_core_can_learn(self.core._core, complexity, domain)
+
+    def get_total_grace_needed(self) -> float:
+        """Get total grace needed across all nodes."""
+        if not self.core:
+            return 0.0
+
+        return self.core._lib.det_core_total_grace_needed(self.core._core)
+
+    def evaluate_request(self, tokens: List[int], domain: int = 0, retry_count: int = 0) -> str:
+        """
+        Evaluate a request through the gatekeeper.
+
+        Args:
+            tokens: Token IDs for the request.
+            domain: Target domain.
+            retry_count: Number of retries.
+
+        Returns:
+            Decision string: "PROCEED", "RETRY", "STOP", or "ESCALATE".
+        """
+        if not self.core:
+            return "STOP"
+
+        decision = self.core.evaluate_request(tokens, domain, retry_count)
+        return decision.name
+
+    # =========================================================================
     # Time Control
     # =========================================================================
 
@@ -949,6 +1128,101 @@ class HarnessCLI(cmd.Cmd):
             print("Usage: set_coherence <i> <j> <value>")
 
     # -------------------------------------------------------------------------
+    # Advanced Probing Commands (Phase 6.3)
+    # -------------------------------------------------------------------------
+
+    def do_escalate(self, arg):
+        """Trigger escalation on a node. Usage: escalate <node>"""
+        try:
+            node = int(arg)
+            if self.controller.trigger_escalation(node):
+                print(f"Triggered escalation on node {node}")
+            else:
+                print("Escalation failed")
+        except ValueError:
+            print("Usage: escalate <node>")
+
+    def do_grace(self, arg):
+        """Inject grace into a node. Usage: grace <node> <amount>"""
+        try:
+            parts = arg.split()
+            node = int(parts[0])
+            amount = float(parts[1])
+            if self.controller.inject_grace(node, amount):
+                print(f"Injected {amount} grace into node {node}")
+            else:
+                print("Grace injection failed")
+        except (ValueError, IndexError):
+            print("Usage: grace <node> <amount>")
+
+    def do_grace_all(self, arg):
+        """Inject grace into all nodes that need it. Usage: grace_all <amount>"""
+        try:
+            amount = float(arg) if arg else 0.5
+            count = self.controller.inject_grace_all(amount)
+            print(f"Injected grace into {count} nodes")
+        except ValueError:
+            print("Usage: grace_all <amount>")
+
+    def do_grace_needed(self, arg):
+        """Show total grace needed across all nodes."""
+        total = self.controller.get_total_grace_needed()
+        print(f"Total grace needed: {total:.4f}")
+
+    def do_learning(self, arg):
+        """Show learning capacity and check if learning is possible."""
+        capacity = self.controller.get_learning_capacity()
+        print(f"Learning capacity: {capacity:.4f}")
+
+        if arg:
+            try:
+                complexity = float(arg)
+                can_learn = self.controller.can_learn(complexity)
+                print(f"Can learn (complexity={complexity}): {can_learn}")
+            except ValueError:
+                print("Usage: learning [complexity]")
+
+    def do_activate_domain(self, arg):
+        """Activate a new domain. Usage: activate_domain <name> <num_nodes> [coherence]"""
+        try:
+            parts = arg.split()
+            name = parts[0]
+            num_nodes = int(parts[1])
+            coherence = float(parts[2]) if len(parts) > 2 else 0.3
+            if self.controller.activate_domain(name, num_nodes, coherence):
+                print(f"Activated domain '{name}' with {num_nodes} nodes")
+            else:
+                print("Domain activation failed")
+        except (ValueError, IndexError):
+            print("Usage: activate_domain <name> <num_nodes> [coherence]")
+
+    def do_transfer(self, arg):
+        """Transfer pattern between domains. Usage: transfer <source> <target> [strength]"""
+        try:
+            parts = arg.split()
+            source = int(parts[0])
+            target = int(parts[1])
+            strength = float(parts[2]) if len(parts) > 2 else 0.5
+            if self.controller.transfer_pattern(source, target, strength):
+                print(f"Transferred pattern from domain {source} to {target}")
+            else:
+                print("Pattern transfer failed")
+        except (ValueError, IndexError):
+            print("Usage: transfer <source> <target> [strength]")
+
+    def do_gatekeeper(self, arg):
+        """Evaluate request through gatekeeper. Usage: gatekeeper <token_ids...>"""
+        try:
+            tokens = [int(t) for t in arg.split()]
+            if not tokens:
+                print("Usage: gatekeeper <token_ids...>")
+                return
+            decision = self.controller.evaluate_request(tokens)
+            print(f"Gatekeeper decision: {decision}")
+        except ValueError:
+            print("Usage: gatekeeper <token_ids...>")
+
+    # -------------------------------------------------------------------------
     # Time Control Commands
     # -------------------------------------------------------------------------
 
@@ -1118,6 +1392,16 @@ TIME:
   speed [mult]    - Set/show speed multiplier
   run [dt] [int]  - Start auto-run
   stop            - Stop auto-run
+
+ADVANCED PROBING (Phase 6.3):
+  escalate <node>           - Trigger escalation on node
+  grace <node> <amount>     - Inject grace into node
+  grace_all <amount>        - Inject grace into all needing nodes
+  grace_needed              - Show total grace needed
+  learning [complexity]     - Show learning capacity (optionally check)
+  activate_domain <name> <n> [c] - Activate domain with n nodes
+  transfer <src> <tgt> [s]  - Transfer pattern between domains
+  gatekeeper <tokens...>    - Evaluate request through gatekeeper
 
 SNAPSHOTS:
   snapshot <name> - Take snapshot

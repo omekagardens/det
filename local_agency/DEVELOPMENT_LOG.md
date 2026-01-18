@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 4 - Advanced DET Features (Completed)
+**Current Phase**: Phase 6 - Development Tools (6.3 Complete)
 
 ---
 
@@ -408,10 +408,40 @@
 - **Tests**: 11 new tests (46 total Phase 6)
 - **Dependencies**: fastapi, uvicorn, websockets, jinja2
 
+### 6.3 Advanced Interactive Probing ✅
+- **Status**: Complete
+- **Files Modified**:
+  - `src/python/det/harness.py` - Added advanced probing methods
+  - `src/python/test_phase6.py` - Added 11 new tests
+- **Features**:
+  - **Escalation Control**:
+    - `trigger_escalation(node)`: Force escalation on a node
+  - **Grace Management**:
+    - `inject_grace(node, amount)`: Inject grace into a node
+    - `inject_grace_all(amount)`: Inject grace into all nodes that need it
+    - `get_total_grace_needed()`: Get total grace deficit across all nodes
+  - **Learning & Domains**:
+    - `get_learning_capacity()`: Get available agency for recruitment
+    - `can_learn(complexity, domain)`: Check if learning is possible
+    - `activate_domain(name, num_nodes, coherence)`: Activate a new domain
+    - `transfer_pattern(source, target, strength)`: Transfer pattern between domains
+  - **Gatekeeper**:
+    - `evaluate_request(tokens, domain, retry_count)`: Evaluate request through gatekeeper
+  - **CLI Commands**:
+    - `escalate <node>` - Trigger escalation
+    - `grace <node> <amount>` - Inject grace
+    - `grace_all <amount>` - Inject grace to all needing nodes
+    - `grace_needed` - Show total grace needed
+    - `learning [complexity]` - Show learning capacity
+    - `activate_domain <name> <n> [c]` - Activate domain
+    - `transfer <src> <tgt> [s]` - Transfer pattern
+    - `gatekeeper <tokens...>` - Evaluate request
+- **Tests**: 11 new tests (57 total Phase 6)
+
 ### Phase 6 Integration ✅
-- **Tests**: 46/46 passing (`test_phase6.py`)
-- **Version**: 0.6.1
-- **Total Tests**: 228/228 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 75 Phase5 + 46 Phase6)
+- **Tests**: 57/57 passing (`test_phase6.py`)
+- **Version**: 0.6.3
+- **Total Tests**: 239/239 (22 C + 11 Bridge + 10 Phase2 + 22 Phase2.2 + 17 Phase3 + 25 Phase4 + 75 Phase5 + 57 Phase6)
 
 ---
 
@@ -482,4 +512,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 6.2 Web Visualization Complete)*
+*Last Updated: 2026-01-17 (Phase 6.3 Advanced Interactive Probing Complete)*
