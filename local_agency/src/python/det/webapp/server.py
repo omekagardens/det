@@ -24,6 +24,7 @@ except ImportError:
 from ..core import DETCore
 from ..harness import HarnessController, HarnessEvent, create_harness
 from ..metrics import MetricsCollector, DETEventType, Profiler, create_metrics_collector, create_profiler
+from ..llm import DETLLMInterface, OllamaClient
 
 
 class ConnectionManager:
@@ -99,6 +100,11 @@ class DETWebApp:
         self.profiler = create_profiler(window_size=100)
         self._metrics_interval = 1.0  # Sample metrics every second
         self._last_metrics_sample = 0.0
+
+        # LLM interface for chat (lazy initialized)
+        self._llm_interface: Optional[DETLLMInterface] = None
+        self._ollama_url = "http://localhost:11434"
+        self._model = "llama3.2:3b"
 
         # Setup FastAPI app
         self.app = self._create_app()
@@ -348,6 +354,74 @@ class DETWebApp:
             if self.harness:
                 name = data.get("name", f"snap_{int(time.time())}")
                 self.harness.take_snapshot(name)
+
+        elif msg_type == "chat":
+            message = data.get("message", "")
+            if message:
+                await self._handle_chat(websocket, message)
+
+    async def _handle_chat(self, websocket: WebSocket, message: str):
+        """Handle a chat message from the client."""
+        try:
+            # Initialize LLM interface if needed
+            if self._llm_interface is None and self.core:
+                self._llm_interface = DETLLMInterface(
+                    self.core,
+                    ollama_url=self._ollama_url,
+                    model=self._model
+                )
+
+            if self._llm_interface is None:
+                await websocket.send_json({
+                    "type": "chat_error",
+                    "data": {"error": "LLM interface not available"}
+                })
+                return
+
+            # Check if Ollama is available
+            client = OllamaClient(base_url=self._ollama_url, model=self._model)
+            if not client.is_available():
+                await websocket.send_json({
+                    "type": "chat_error",
+                    "data": {"error": "Ollama not running. Start with: ollama serve"}
+                })
+                return
+
+            # Process through DET interface (run in thread pool to avoid blocking)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self._llm_interface.process_request(message)
+            )
+
+            # Send response
+            decision = result.get("decision")
+            decision_name = decision.name if hasattr(decision, "name") else str(decision)
+
+            await websocket.send_json({
+                "type": "chat_response",
+                "data": {
+                    "response": result.get("response", ""),
+                    "decision": decision_name,
+                    "intent": result.get("intent", ""),
+                    "domain": result.get("domain", ""),
+                }
+            })
+
+            # Log the event
+            self.metrics.log_event(
+                DETEventType.GATEKEEPER_DECISION,
+                tick=self.core.tick if self.core else 0,
+                decision=decision_name,
+                intent=result.get("intent", ""),
+            )
+
+        except Exception as e:
+            await websocket.send_json({
+                "type": "chat_error",
+                "data": {"error": str(e)}
+            })
 
     async def _broadcast_loop(self):
         """Background task to broadcast state updates and run simulation."""

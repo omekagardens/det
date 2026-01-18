@@ -9,6 +9,8 @@ Integrates memory management and internal dialogue.
 
 import sys
 import argparse
+import threading
+import webbrowser
 from typing import Optional
 from pathlib import Path
 
@@ -140,10 +142,14 @@ def run_repl(
     print("  /store   - Store a memory (usage: /store <text>)")
     print("  /recall  - Recall memories (usage: /recall <query>)")
     print("  /think   - Internal thinking (usage: /think <topic>)")
+    print("  /webapp  - Launch web visualization (usage: /webapp [port])")
     print("  /clear   - Clear conversation and memory")
     print("  /help    - Show this help")
     print("  /quit    - Exit")
     print("\n" + "-" * 60)
+
+    # Track webapp server state (use dict for mutable reference in closures)
+    webapp_state = {"thread": None, "running": False}
 
     while True:
         try:
@@ -242,6 +248,66 @@ def run_repl(
                     else:
                         print("\nDialogue system not available.")
 
+                elif cmd == "webapp":
+                    if webapp_state["running"]:
+                        print("\nWeb visualization is already running.")
+                        print("Open http://127.0.0.1:8420 in your browser.")
+                        continue
+
+                    port = 8420
+                    if args:
+                        try:
+                            port = int(args)
+                        except ValueError:
+                            print(f"\nInvalid port: {args}")
+                            continue
+
+                    try:
+                        from .harness import create_harness
+                        from .webapp import create_app, WEBAPP_AVAILABLE
+
+                        if not WEBAPP_AVAILABLE:
+                            print("\nWebapp not available. Install: pip install fastapi uvicorn")
+                            continue
+
+                        harness = create_harness(core=core)
+
+                        def run_webapp():
+                            try:
+                                import uvicorn
+                                from .webapp.server import DETWebApp
+
+                                webapp = DETWebApp(core=core, harness=harness)
+                                webapp.add_event_callback()
+
+                                webapp_state["running"] = True
+                                uvicorn.run(
+                                    webapp.app,
+                                    host="127.0.0.1",
+                                    port=port,
+                                    log_level="warning",
+                                )
+                            except Exception as e:
+                                print(f"\nWebapp error: {e}")
+                            finally:
+                                webapp_state["running"] = False
+
+                        webapp_state["thread"] = threading.Thread(target=run_webapp, daemon=True)
+                        webapp_state["thread"].start()
+
+                        print(f"\nStarting web visualization on http://127.0.0.1:{port}")
+                        print("Opening browser...")
+
+                        # Give server a moment to start
+                        import time
+                        time.sleep(1.0)
+
+                        webbrowser.open(f"http://127.0.0.1:{port}")
+
+                    except ImportError as e:
+                        print(f"\nWebapp not available: {e}")
+                        print("Install with: pip install fastapi uvicorn")
+
                 elif cmd == "clear":
                     interface.clear_history()
                     if dialogue:
@@ -257,6 +323,7 @@ def run_repl(
                     print("  /store   - Store a memory (usage: /store <text>)")
                     print("  /recall  - Recall memories (usage: /recall <query>)")
                     print("  /think   - Internal thinking (usage: /think <topic>)")
+                    print("  /webapp  - Launch web visualization (usage: /webapp [port])")
                     print("  /clear   - Clear conversation and memory")
                     print("  /help    - Show this help")
                     print("  /quit    - Exit")
@@ -341,6 +408,7 @@ Commands in REPL:
   /store   - Store a memory
   /recall  - Recall memories
   /think   - Internal thinking on a topic
+  /webapp  - Launch web visualization
   /clear   - Clear conversation
   /quit    - Exit
         """
