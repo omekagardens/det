@@ -422,20 +422,30 @@ Response:""",
         """Generate a response from the LLM."""
         from .llm import IntentType, DomainType
 
-        # Check for somatic intents first
-        intent, intent_conf = self.signal_extractor.classify_intent(text) if hasattr(self.signal_extractor, 'classify_intent') else (IntentType.ANSWER, 0.5)
+        text_lower = text.lower()
 
-        # Simple intent classification if signal_extractor doesn't have the method
-        if intent == IntentType.ANSWER and intent_conf < 0.6:
-            text_lower = text.lower()
-            # Check for SENSE intent
-            sense_keywords = ["what is the", "what's the", "tell me the", "check the", "temperature", "humidity", "reading", "sensor"]
-            if any(kw in text_lower for kw in sense_keywords):
-                intent = IntentType.SENSE
-            # Check for ACTUATE intent
-            actuate_keywords = ["turn on", "turn off", "switch", "set the", "adjust", "activate"]
-            if any(kw in text_lower for kw in actuate_keywords):
-                intent = IntentType.ACTUATE
+        # Always check for somatic intents FIRST (before other classification)
+        # These have priority when somatic nodes are available
+        intent = IntentType.ANSWER
+
+        # Check for SENSE intent - query sensors
+        sense_keywords = [
+            "what is the", "what's the", "tell me the", "check the",
+            "temperature", "humidity", "reading", "sensor", "level",
+            "how warm", "how cold", "how hot", "how humid", "how bright",
+            "current", "status", "what's", "whats"
+        ]
+        if any(kw in text_lower for kw in sense_keywords):
+            intent = IntentType.SENSE
+
+        # Check for ACTUATE intent - control actuators
+        actuate_keywords = [
+            "turn on", "turn off", "switch on", "switch off",
+            "set the", "adjust", "activate", "deactivate",
+            "enable", "disable", "open", "close"
+        ]
+        if any(kw in text_lower for kw in actuate_keywords):
+            intent = IntentType.ACTUATE
 
         # Route somatic intents to the bridge
         if intent in (IntentType.SENSE, IntentType.ACTUATE):
