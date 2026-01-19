@@ -64,20 +64,23 @@
         /* Tabs */
         .tabs {
             display: flex;
+            flex-wrap: wrap;
             background: #0d0d1f;
             border-bottom: 1px solid #2a2a4a;
         }
 
         .tab {
-            flex: 1;
-            padding: 10px;
+            flex: 1 1 auto;
+            min-width: 50px;
+            padding: 8px 6px;
             text-align: center;
             cursor: pointer;
             border: none;
             background: transparent;
             color: #888;
-            font-size: 0.8rem;
+            font-size: 0.7rem;
             transition: all 0.2s;
+            white-space: nowrap;
         }
 
         .tab:hover {
