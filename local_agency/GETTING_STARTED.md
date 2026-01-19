@@ -270,6 +270,111 @@ Request routing based on DET state:
 - **STOP**: Decline request (prison regime detected)
 - **ESCALATE**: Requires deeper processing
 
+## Example Prompts
+
+Here are example prompts organized by use case to help you get started with DET.
+
+### Memory and Learning
+
+Store new information that persists across sessions:
+
+```
+/store I prefer concise explanations with code examples
+/store My project uses Python 3.11 with FastAPI and SQLAlchemy
+/store When debugging, start with logging before adding breakpoints
+```
+
+Recall stored information:
+
+```
+/recall my coding preferences
+/recall project setup
+/recall debugging approach
+```
+
+### Internal Thinking
+
+Use `/think` for deeper reasoning on complex topics:
+
+```
+/think What are the trade-offs between async and sync approaches?
+/think How should I structure a multi-tenant application?
+/think What could cause intermittent connection failures?
+```
+
+### Conversational Examples
+
+**General knowledge:**
+```
+You: What's the difference between threads and coroutines?
+DET> [Explains with consideration for complexity and your learning history]
+```
+
+**Code assistance:**
+```
+You: Help me write a rate limiter in Python
+DET> [Provides code with risk assessment - notes any external effects]
+```
+
+**Planning tasks:**
+```
+You: I need to migrate our database from MySQL to PostgreSQL
+DET> [Decomposes into steps, considers risks, may reformulate if complex]
+```
+
+**Debugging:**
+```
+You: Why is my API returning 500 errors intermittently?
+DET> [Analyzes systematically, may use internal thinking, suggests investigation steps]
+```
+
+### Domain-Specific Examples
+
+**Math domain** (triggers mathematical reasoning prompt):
+```
+You: Calculate the probability of rolling at least one 6 in four dice rolls
+DET> [Shows step-by-step calculation with verification]
+```
+
+**Science domain** (triggers scientific reasoning prompt):
+```
+You: Explain how mRNA vaccines work
+DET> [Provides evidence-based explanation with appropriate certainty levels]
+```
+
+**Tool use domain** (triggers safety-aware prompt):
+```
+You: Delete all files older than 30 days in /tmp
+DET> [Assesses risk, may ask for confirmation, explains side effects]
+```
+
+### Affect-Aware Responses
+
+DET modulates responses based on the system's emotional state:
+
+- **High coherence + positive valence**: Confident, flowing responses
+- **Low coherence**: May ask for clarification or decompose the problem
+- **High arousal**: More focused, direct responses
+- **High bondedness**: More personalized, contextual responses
+
+Check the current affect state:
+```
+/affect
+```
+
+### Web Interface
+
+Launch the 3D visualization to see DET in action:
+```
+/webapp
+```
+
+The web interface shows:
+- Node activity and bond strength in real-time
+- Affect state visualization
+- Event log for request routing decisions
+- Direct chat for interactive exploration
+
 ## Troubleshooting
 
 ### "Library not found" Error
@@ -300,6 +405,16 @@ ollama pull llama3.2:3b
 - Reduce simulation speed in the web viewer
 - Check memory usage with the profiling endpoints
 
+### "All Requests Escalate"
+
+The DET system needs to warm up before processing requests. The CLI does this automatically, but if using the API directly:
+```python
+core = DETCore()
+core.warmup(steps=50)  # Run 50 simulation steps to stabilize
+```
+
+The `DETLLMInterface` and `InternalDialogue` classes auto-warmup by default.
+
 ## API Reference
 
 ### Python API
@@ -309,6 +424,9 @@ from det import DETCore, create_harness
 
 # Create DET core
 core = DETCore()
+
+# IMPORTANT: Warmup before processing requests
+core.warmup(steps=50)  # Stabilizes aggregates
 
 # Run simulation steps
 core.step(0.1)

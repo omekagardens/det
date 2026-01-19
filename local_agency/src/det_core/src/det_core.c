@@ -95,6 +95,16 @@ DETParams det_default_params(void) {
         .phi_L = 0.5f,
         .pi_max = 3.0f,
 
+        /* v6.4 Agency dynamics: Two-component model */
+        .beta_a = 0.2f,         /* Agency relaxation rate */
+        .gamma_a_max = 0.15f,   /* Max relational drive strength */
+        .gamma_a_power = 2.0f,  /* Coherence gating exponent (n >= 2) */
+
+        /* Momentum dynamics */
+        .alpha_pi = 0.12f,      /* Momentum charging gain (= σ_base) */
+        .lambda_pi = 0.008f,    /* Momentum decay rate (= λ_base) */
+        .beta_g = 10.0f,        /* Gravity-momentum coupling (= 5 × μ_g = 5 × 2.0) */
+
         /* A↔A: fast, plastic */
         .alpha_AA = 0.15f,
         .lambda_AA = 0.08f,
@@ -196,8 +206,59 @@ void det_core_reset(DETCore* core) {
     memset(core, 0, sizeof(DETCore));
     core->params = params;
 
-    /* Re-initialize (simplified) */
+    /* Full re-initialization (same as create) */
+
+    /* Initialize nodes */
+    core->num_nodes = DET_P_LAYER_SIZE + DET_A_LAYER_SIZE + DET_DORMANT_SIZE;
+
+    /* P-layer nodes */
+    for (uint32_t i = 0; i < DET_P_LAYER_SIZE; i++) {
+        core->nodes[i].layer = DET_LAYER_P;
+        core->nodes[i].active = true;
+        core->nodes[i].a = 0.7f + 0.2f * ((float)i / DET_P_LAYER_SIZE);
+        core->nodes[i].F = 1.0f;
+        core->nodes[i].sigma = params.sigma_base;
+        core->nodes[i].theta = 2.0f * 3.14159f * i / DET_P_LAYER_SIZE;
+    }
+
+    /* A-layer nodes */
+    for (uint32_t i = 0; i < DET_A_LAYER_SIZE; i++) {
+        uint32_t idx = DET_P_LAYER_SIZE + i;
+        core->nodes[idx].layer = DET_LAYER_A;
+        core->nodes[idx].active = true;
+        core->nodes[idx].a = 0.3f + 0.2f * ((float)(i % 50) / 50.0f);
+        core->nodes[idx].F = 0.5f;
+        core->nodes[idx].sigma = params.sigma_base;
+        core->nodes[idx].domain = i / (DET_A_LAYER_SIZE / 4);
+    }
+
+    /* Dormant pool */
+    for (uint32_t i = 0; i < DET_DORMANT_SIZE; i++) {
+        uint32_t idx = DET_P_LAYER_SIZE + DET_A_LAYER_SIZE + i;
+        core->nodes[idx].layer = DET_LAYER_DORMANT;
+        core->nodes[idx].active = false;
+        core->nodes[idx].F = 0.0f;
+        core->nodes[idx].sigma = 0.0f;
+    }
+    init_dormant_pool_agency(core);
+
+    core->num_active = DET_P_LAYER_SIZE + DET_A_LAYER_SIZE;
+
+    /* Initialize bonds (ring topology in P-layer) */
+    for (uint32_t i = 0; i < DET_P_LAYER_SIZE; i++) {
+        uint32_t j = (i + 1) % DET_P_LAYER_SIZE;
+        int32_t b = det_core_create_bond(core, i, j);
+        if (b >= 0) {
+            core->bonds[b].C = 0.7f;
+        }
+    }
+
+    /* Initialize Self storage */
     core->self.nodes = core->self_nodes_storage;
+    core->self.num_nodes = 0;
+
+    /* Initialize ports */
+    det_core_init_ports(core);
 }
 
 /* ==========================================================================
@@ -257,8 +318,11 @@ void det_core_update_coherence(DETCore* core, float dt) {
             plasticity_mod = 1.0f + 0.3f * r_avg + 0.4f * (1.0f - b_avg);
         }
 
-        /* Compute flux magnitude (simplified) */
-        float J_mag = fabsf(ni->P - nj->P) * bond->sigma;
+        /* Agency gate: g^(a)_ij = √(a_i × a_j) - from DET v6.4 theory */
+        float g_agency = sqrtf(ni->a * nj->a);
+
+        /* Compute flux magnitude with agency gating: J = g^(a) × σ × |ΔP| */
+        float J_mag = g_agency * bond->sigma * fabsf(ni->P - nj->P);
 
         /* Phase slip term */
         float phase_diff = ni->theta - nj->theta;
@@ -290,6 +354,21 @@ void det_core_update_coherence(DETCore* core, float dt) {
 }
 
 void det_core_update_agency(DETCore* core, float dt) {
+    /*
+     * v6.4 Two-Component Agency Model:
+     *
+     * A. Structural Ceiling (Matter Law):
+     *    a_max = 1 / (1 + λ_a * q²)
+     *    This is what structure PERMITS - high debt forces low ceiling.
+     *
+     * B. Relational Drive (Life Law):
+     *    Δa_drive = γ(C) * (P_i - P̄_neighbors)
+     *    γ(C) = γ_max * C^n  (coherence-gated)
+     *    This is where life CHOOSES to go within the constraint.
+     *
+     * C. Full Update:
+     *    a^+ = clip(a + β_a * (a_max - a) + Δa_drive, 0, a_max)
+     */
     float sum_F = 0.0f, sum_q = 0.0f;
     uint32_t active_count = 0;
 
@@ -297,14 +376,52 @@ void det_core_update_agency(DETCore* core, float dt) {
         DETNode* node = &core->nodes[i];
         if (!node->active) continue;
 
-        /* Structural ceiling: a_max = 1 / (1 + λ_a * q²) */
+        /* A. Structural Ceiling: a_max = 1 / (1 + λ_a * q²) */
         float a_max = 1.0f / (1.0f + core->params.lambda_a * node->q * node->q);
 
-        /* Agency relaxation toward ceiling */
-        float beta_a = 10.0f * core->params.tau_base;
-        float new_a = node->a + beta_a * (a_max - node->a) * dt;
+        /* B. Relational Drive: compute local neighborhood averages */
+        float P_sum = 0.0f;
+        float C_sum = 0.0f;
+        uint32_t neighbor_count = 0;
 
-        /* Agency is inviolable - only ceiling constrains it */
+        for (uint32_t b = 0; b < core->num_bonds; b++) {
+            DETBond* bond = &core->bonds[b];
+            uint16_t other = 0;
+            if (bond->i == i) other = bond->j;
+            else if (bond->j == i) other = bond->i;
+            else continue;
+
+            DETNode* other_node = &core->nodes[other];
+            if (!other_node->active) continue;
+
+            /* Accumulate neighbor presence (weighted by bond coherence) */
+            P_sum += other_node->P * bond->C;
+            C_sum += bond->C;
+            neighbor_count++;
+        }
+
+        /* Compute relational drive */
+        float delta_a_drive = 0.0f;
+        if (neighbor_count > 0 && C_sum > 0.001f) {
+            /* Average neighbor presence */
+            float P_bar = P_sum / C_sum;
+
+            /* Average local coherence */
+            float C_local = C_sum / neighbor_count;
+
+            /* Coherence gating: γ(C) = γ_max * C^n (n >= 2) */
+            float gamma = core->params.gamma_a_max *
+                         powf(C_local, core->params.gamma_a_power);
+
+            /* Relational drive: Δa_drive = γ(C) * (P_i - P̄_neighbors) */
+            delta_a_drive = gamma * (node->P - P_bar) * dt;
+        }
+
+        /* C. Full Update: a^+ = clip(a + β_a*(a_max - a) + Δa_drive, 0, a_max) */
+        float relaxation = core->params.beta_a * (a_max - node->a) * dt;
+        float new_a = node->a + relaxation + delta_a_drive;
+
+        /* Agency is inviolable - ceiling constrains it */
         node->a = clampf(new_a, 0.01f, a_max);
 
         /* Slow debt decay */
@@ -352,7 +469,9 @@ void det_core_update_affect(DETCore* core, float dt) {
             DETNode* other_node = &core->nodes[other];
             if (!other_node->active) continue;
 
-            float J_mag = fabsf(node->P - other_node->P) * bond->sigma;
+            /* Agency gate: g^(a)_ij = √(a_i × a_j) */
+            float g_agency = sqrtf(node->a * other_node->a);
+            float J_mag = g_agency * bond->sigma * fabsf(node->P - other_node->P);
             T += bond->C * J_mag;
             C_sum += bond->C;
             neighbor_count++;
@@ -401,7 +520,8 @@ void det_core_identify_self(DETCore* core) {
     const float BETA = 2.0f;
     const float EPS = 1e-9f;
 
-    /* Step 1: Compute edge weights w_ij = C_ij × |J_ij| × √(a_i × a_j) */
+    /* Step 1: Compute edge weights w_ij = C_ij × |J_ij| × g^(a)_ij
+     * where g^(a)_ij = √(a_i × a_j) is the agency gate */
     for (uint32_t b = 0; b < core->num_bonds; b++) {
         DETBond* bond = &core->bonds[b];
         DETNode* ni = &core->nodes[bond->i];
@@ -412,8 +532,10 @@ void det_core_identify_self(DETCore* core) {
             continue;
         }
 
-        float J_mag = fabsf(ni->P - nj->P) * bond->sigma;
-        float w = bond->C * J_mag * sqrtf(ni->a * nj->a);
+        /* Agency gate: g^(a)_ij = √(a_i × a_j) */
+        float g_agency = sqrtf(ni->a * nj->a);
+        float J_mag = g_agency * bond->sigma * fabsf(ni->P - nj->P);
+        float w = bond->C * J_mag;  /* Note: agency gate already in J_mag */
         bond->stability_ema = 0.95f * bond->stability_ema + 0.05f * w;
     }
 
@@ -519,7 +641,7 @@ DETDecision det_core_evaluate_request(
     const uint32_t MAX_RETRIES = 5;
     const float AGENCY_THRESHOLD = 0.1f;
     const float COHERENCE_THRESHOLD = 0.3f;
-    const float PRESENCE_THRESHOLD = 0.2f;
+    const float PRESENCE_THRESHOLD = 0.08f;  /* Lowered from 0.2 to match initial params */
     const float RESOURCE_PER_TOKEN = 0.001f;
 
     /* Estimate complexity from token count */
@@ -577,13 +699,29 @@ DETDecision det_core_evaluate_request(
  * ========================================================================== */
 
 void det_core_init_ports(DETCore* core) {
-    /* Create port nodes for LLM interface */
+    /* Create port nodes for LLM interface
+     *
+     * Port layout:
+     *   0-4:   Intent ports (answer, plan, execute, learn, debug)
+     *   5-8:   Domain ports (math, language, tool_use, science)
+     *   9-16:  Boundary ports (evaluative + relational signals from user)
+     */
     const char* intent_names[] = {"answer", "plan", "execute", "learn", "debug"};
     const char* domain_names[] = {"math", "language", "tool_use", "science"};
+    const char* boundary_names[] = {
+        "ethical_valence",    /* Port 9:  -1 to 1, harmful to beneficial */
+        "risk_composite",     /* Port 10: combined risk signal */
+        "complexity_cost",    /* Port 11: logical complexity + resource cost */
+        "user_presence",      /* Port 12: user engagement level */
+        "phase_alignment",    /* Port 13: topic continuity */
+        "user_tone",          /* Port 14: emotional tone */
+        "energy_direction",   /* Port 15: giving vs seeking */
+        "momentum"            /* Port 16: conversation momentum */
+    };
 
     core->num_ports = 0;
 
-    /* Intent ports */
+    /* Intent ports (0-4) */
     for (int i = 0; i < 5 && core->num_ports < DET_MAX_PORTS; i++) {
         DETPort* port = &core->ports[core->num_ports];
         port->node_id = core->num_nodes;
@@ -602,7 +740,7 @@ void det_core_init_ports(DETCore* core) {
         core->num_ports++;
     }
 
-    /* Domain ports */
+    /* Domain ports (5-8) */
     for (int i = 0; i < 4 && core->num_ports < DET_MAX_PORTS; i++) {
         DETPort* port = &core->ports[core->num_ports];
         port->node_id = core->num_nodes;
@@ -616,6 +754,24 @@ void det_core_init_ports(DETCore* core) {
         node->a = 0.5f;
         node->F = 0.0f;
         node->sigma = core->params.sigma_base;
+
+        core->num_nodes++;
+        core->num_ports++;
+    }
+
+    /* Boundary ports (9-16) - user/external boundary signals */
+    for (int i = 0; i < 8 && core->num_ports < DET_MAX_PORTS; i++) {
+        DETPort* port = &core->ports[core->num_ports];
+        port->node_id = core->num_nodes;
+        port->port_type = 2;  /* Boundary */
+        snprintf(port->name, sizeof(port->name), "boundary_%s", boundary_names[i]);
+
+        DETNode* node = &core->nodes[core->num_nodes];
+        node->layer = DET_LAYER_PORT;
+        node->active = true;
+        node->a = 0.6f;  /* Slightly higher agency for boundary nodes */
+        node->F = 0.0f;
+        node->sigma = core->params.sigma_base * 1.2f;  /* Higher screening at boundary */
 
         core->num_nodes++;
         core->num_ports++;
@@ -885,15 +1041,20 @@ void det_core_update_momentum(DETCore* core, float dt) {
      * Bond momentum (π) captures the "intention" or directional memory
      * of information flow between nodes.
      *
-     * dπ/dt = κ * J - λ_π * π
+     * From DET v6.4 theory (Section IV.4):
+     *   π^+ = (1 - λ_π × Δτ) × π + α_π × J^(diff) × Δτ + β_g × g_ij × Δτ
      *
      * where:
-     *   J = flux (P_i - P_j) * σ_bond
-     *   κ = coupling scale
-     *   λ_π = momentum decay
+     *   J^(diff) = g^(a)_ij × σ × (P_i - P_j)  [agency-gated diffusive flux]
+     *   g_ij = bond-averaged gravitational field
+     *   α_π = momentum charging gain
+     *   λ_π = momentum decay rate
+     *   β_g = gravity-momentum coupling coefficient
+     *
+     * For local agency (no full Poisson solver), we approximate gravity
+     * using structural debt gradient: g_ij ≈ (q_j - q_i)
+     * This makes high-debt nodes "attract" momentum toward them.
      */
-    const float LAMBDA_PI = 0.1f;  /* Momentum decay rate */
-
     for (uint32_t b = 0; b < core->num_bonds; b++) {
         DETBond* bond = &core->bonds[b];
         DETNode* ni = &core->nodes[bond->i];
@@ -901,14 +1062,25 @@ void det_core_update_momentum(DETCore* core, float dt) {
 
         if (!ni->active || !nj->active) continue;
 
-        /* Compute directed flux (signed) */
-        float J = (ni->P - nj->P) * bond->sigma;
+        /* Agency gate: g^(a)_ij = √(a_i × a_j) */
+        float g_agency = sqrtf(ni->a * nj->a);
 
-        /* Momentum update with decay */
-        float dpi = core->params.kappa_base * J * dt
-                  - LAMBDA_PI * bond->pi * dt;
+        /* Compute directed flux (signed) with agency gating */
+        float J_diff = g_agency * bond->sigma * (ni->P - nj->P);
 
-        bond->pi = clampf(bond->pi + dpi, -core->params.pi_max, core->params.pi_max);
+        /* Local gravity proxy: g_ij ≈ (q_j - q_i)
+         * High debt creates "gravitational pull" */
+        float g_ij = nj->q - ni->q;
+
+        /* Momentum update (v6.4 formula):
+         * π^+ = (1 - λ_π × dt) × π + α_π × J × dt + β_g × g_ij × dt */
+        float decay_term = core->params.lambda_pi * bond->pi * dt;
+        float charging_term = core->params.alpha_pi * J_diff * dt;
+        float gravity_term = core->params.beta_g * g_ij * dt;
+
+        float new_pi = bond->pi - decay_term + charging_term + gravity_term;
+
+        bond->pi = clampf(new_pi, -core->params.pi_max, core->params.pi_max);
     }
 }
 
@@ -1457,4 +1629,197 @@ bool det_core_load_state(DETCore* core, const void* buffer, size_t data_size) {
     }
 
     return true;
+}
+
+/* ==========================================================================
+ * SOMATIC (PHYSICAL I/O)
+ * ========================================================================== */
+
+bool det_somatic_is_sensor(SomaticType type) {
+    return type < 16;  /* Types 0-15 are sensors */
+}
+
+bool det_somatic_is_actuator(SomaticType type) {
+    return type >= 16 && type < 32;  /* Types 16-31 are actuators */
+}
+
+int32_t det_core_create_somatic(
+    DETCore* core,
+    SomaticType type,
+    const char* name,
+    bool is_virtual,
+    uint8_t remote_id,
+    uint8_t channel
+) {
+    if (core->num_somatic >= DET_MAX_SOMATIC) return -1;
+
+    /* Recruit a node from dormant pool for this somatic */
+    int32_t node_id = det_core_recruit_node(core, DET_LAYER_SOMATIC);
+    if (node_id < 0) return -1;
+
+    /* Initialize the DET node properties */
+    DETNode* node = &core->nodes[node_id];
+    node->layer = DET_LAYER_SOMATIC;
+    node->active = true;
+    node->a = 0.5f;  /* Default agency */
+    node->F = 0.5f;  /* Default resource */
+    node->sigma = 0.1f;  /* Low default screening (sensors need to be sensitive) */
+
+    /* Initialize somatic metadata */
+    uint32_t idx = core->num_somatic;
+    SomaticNode* somatic = &core->somatic[idx];
+
+    somatic->node_id = (uint16_t)node_id;
+    somatic->remote_id = remote_id;
+    somatic->channel = channel;
+    somatic->type = type;
+    snprintf(somatic->name, sizeof(somatic->name), "%s", name);
+
+    somatic->value = 0.0f;
+    somatic->raw_value = 0.0f;
+    somatic->min_range = 0.0f;
+    somatic->max_range = 1.0f;
+    somatic->target = 0.0f;
+
+    somatic->last_update_ms = 0;
+    somatic->sample_rate_ms = 100;  /* 10 Hz default */
+
+    somatic->online = true;
+    somatic->is_virtual = is_virtual;
+    somatic->error_count = 0;
+
+    /* Simulation defaults for virtual nodes */
+    somatic->noise_level = 0.01f;
+    somatic->drift_rate = 0.001f;
+    somatic->response_time = 0.1f;
+
+    /* Create bonds to P-layer nodes for integration with executive */
+    for (uint32_t i = 0; i < DET_P_LAYER_SIZE; i++) {
+        int32_t b = det_core_create_bond(core, (uint16_t)node_id, (uint16_t)i);
+        if (b >= 0) {
+            core->bonds[b].C = 0.3f;  /* Initial low coherence */
+            core->bonds[b].is_cross_layer = true;
+        }
+    }
+
+    core->num_somatic++;
+    return (int32_t)idx;
+}
+
+bool det_core_remove_somatic(DETCore* core, uint32_t somatic_idx) {
+    if (somatic_idx >= core->num_somatic) return false;
+
+    SomaticNode* somatic = &core->somatic[somatic_idx];
+
+    /* Retire the DET node */
+    det_core_retire_node(core, somatic->node_id);
+
+    /* Remove from array by swapping with last */
+    if (somatic_idx < core->num_somatic - 1) {
+        core->somatic[somatic_idx] = core->somatic[core->num_somatic - 1];
+    }
+    core->num_somatic--;
+
+    return true;
+}
+
+void det_core_update_somatic_value(
+    DETCore* core,
+    uint32_t somatic_idx,
+    float value,
+    float raw_value
+) {
+    if (somatic_idx >= core->num_somatic) return;
+
+    SomaticNode* somatic = &core->somatic[somatic_idx];
+    somatic->value = value;
+    somatic->raw_value = raw_value;
+    somatic->last_update_ms = (uint32_t)(core->tick * 100);  /* Approximate ms */
+
+    /* Update the corresponding DET node's activation */
+    DETNode* node = &core->nodes[somatic->node_id];
+
+    if (det_somatic_is_sensor(somatic->type)) {
+        /* Sensors: value becomes screening/activation */
+        node->sigma = somatic->value * 0.5f;  /* Modulate screening with sensor value */
+
+        /* Create flux on bonds to propagate sensor data into mind */
+        for (uint32_t b = 0; b < core->num_bonds; b++) {
+            DETBond* bond = &core->bonds[b];
+            if (bond->i == somatic->node_id || bond->j == somatic->node_id) {
+                /* Sensor reading creates flux proportional to value */
+                bond->flux_ema += value * 0.1f * bond->C;
+            }
+        }
+    }
+}
+
+void det_core_set_somatic_target(
+    DETCore* core,
+    uint32_t somatic_idx,
+    float target
+) {
+    if (somatic_idx >= core->num_somatic) return;
+
+    SomaticNode* somatic = &core->somatic[somatic_idx];
+    if (!det_somatic_is_actuator(somatic->type)) return;  /* Only for actuators */
+
+    somatic->target = clampf(target, 0.0f, 1.0f);
+}
+
+SomaticNode* det_core_get_somatic(DETCore* core, uint32_t somatic_idx) {
+    if (somatic_idx >= core->num_somatic) return NULL;
+    return &core->somatic[somatic_idx];
+}
+
+int32_t det_core_find_somatic(const DETCore* core, const char* name) {
+    for (uint32_t i = 0; i < core->num_somatic; i++) {
+        if (strcmp(core->somatic[i].name, name) == 0) {
+            return (int32_t)i;
+        }
+    }
+    return -1;
+}
+
+float det_core_get_somatic_output(const DETCore* core, uint32_t somatic_idx) {
+    if (somatic_idx >= core->num_somatic) return 0.0f;
+
+    const SomaticNode* somatic = &core->somatic[somatic_idx];
+    if (!det_somatic_is_actuator(somatic->type)) return 0.0f;
+
+    /* Get the DET node's agency */
+    const DETNode* node = &core->nodes[somatic->node_id];
+
+    /* Output is target modulated by agency (agency gate for physical actions) */
+    /* Low agency = reluctant/weak action, high agency = confident/strong action */
+    float agency_gate = node->a;
+
+    return somatic->target * agency_gate;
+}
+
+void det_core_simulate_somatic(DETCore* core, float dt) {
+    for (uint32_t i = 0; i < core->num_somatic; i++) {
+        SomaticNode* somatic = &core->somatic[i];
+        if (!somatic->is_virtual) continue;  /* Only simulate virtual nodes */
+
+        if (det_somatic_is_sensor(somatic->type)) {
+            /* Sensors: random walk with noise */
+            /* Use a simple pseudo-random based on tick */
+            float rand_val = (float)((core->tick * 1103515245 + 12345) % 1000) / 1000.0f - 0.5f;
+
+            somatic->value += rand_val * somatic->drift_rate * dt;
+            somatic->value += rand_val * somatic->noise_level;
+            somatic->value = clampf(somatic->value, 0.0f, 1.0f);
+
+            /* Update the DET node */
+            det_core_update_somatic_value(core, i, somatic->value, somatic->value * somatic->max_range);
+
+        } else if (det_somatic_is_actuator(somatic->type)) {
+            /* Actuators: approach target with response time */
+            float diff = somatic->target - somatic->value;
+            float rate = dt / (somatic->response_time + 0.001f);
+            somatic->value += diff * rate;
+            somatic->value = clampf(somatic->value, 0.0f, 1.0f);
+        }
+    }
 }

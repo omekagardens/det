@@ -95,6 +95,10 @@ def run_repl(
     try:
         core = DETCore()
         print(f"OK ({core.num_active} active nodes)")
+        print("Warming up DET substrate...", end=" ")
+        core.warmup(steps=50)
+        p, c, f, q = core.get_aggregates()
+        print(f"OK (P:{p:.2f} C:{c:.2f} F:{f:.2f})")
     except Exception as e:
         print(f"FAILED: {e}")
         return 1
@@ -137,11 +141,14 @@ def run_repl(
 
     print("\nCommands:")
     print("  /state   - Show detailed DET state")
+    print("  /inspect - Full system inspection (usage: /inspect [detailed])")
+    print("  /grace   - Show grace status and inject (usage: /grace [node] [amount])")
     print("  /affect  - Show affect visualization")
     print("  /memory  - Show memory statistics")
     print("  /store   - Store a memory (usage: /store <text>)")
     print("  /recall  - Recall memories (usage: /recall <query>)")
     print("  /think   - Internal thinking (usage: /think <topic>)")
+    print("  /train   - Autonomous training (usage: /train [duration] [--prompts N])")
     print("  /webapp  - Launch web visualization (usage: /webapp [port])")
     print("  /clear   - Clear conversation and memory")
     print("  /help    - Show this help")
@@ -170,24 +177,65 @@ def run_repl(
 
                 elif cmd == "state":
                     state = core.inspect()
-                    print("\n" + "=" * 40)
+                    print("\n" + "=" * 50)
                     print("DET Core State")
-                    print("=" * 40)
-                    print(f"Tick: {state['tick']}")
-                    print(f"Emotion: {state['emotion']}")
+                    print("=" * 50)
+                    print(f"Tick: {state['tick']}  |  Emotion: {state['emotion']}")
                     print(f"\nAggregates:")
                     for k, v in state['aggregates'].items():
                         print(f"  {k}: {v:.4f}")
                     print(f"\nSelf Affect:")
                     for k, v in state['self_affect'].items():
                         print(f"  {k}: {v:.4f}")
+                    print(f"\nGrace Status:")
+                    print(f"  Nodes needing grace: {state['grace']['nodes_needing']}")
+                    print(f"  Total grace needed: {state['grace']['total_needed']:.4f}")
+                    print(f"\nDomains:")
+                    for name, info in state['domains'].items():
+                        print(f"  {name}: C={info['coherence']:.3f} F={info['avg_F']:.3f} ({info['count']} nodes)")
                     print(f"\nCounts:")
                     for k, v in state['counts'].items():
                         print(f"  {k}: {v}")
-                    print(f"\nLayers:")
-                    for k, v in state['layers'].items():
-                        print(f"  {k}: {v}")
-                    print("=" * 40)
+                    print("=" * 50)
+
+                elif cmd == "inspect":
+                    import json
+                    detailed = args.lower() == "detailed"
+                    state = core.inspect(detailed=detailed)
+                    print("\n" + "=" * 60)
+                    print(f"DET Full Inspection {'(DETAILED)' if detailed else ''}")
+                    print("=" * 60)
+                    print(json.dumps(state, indent=2))
+                    print("=" * 60)
+
+                elif cmd == "grace":
+                    if not args:
+                        # Show grace status
+                        total = core.total_grace_needed()
+                        print(f"\nTotal grace needed: {total:.4f}")
+                        needing = []
+                        for i in range(min(core.num_active, 100)):
+                            if core.needs_grace(i):
+                                node = core.get_node(i)
+                                needing.append(f"  Node {i}: F={node.F:.3f}, q={node.q:.3f}")
+                        if needing:
+                            print(f"Nodes needing grace ({len(needing)}):")
+                            for line in needing[:10]:
+                                print(line)
+                            if len(needing) > 10:
+                                print(f"  ... and {len(needing)-10} more")
+                        else:
+                            print("No nodes currently need grace.")
+                    else:
+                        # Inject grace
+                        parts = args.split()
+                        if len(parts) >= 2:
+                            node_id = int(parts[0])
+                            amount = float(parts[1])
+                            core.inject_grace(node_id, amount)
+                            print(f"\nInjected {amount:.2f} grace to node {node_id}")
+                        else:
+                            print("\nUsage: /grace <node_id> <amount>")
 
                 elif cmd == "affect":
                     v, a, b = core.get_self_affect()
@@ -248,6 +296,86 @@ def run_repl(
                     else:
                         print("\nDialogue system not available.")
 
+                elif cmd == "train":
+                    # Parse training arguments
+                    duration = 60.0  # Default 1 minute
+                    max_prompts = 0  # Unlimited
+
+                    if args:
+                        parts = args.split()
+                        i = 0
+                        while i < len(parts):
+                            if parts[i] == "--prompts" and i + 1 < len(parts):
+                                max_prompts = int(parts[i + 1])
+                                i += 2
+                            elif parts[i] == "--duration" and i + 1 < len(parts):
+                                duration = float(parts[i + 1])
+                                i += 2
+                            else:
+                                try:
+                                    duration = float(parts[i])
+                                except ValueError:
+                                    pass
+                                i += 1
+
+                    print(f"\n{'='*60}")
+                    print("  Starting Autonomous Training")
+                    print(f"  Duration: {duration}s | Max prompts: {max_prompts or 'unlimited'}")
+                    print(f"{'='*60}")
+                    print("\nPress Ctrl+C to stop training early.\n")
+
+                    try:
+                        from .trainer import DETTrainer, TrainingConfig
+                        import asyncio
+
+                        config = TrainingConfig(
+                            prompt_interval=5.0,
+                            max_duration=duration,
+                            max_prompts=max_prompts,
+                            adapt_to_affect=True,
+                        )
+
+                        trainer = DETTrainer(
+                            core=core,
+                            client=client,
+                            memory=memory,
+                            config=config,
+                        )
+
+                        # Set up callbacks for live output
+                        def on_prompt(prompt, response, domain):
+                            print(f"\033[94m[{domain}]\033[0m {prompt[:50]}...")
+                            print(f"  \033[93m→\033[0m {response[:60]}...")
+
+                        def on_store(fact, domain):
+                            print(f"\033[92m[STORED]\033[0m [{domain}] {fact[:50]}...")
+
+                        def on_state_change(state):
+                            if state.get("coherence", 1.0) < 0.3:
+                                print(f"\033[91m[LOW COHERENCE]\033[0m {state['coherence']:.2f} - pausing...")
+
+                        trainer.on_prompt = on_prompt
+                        trainer.on_store = on_store
+                        trainer.on_state_change = on_state_change
+
+                        # Run training
+                        stats = asyncio.run(trainer.train(duration=duration, prompts=max_prompts))
+
+                        print(f"\n{'='*60}")
+                        print("  Training Complete")
+                        print(f"  Prompts: {stats.prompts_sent}")
+                        print(f"  Facts stored: {stats.facts_stored}")
+                        print(f"  Errors: {stats.errors}")
+                        print(f"  Domains: {stats.domains_covered}")
+                        print(f"{'='*60}")
+
+                    except KeyboardInterrupt:
+                        print("\n\nTraining stopped by user.")
+                    except Exception as e:
+                        print(f"\nTraining error: {e}")
+                        import traceback
+                        traceback.print_exc()
+
                 elif cmd == "webapp":
                     if webapp_state["running"]:
                         print("\nWeb visualization is already running.")
@@ -270,7 +398,7 @@ def run_repl(
                             print("\nWebapp not available. Install: pip install fastapi uvicorn")
                             continue
 
-                        harness = create_harness(core=core)
+                        harness = create_harness(core=core, start_paused=True)
 
                         def run_webapp():
                             try:
@@ -279,14 +407,20 @@ def run_repl(
 
                                 webapp = DETWebApp(core=core, harness=harness)
                                 webapp.add_event_callback()
+                                print("\nWebapp started in PAUSED state. Use controls to resume.")
 
                                 webapp_state["running"] = True
-                                uvicorn.run(
+                                # Configure with longer websocket timeouts
+                                config = uvicorn.Config(
                                     webapp.app,
                                     host="127.0.0.1",
                                     port=port,
                                     log_level="warning",
+                                    ws_ping_interval=20.0,
+                                    ws_ping_timeout=60.0,
                                 )
+                                server = uvicorn.Server(config)
+                                server.run()
                             except Exception as e:
                                 print(f"\nWebapp error: {e}")
                             finally:
@@ -318,11 +452,14 @@ def run_repl(
                 elif cmd == "help":
                     print("\nCommands:")
                     print("  /state   - Show detailed DET state")
+                    print("  /inspect - Full system inspection (usage: /inspect [detailed])")
+                    print("  /grace   - Show grace status and inject (usage: /grace [node] [amount])")
                     print("  /affect  - Show affect visualization")
                     print("  /memory  - Show memory statistics")
                     print("  /store   - Store a memory (usage: /store <text>)")
                     print("  /recall  - Recall memories (usage: /recall <query>)")
                     print("  /think   - Internal thinking (usage: /think <topic>)")
+                    print("  /train   - Autonomous training (usage: /train [duration] [--prompts N])")
                     print("  /webapp  - Launch web visualization (usage: /webapp [port])")
                     print("  /clear   - Clear conversation and memory")
                     print("  /help    - Show this help")

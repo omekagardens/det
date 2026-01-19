@@ -26,7 +26,7 @@ Phase 6.3 adds: Advanced interactive probing (escalation, grace, domains, gateke
 Phase 6.4 adds: Metrics and logging (dashboard, event log, timeline, profiling).
 """
 
-from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer
+from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer, SomaticType, SomaticNode
 from .harness import (
     HarnessController, HarnessCLI, HarnessEvent, HarnessEventType,
     Snapshot, create_harness, run_harness_cli
@@ -73,11 +73,17 @@ from .metrics import (
     MetricsCollector, MetricsSample, DETEvent, DETEventType, Profiler,
     create_metrics_collector, create_profiler
 )
+from .trainer import (
+    DETTrainer, TrainingConfig as TrainerConfig, TrainingStats,
+    TrainingDomain, CurriculumGenerator, WebContentFetcher,
+    create_trainer, run_training
+)
 
 __version__ = "0.6.4"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
+    "SomaticType", "SomaticNode",
     # Harness (Phase 6.1)
     "HarnessController", "HarnessCLI", "HarnessEvent", "HarnessEventType",
     "Snapshot", "create_harness", "run_harness_cli",
@@ -116,4 +122,7 @@ __all__ = [
     # Phase 6.4: Metrics and Logging
     "MetricsCollector", "MetricsSample", "DETEvent", "DETEventType", "Profiler",
     "create_metrics_collector", "create_profiler",
+    # Trainer (Autonomous Training)
+    "DETTrainer", "TrainerConfig", "TrainingStats", "TrainingDomain",
+    "CurriculumGenerator", "WebContentFetcher", "create_trainer", "run_training",
 ]

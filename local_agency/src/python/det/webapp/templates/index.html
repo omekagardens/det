@@ -219,6 +219,21 @@
             background: #3a3a5a;
         }
 
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: #44aa44;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
         .btn-danger {
             background: #ff4444;
             color: #fff;
@@ -479,12 +494,34 @@
             color: #888;
             margin-right: 8px;
         }
+
+        #paused-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 100, 100, 0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 2rem;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            animation: pausePulse 2s infinite;
+        }
+
+        @keyframes pausePulse {
+            0%, 100% { opacity: 0.9; }
+            50% { opacity: 0.6; }
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="visualization">
             <div id="canvas-container"></div>
+            <div id="paused-indicator" style="display: none;">⏸ PAUSED</div>
             <div id="overlay-info">
                 <div class="row"><span class="label">Tick:</span><span id="info-tick">0</span></div>
                 <div class="row"><span class="label">Nodes:</span><span id="info-nodes">0</span></div>
@@ -691,11 +728,11 @@
 
                 // Scene
                 this.scene = new THREE.Scene();
-                this.scene.background = new THREE.Color(0x0a0a1a);
+                this.scene.background = new THREE.Color(0x050510);
 
                 // Camera
                 this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-                this.camera.position.set(8, 6, 8);
+                this.camera.position.set(10, 8, 10);
                 this.camera.lookAt(0, 0, 0);
 
                 // Renderer
@@ -710,23 +747,58 @@
                 this.controls.dampingFactor = 0.05;
 
                 // Lights
-                const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+                const ambientLight = new THREE.AmbientLight(0x404060, 0.6);
                 this.scene.add(ambientLight);
 
-                const pointLight = new THREE.PointLight(0xffffff, 1);
+                const pointLight = new THREE.PointLight(0xffffff, 0.8);
                 pointLight.position.set(10, 10, 10);
                 this.scene.add(pointLight);
 
-                // Grid helper
-                const gridHelper = new THREE.GridHelper(20, 20, 0x1a1a3a, 0x1a1a3a);
-                gridHelper.position.y = -2;
+                const pointLight2 = new THREE.PointLight(0x4488ff, 0.5);
+                pointLight2.position.set(-10, 5, -10);
+                this.scene.add(pointLight2);
+
+                // Grid helper (subtle)
+                const gridHelper = new THREE.GridHelper(20, 20, 0x101025, 0x101025);
+                gridHelper.position.y = -3;
                 this.scene.add(gridHelper);
 
-                // Bond line material
-                this.bondMaterial = new THREE.LineBasicMaterial({
-                    color: 0x00d4ff,
+                // Domain labels (visual markers for LLM areas)
+                this.domainLabels = new Map();
+                const domainColors = {
+                    'math': 0xff6666,
+                    'language': 0x66ff66,
+                    'tool_use': 0x6666ff,
+                    'science': 0xffff66
+                };
+                const domainAngles = { 'math': 0, 'language': Math.PI/2, 'tool_use': Math.PI, 'science': Math.PI*1.5 };
+
+                Object.entries(domainAngles).forEach(([domain, angle]) => {
+                    const markerGeom = new THREE.RingGeometry(5.5, 6, 32, 1, angle - 0.3, 0.6);
+                    const markerMat = new THREE.MeshBasicMaterial({
+                        color: domainColors[domain],
+                        transparent: true,
+                        opacity: 0.2,
+                        side: THREE.DoubleSide
+                    });
+                    const marker = new THREE.Mesh(markerGeom, markerMat);
+                    marker.rotation.x = -Math.PI / 2;
+                    marker.position.y = -2.9;
+                    this.scene.add(marker);
+                    this.domainLabels.set(domain, marker);
+                });
+
+                // Node visual state (for smooth movement)
+                this.nodePositions = new Map();  // id -> {x, y, z, vx, vy, vz}
+                this.nodeTargets = new Map();    // id -> {x, y, z}
+
+                // Info flow particles
+                this.flowParticles = [];
+                this.particleGeometry = new THREE.SphereGeometry(0.03, 8, 8);
+                this.particleMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x00ffff,
                     transparent: true,
-                    opacity: 0.3,
+                    opacity: 0.8
                 });
 
                 // Resize handler
@@ -736,6 +808,122 @@
                     this.camera.aspect = w / h;
                     this.camera.updateProjectionMatrix();
                     this.renderer.setSize(w, h);
+                });
+
+                // Start animation loop
+                this.lastTime = performance.now();
+                this.animate();
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                const now = performance.now();
+                const dt = Math.min((now - this.lastTime) / 1000, 0.1);
+                this.lastTime = now;
+
+                // Update node positions with smooth interpolation
+                this.nodes.forEach((mesh, id) => {
+                    const pos = this.nodePositions.get(id);
+                    const target = this.nodeTargets.get(id);
+                    if (pos && target) {
+                        // Spring-like movement toward target
+                        const k = 3.0;  // Spring constant
+                        const damping = 0.8;
+
+                        pos.vx += (target.x - pos.x) * k * dt;
+                        pos.vy += (target.y - pos.y) * k * dt;
+                        pos.vz += (target.z - pos.z) * k * dt;
+
+                        pos.vx *= damping;
+                        pos.vy *= damping;
+                        pos.vz *= damping;
+
+                        pos.x += pos.vx * dt;
+                        pos.y += pos.vy * dt;
+                        pos.z += pos.vz * dt;
+
+                        mesh.position.set(pos.x, pos.y, pos.z);
+                    }
+                });
+
+                // Update bond positions to follow nodes
+                this.updateBondPositions();
+
+                // Update info flow particles
+                this.updateFlowParticles(dt);
+
+                // Render
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            updateBondPositions() {
+                // Update bond line positions to follow moving nodes
+                this.bonds.forEach(bondObj => {
+                    if (bondObj.line && bondObj.sourceId !== undefined) {
+                        const sourceNode = this.nodes.get(bondObj.sourceId);
+                        const targetNode = this.nodes.get(bondObj.targetId);
+                        if (sourceNode && targetNode) {
+                            const positions = bondObj.line.geometry.attributes.position.array;
+                            positions[0] = sourceNode.position.x;
+                            positions[1] = sourceNode.position.y;
+                            positions[2] = sourceNode.position.z;
+                            positions[3] = targetNode.position.x;
+                            positions[4] = targetNode.position.y;
+                            positions[5] = targetNode.position.z;
+                            bondObj.line.geometry.attributes.position.needsUpdate = true;
+                        }
+                    }
+                });
+            }
+
+            updateFlowParticles(dt) {
+                // Move particles along bonds
+                for (let i = this.flowParticles.length - 1; i >= 0; i--) {
+                    const particle = this.flowParticles[i];
+                    particle.progress += particle.speed * dt;
+
+                    if (particle.progress >= 1) {
+                        this.scene.remove(particle.mesh);
+                        this.flowParticles.splice(i, 1);
+                    } else {
+                        const sourceNode = this.nodes.get(particle.sourceId);
+                        const targetNode = this.nodes.get(particle.targetId);
+                        if (sourceNode && targetNode) {
+                            const t = particle.progress;
+                            particle.mesh.position.lerpVectors(
+                                sourceNode.position,
+                                targetNode.position,
+                                t
+                            );
+                        }
+                    }
+                }
+            }
+
+            spawnFlowParticle(sourceId, targetId, color = 0x00ffff) {
+                const sourceNode = this.nodes.get(sourceId);
+                const targetNode = this.nodes.get(targetId);
+                if (!sourceNode || !targetNode) return;
+
+                const mesh = new THREE.Mesh(
+                    this.particleGeometry,
+                    new THREE.MeshBasicMaterial({
+                        color: color,
+                        transparent: true,
+                        opacity: 0.9
+                    })
+                );
+                mesh.position.copy(sourceNode.position);
+                this.scene.add(mesh);
+
+                this.flowParticles.push({
+                    mesh: mesh,
+                    sourceId: sourceId,
+                    targetId: targetId,
+                    progress: 0,
+                    speed: 0.5 + Math.random() * 0.5
                 });
             }
 
@@ -841,64 +1029,130 @@
             // --------------------------------------------------------
 
             updateNodes(nodesData) {
-                // Clear existing nodes
-                this.nodes.forEach((mesh, id) => {
-                    this.scene.remove(mesh);
+                // Track which nodes still exist
+                const existingIds = new Set(this.nodes.keys());
+                const newIds = new Set(nodesData.map(n => n.id));
+
+                // Remove nodes that no longer exist
+                existingIds.forEach(id => {
+                    if (!newIds.has(id)) {
+                        const mesh = this.nodes.get(id);
+                        if (mesh) this.scene.remove(mesh);
+                        this.nodes.delete(id);
+                        this.nodePositions.delete(id);
+                        this.nodeTargets.delete(id);
+                    }
                 });
-                this.nodes.clear();
 
-                // Create new nodes
+                // Create or update nodes
                 nodesData.forEach(node => {
-                    const geometry = new THREE.SphereGeometry(node.size || 0.2, 16, 16);
-                    const color = new THREE.Color(
-                        node.color?.r || 0.5,
-                        node.color?.g || 0.5,
-                        node.color?.b || 0.5
-                    );
+                    // Update target position (for smooth movement)
+                    this.nodeTargets.set(node.id, { x: node.x, y: node.y, z: node.z });
 
-                    const material = new THREE.MeshPhongMaterial({
-                        color: color,
-                        emissive: node.in_self ? new THREE.Color(0x00d4ff) : new THREE.Color(0x000000),
-                        emissiveIntensity: node.in_self ? 0.3 : 0,
-                    });
+                    if (this.nodes.has(node.id)) {
+                        // Update existing node
+                        const mesh = this.nodes.get(node.id);
+                        const color = new THREE.Color(
+                            node.color?.r || 0.5,
+                            node.color?.g || 0.5,
+                            node.color?.b || 0.5
+                        );
+                        mesh.material.color = color;
+                        mesh.material.emissive = node.in_self ? new THREE.Color(0x00d4ff) : new THREE.Color(0x000000);
+                        mesh.material.emissiveIntensity = node.in_self ? 0.4 : 0;
+                        mesh.userData = node;
 
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.position.set(node.x, node.y, node.z);
-                    mesh.userData = node;
+                        // Scale based on activity
+                        const scale = 0.8 + node.P * 0.4;
+                        mesh.scale.setScalar(scale);
+                    } else {
+                        // Create new node
+                        const baseSize = node.size || 0.1;
+                        const geometry = new THREE.SphereGeometry(baseSize, 12, 12);
+                        const color = new THREE.Color(
+                            node.color?.r || 0.5,
+                            node.color?.g || 0.5,
+                            node.color?.b || 0.5
+                        );
 
-                    this.scene.add(mesh);
-                    this.nodes.set(node.id, mesh);
+                        const material = new THREE.MeshPhongMaterial({
+                            color: color,
+                            emissive: node.in_self ? new THREE.Color(0x00d4ff) : new THREE.Color(0x000000),
+                            emissiveIntensity: node.in_self ? 0.4 : 0,
+                            shininess: 50,
+                        });
+
+                        const mesh = new THREE.Mesh(geometry, material);
+                        mesh.position.set(node.x, node.y, node.z);
+                        mesh.userData = node;
+
+                        this.scene.add(mesh);
+                        this.nodes.set(node.id, mesh);
+
+                        // Initialize position tracking for smooth movement
+                        this.nodePositions.set(node.id, {
+                            x: node.x, y: node.y, z: node.z,
+                            vx: 0, vy: 0, vz: 0
+                        });
+                    }
                 });
             }
 
             updateBonds(bondsData) {
                 // Clear existing bonds
-                this.bonds.forEach(line => {
-                    this.scene.remove(line);
+                this.bonds.forEach(bondObj => {
+                    if (bondObj.line) this.scene.remove(bondObj.line);
+                    if (bondObj.glow) this.scene.remove(bondObj.glow);
                 });
                 this.bonds = [];
 
-                // Create new bonds
+                // Create new bonds with enhanced visualization
                 bondsData.forEach(bond => {
                     const sourceNode = this.nodes.get(bond.source);
                     const targetNode = this.nodes.get(bond.target);
 
                     if (sourceNode && targetNode) {
-                        const points = [
-                            sourceNode.position.clone(),
-                            targetNode.position.clone()
-                        ];
-                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        // Main bond line
+                        const positions = new Float32Array([
+                            sourceNode.position.x, sourceNode.position.y, sourceNode.position.z,
+                            targetNode.position.x, targetNode.position.y, targetNode.position.z
+                        ]);
+                        const geometry = new THREE.BufferGeometry();
+                        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+                        // Color based on bond type
+                        let bondColor = 0x00d4ff;  // Default: cyan
+                        if (bond.is_cross_layer) {
+                            bondColor = 0xff8800;  // Cross-layer: orange
+                        } else if (bond.C > 0.7) {
+                            bondColor = 0x00ff88;  // Strong: green
+                        }
 
                         const material = new THREE.LineBasicMaterial({
-                            color: bond.is_cross_layer ? 0xff8800 : 0x00d4ff,
+                            color: bondColor,
                             transparent: true,
-                            opacity: Math.min(bond.strength, 0.8),
+                            opacity: 0.3 + bond.strength * 0.5,
+                            linewidth: 1,
                         });
 
                         const line = new THREE.Line(geometry, material);
                         this.scene.add(line);
-                        this.bonds.push(line);
+
+                        // Store bond with metadata for position updates
+                        const bondObj = {
+                            line: line,
+                            sourceId: bond.source,
+                            targetId: bond.target,
+                            strength: bond.strength,
+                            flux: bond.flux || 0
+                        };
+                        this.bonds.push(bondObj);
+
+                        // Spawn flow particles for high-flux bonds
+                        if (bond.flux > 0.1 && Math.random() < bond.flux * 0.3) {
+                            const particleColor = bond.is_cross_layer ? 0xffaa00 : 0x00ffff;
+                            this.spawnFlowParticle(bond.source, bond.target, particleColor);
+                        }
                     }
                 });
             }
@@ -943,6 +1197,26 @@
 
                 // Speed slider
                 document.getElementById('speed-value').textContent = `${(data.speed || 1.0).toFixed(1)}x`;
+
+                // Pause/Resume button states and indicator
+                const pauseBtn = document.getElementById('btn-pause');
+                const resumeBtn = document.getElementById('btn-resume');
+                const pausedIndicator = document.getElementById('paused-indicator');
+                if (data.paused) {
+                    pauseBtn.disabled = true;
+                    pauseBtn.classList.add('btn-disabled');
+                    resumeBtn.disabled = false;
+                    resumeBtn.classList.remove('btn-disabled');
+                    resumeBtn.classList.add('btn-success');
+                    pausedIndicator.style.display = 'block';
+                } else {
+                    pauseBtn.disabled = false;
+                    pauseBtn.classList.remove('btn-disabled');
+                    resumeBtn.disabled = true;
+                    resumeBtn.classList.add('btn-disabled');
+                    resumeBtn.classList.remove('btn-success');
+                    pausedIndicator.style.display = 'none';
+                }
             }
 
             updateNodeList(nodes) {

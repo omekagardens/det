@@ -21,6 +21,7 @@ DET_MAX_NODES = 4096
 DET_MAX_BONDS = 16384
 DET_MAX_PORTS = 64
 DET_MAX_DOMAINS = 16
+DET_MAX_SOMATIC = 64
 DET_P_LAYER_SIZE = 16
 DET_A_LAYER_SIZE = 256
 DET_DORMANT_SIZE = 3760
@@ -32,6 +33,45 @@ class DETLayer(IntEnum):
     A = 1
     P = 2
     PORT = 3
+    SOMATIC = 4
+
+
+class SomaticType(IntEnum):
+    """Somatic node type classification."""
+    # Afferent (sensor -> mind)
+    TEMPERATURE = 0
+    HUMIDITY = 1
+    LIGHT = 2
+    MOTION = 3
+    SOUND = 4
+    TOUCH = 5
+    DISTANCE = 6
+    VOLTAGE = 7
+    GENERIC_SENSOR = 15
+
+    # Efferent (mind -> actuator)
+    SWITCH = 16
+    MOTOR = 17
+    LED = 18
+    SPEAKER = 19
+    SERVO = 20
+    RELAY = 21
+    PWM = 22
+    GENERIC_ACTUATOR = 31
+
+    # Proprioceptive (internal state)
+    BATTERY = 32
+    SIGNAL_STRENGTH = 33
+    ERROR_STATE = 34
+    HEARTBEAT = 35
+
+    @classmethod
+    def is_sensor(cls, t: 'SomaticType') -> bool:
+        return t < 16
+
+    @classmethod
+    def is_actuator(cls, t: 'SomaticType') -> bool:
+        return 16 <= t < 32
 
 
 class DETDecision(IntEnum):
@@ -67,6 +107,15 @@ class DETParams(Structure):
         ("lambda_a", c_float),
         ("phi_L", c_float),
         ("pi_max", c_float),
+        # v6.4 Agency dynamics: Two-component model
+        ("beta_a", c_float),         # Agency relaxation rate
+        ("gamma_a_max", c_float),    # Max relational drive strength
+        ("gamma_a_power", c_float),  # Coherence gating exponent (n >= 2)
+        # Momentum dynamics
+        ("alpha_pi", c_float),       # Momentum charging gain
+        ("lambda_pi", c_float),      # Momentum decay rate
+        ("beta_g", c_float),         # Gravity-momentum coupling
+        # Layer-specific bond parameters
         ("alpha_AA", c_float),
         ("lambda_AA", c_float),
         ("slip_AA", c_float),
@@ -172,6 +221,43 @@ class DETPort(Structure):
     ]
 
 
+class SomaticNode(Structure):
+    """Somatic node for physical I/O (sensors/actuators).
+
+    Somatic nodes are first-class members of the mind, not peripherals.
+    They bond to P-layer and A-layer, participate in coherence dynamics,
+    and have their own agency for autonomous behavior (reflexes).
+    """
+    _fields_ = [
+        ("node_id", c_uint16),
+        ("remote_id", c_uint8),
+        ("channel", c_uint8),
+        ("type", c_uint32),  # SomaticType enum
+        ("name", c_char * 32),
+
+        # Current state
+        ("value", c_float),
+        ("raw_value", c_float),
+        ("min_range", c_float),
+        ("max_range", c_float),
+        ("target", c_float),
+
+        # Timing
+        ("last_update_ms", c_uint32),
+        ("sample_rate_ms", c_uint32),
+
+        # Status
+        ("online", c_bool),
+        ("is_virtual", c_bool),
+        ("error_count", c_uint8),
+
+        # Simulation parameters
+        ("noise_level", c_float),
+        ("drift_rate", c_float),
+        ("response_time", c_float),
+    ]
+
+
 class DETDomain(Structure):
     """Memory domain linkage."""
     _fields_ = [
@@ -208,6 +294,8 @@ class DETCoreStruct(Structure):
         ("num_ports", c_uint32),
         ("domains", DETDomain * DET_MAX_DOMAINS),
         ("num_domains", c_uint32),
+        ("somatic", SomaticNode * DET_MAX_SOMATIC),
+        ("num_somatic", c_uint32),
         ("self", DETSelf),
         ("self_nodes_storage", c_uint16 * DET_MAX_NODES),
         ("aggregate_presence", c_float),
@@ -463,6 +551,53 @@ class DETCore:
         lib.det_core_load_state.restype = c_bool
         lib.det_core_load_state.argtypes = [POINTER(DETCoreStruct), c_void_p, ctypes.c_size_t]
 
+        # Somatic (Physical I/O)
+        lib.det_core_create_somatic.restype = c_int32
+        lib.det_core_create_somatic.argtypes = [
+            POINTER(DETCoreStruct),
+            c_uint32,  # SomaticType
+            ctypes.c_char_p,  # name
+            c_bool,  # is_virtual
+            c_uint8,  # remote_id
+            c_uint8,  # channel
+        ]
+
+        lib.det_core_remove_somatic.restype = c_bool
+        lib.det_core_remove_somatic.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_update_somatic_value.restype = None
+        lib.det_core_update_somatic_value.argtypes = [
+            POINTER(DETCoreStruct),
+            c_uint32,  # somatic_idx
+            c_float,  # value
+            c_float,  # raw_value
+        ]
+
+        lib.det_core_set_somatic_target.restype = None
+        lib.det_core_set_somatic_target.argtypes = [
+            POINTER(DETCoreStruct),
+            c_uint32,  # somatic_idx
+            c_float,  # target
+        ]
+
+        lib.det_core_get_somatic.restype = POINTER(SomaticNode)
+        lib.det_core_get_somatic.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_find_somatic.restype = c_int32
+        lib.det_core_find_somatic.argtypes = [POINTER(DETCoreStruct), ctypes.c_char_p]
+
+        lib.det_core_simulate_somatic.restype = None
+        lib.det_core_simulate_somatic.argtypes = [POINTER(DETCoreStruct), c_float]
+
+        lib.det_core_get_somatic_output.restype = c_float
+        lib.det_core_get_somatic_output.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_somatic_is_sensor.restype = c_bool
+        lib.det_somatic_is_sensor.argtypes = [c_uint32]
+
+        lib.det_somatic_is_actuator.restype = c_bool
+        lib.det_somatic_is_actuator.argtypes = [c_uint32]
+
     def __del__(self):
         """Clean up the core on deletion."""
         if hasattr(self, '_core') and self._core:
@@ -519,8 +654,39 @@ class DETCore:
         self._lib.det_core_step(self._core, c_float(dt))
 
     def reset(self):
-        """Reset the core to initial state."""
+        """Reset the core to initial state.
+
+        This performs a full reset including reinitializing all layers,
+        bonds, and ports - equivalent to creating a fresh core.
+        """
         self._lib.det_core_reset(self._core)
+
+    def init_ports(self):
+        """Initialize the port nodes for LLM interface.
+
+        This creates the initial port layout:
+        - 0-4: Intent ports (answer, plan, execute, learn, debug)
+        - 5-8: Domain ports (math, language, tool_use, science)
+        - 9-16: Boundary ports (evaluative + relational signals)
+        """
+        self._lib.det_core_init_ports(self._core)
+
+    def warmup(self, steps: int = 50, dt: float = 0.1):
+        """
+        Run warmup simulation steps to stabilize the system.
+
+        This should be called after creation and before processing requests.
+        It allows the DET core to compute initial aggregates and stabilize
+        coherence, presence, and affect values.
+
+        Args:
+            steps: Number of warmup steps (default: 50).
+            dt: Time delta per step (default: 0.1).
+        """
+        for _ in range(steps):
+            self.step(dt)
+        # Ensure self-cluster is identified
+        self.identify_self()
 
     def update_presence(self):
         """Update presence for all nodes."""
@@ -861,9 +1027,12 @@ class DETCore:
         return self.load_state(data)
 
     # Inspection
-    def inspect(self) -> dict:
+    def inspect(self, detailed: bool = False) -> dict:
         """
         Get a snapshot of the core state for inspection.
+
+        Args:
+            detailed: If True, include per-node and per-bond details.
 
         Returns:
             Dictionary with key metrics and state.
@@ -871,45 +1040,297 @@ class DETCore:
         presence, coherence, resource, debt = self.get_aggregates()
         valence, arousal, bondedness = self.get_self_affect()
 
-        # Count nodes by layer
+        # Count nodes by layer and compute layer stats
         layer_counts = {layer: 0 for layer in DETLayer}
+        layer_F_sum = {layer: 0.0 for layer in DETLayer}
+        layer_q_sum = {layer: 0.0 for layer in DETLayer}
+
+        # Domain stats (for A-layer)
+        domain_stats = {i: {"count": 0, "F_sum": 0.0, "coherence": 0.0}
+                        for i in range(4)}
+
+        # Grace metrics
+        nodes_needing_grace = 0
+        total_grace_needed = self.total_grace_needed()
+
         for i in range(self.num_nodes):
             node = self.get_node(i)
             layer = DETLayer(node.layer)
             layer_counts[layer] += 1
+            layer_F_sum[layer] += node.F
+            layer_q_sum[layer] += node.q
 
-        return {
+            if self.needs_grace(i):
+                nodes_needing_grace += 1
+
+            # Domain stats for A-layer
+            if layer == DETLayer.A and i >= 16:
+                domain = node.domain
+                if 0 <= domain < 4:
+                    domain_stats[domain]["count"] += 1
+                    domain_stats[domain]["F_sum"] += node.F
+
+        # Compute averages
+        layer_avg_F = {}
+        layer_avg_q = {}
+        for layer in DETLayer:
+            count = layer_counts[layer]
+            if count > 0:
+                layer_avg_F[layer.name] = layer_F_sum[layer] / count
+                layer_avg_q[layer.name] = layer_q_sum[layer] / count
+
+        # Domain coherence
+        domain_names = ["math", "language", "tool_use", "science"]
+        for i, name in enumerate(domain_names):
+            domain_stats[i]["coherence"] = self.get_domain_coherence(i)
+            domain_stats[i]["name"] = name
+            if domain_stats[i]["count"] > 0:
+                domain_stats[i]["avg_F"] = domain_stats[i]["F_sum"] / domain_stats[i]["count"]
+            else:
+                domain_stats[i]["avg_F"] = 0.0
+
+        # Self-cluster info
+        self._lib.det_core_identify_self(self._core)
+        self_struct = self._core.contents.self
+        self_cluster = []
+        for i in range(self_struct.num_nodes):
+            self_cluster.append(self_struct.nodes[i])
+
+        result = {
             "tick": self.tick,
             "emotion": self.get_emotion_string(),
             "aggregates": {
-                "presence": presence,
-                "coherence": coherence,
-                "resource": resource,
-                "debt": debt,
+                "presence": round(presence, 4),
+                "coherence": round(coherence, 4),
+                "resource": round(resource, 4),
+                "debt": round(debt, 4),
             },
             "self_affect": {
-                "valence": valence,
-                "arousal": arousal,
-                "bondedness": bondedness,
+                "valence": round(valence, 4),
+                "arousal": round(arousal, 4),
+                "bondedness": round(bondedness, 4),
+            },
+            "grace": {
+                "nodes_needing": nodes_needing_grace,
+                "total_needed": round(total_grace_needed, 4),
             },
             "counts": {
                 "nodes": self.num_nodes,
                 "active": self.num_active,
                 "bonds": self.num_bonds,
                 "ports": self.num_ports,
+                "self_cluster": len(self_cluster),
             },
             "layers": {
                 "P": layer_counts[DETLayer.P],
                 "A": layer_counts[DETLayer.A],
                 "dormant": layer_counts[DETLayer.DORMANT],
                 "port": layer_counts[DETLayer.PORT],
-            }
+            },
+            "layer_health": {
+                "avg_F": {k: round(v, 4) for k, v in layer_avg_F.items()},
+                "avg_q": {k: round(v, 4) for k, v in layer_avg_q.items()},
+            },
+            "domains": {
+                domain_stats[i]["name"]: {
+                    "count": domain_stats[i]["count"],
+                    "coherence": round(domain_stats[i]["coherence"], 4),
+                    "avg_F": round(domain_stats[i]["avg_F"], 4),
+                }
+                for i in range(4)
+            },
+            "self_cluster": self_cluster[:20] if not detailed else self_cluster,
         }
+
+        # Detailed node/bond info if requested
+        if detailed:
+            result["nodes"] = []
+            for i in range(min(self.num_active, 100)):
+                node = self.get_node(i)
+                result["nodes"].append({
+                    "id": i,
+                    "layer": DETLayer(node.layer).name,
+                    "a": round(node.a, 4),
+                    "F": round(node.F, 4),
+                    "q": round(node.q, 4),
+                    "P": round(node.P, 4),
+                    "theta": round(node.theta, 4),
+                    "affect": {
+                        "v": round(node.affect.v, 4),
+                        "r": round(node.affect.r, 4),
+                        "b": round(node.affect.b, 4),
+                    },
+                    "in_self": i in self_cluster,
+                    "needs_grace": self.needs_grace(i),
+                })
+
+            result["bonds"] = []
+            for b in range(min(self.num_bonds, 200)):
+                bond = self.get_bond(b)
+                if bond.C > 0.01:
+                    result["bonds"].append({
+                        "i": bond.i,
+                        "j": bond.j,
+                        "C": round(bond.C, 4),
+                        "pi": round(bond.pi, 4),
+                        "flux_ema": round(bond.flux_ema, 4),
+                        "cross_layer": bool(bond.is_cross_layer),
+                    })
+
+        return result
+
+    # Somatic (Physical I/O) Methods
+
+    @property
+    def num_somatic(self) -> int:
+        """Number of somatic nodes."""
+        return self._core.contents.num_somatic
+
+    def create_somatic(
+        self,
+        somatic_type: SomaticType,
+        name: str,
+        is_virtual: bool = True,
+        remote_id: int = 0,
+        channel: int = 0
+    ) -> int:
+        """Create a somatic node (virtual or physical).
+
+        Args:
+            somatic_type: Type of somatic node (sensor or actuator).
+            name: Human-readable name for the node.
+            is_virtual: True for simulated, False for physical hardware.
+            remote_id: Physical device ID (e.g., ESP32 address).
+            channel: Pin/channel on the remote device.
+
+        Returns:
+            Somatic index, or -1 on error.
+        """
+        return self._lib.det_core_create_somatic(
+            self._core,
+            c_uint32(int(somatic_type)),
+            name.encode('utf-8'),
+            c_bool(is_virtual),
+            c_uint8(remote_id),
+            c_uint8(channel)
+        )
+
+    def remove_somatic(self, somatic_idx: int) -> bool:
+        """Remove a somatic node.
+
+        Args:
+            somatic_idx: Index of somatic node to remove.
+
+        Returns:
+            True if removed successfully.
+        """
+        return self._lib.det_core_remove_somatic(self._core, c_uint32(somatic_idx))
+
+    def update_somatic_value(self, somatic_idx: int, value: float, raw_value: float = None):
+        """Update somatic node value (from sensor reading or simulation).
+
+        Args:
+            somatic_idx: Index of somatic node.
+            value: Normalized value (0-1 or -1 to 1).
+            raw_value: Raw sensor reading (physical units). Defaults to value.
+        """
+        if raw_value is None:
+            raw_value = value
+        self._lib.det_core_update_somatic_value(
+            self._core,
+            c_uint32(somatic_idx),
+            c_float(value),
+            c_float(raw_value)
+        )
+
+    def set_somatic_target(self, somatic_idx: int, target: float):
+        """Set somatic actuator target (for output nodes).
+
+        Args:
+            somatic_idx: Index of somatic node.
+            target: Target value (0-1).
+        """
+        self._lib.det_core_set_somatic_target(
+            self._core,
+            c_uint32(somatic_idx),
+            c_float(target)
+        )
+
+    def get_somatic(self, somatic_idx: int) -> Optional[SomaticNode]:
+        """Get somatic node by index.
+
+        Args:
+            somatic_idx: Index of somatic node.
+
+        Returns:
+            SomaticNode or None if not found.
+        """
+        ptr = self._lib.det_core_get_somatic(self._core, c_uint32(somatic_idx))
+        return ptr.contents if ptr else None
+
+    def find_somatic(self, name: str) -> int:
+        """Find somatic node by name.
+
+        Args:
+            name: Name of somatic node.
+
+        Returns:
+            Somatic index, or -1 if not found.
+        """
+        return self._lib.det_core_find_somatic(self._core, name.encode('utf-8'))
+
+    def simulate_somatic(self, dt: float = 0.1):
+        """Simulate virtual somatic nodes for one timestep.
+
+        Args:
+            dt: Time delta for simulation step.
+        """
+        self._lib.det_core_simulate_somatic(self._core, c_float(dt))
+
+    def get_somatic_output(self, somatic_idx: int) -> float:
+        """Get somatic output (for actuators, modulated by agency).
+
+        Args:
+            somatic_idx: Index of somatic node.
+
+        Returns:
+            Output value (target * agency_gate).
+        """
+        return self._lib.det_core_get_somatic_output(self._core, c_uint32(somatic_idx))
+
+    def get_all_somatic(self) -> List[dict]:
+        """Get all somatic nodes as a list of dictionaries.
+
+        Returns:
+            List of somatic node information.
+        """
+        result = []
+        for i in range(self.num_somatic):
+            node = self.get_somatic(i)
+            if node:
+                result.append({
+                    "idx": i,
+                    "node_id": node.node_id,
+                    "name": node.name.decode('utf-8'),
+                    "type": SomaticType(node.type),
+                    "type_name": SomaticType(node.type).name,
+                    "is_sensor": SomaticType.is_sensor(node.type),
+                    "is_actuator": SomaticType.is_actuator(node.type),
+                    "value": round(node.value, 4),
+                    "raw_value": round(node.raw_value, 4),
+                    "target": round(node.target, 4),
+                    "is_virtual": node.is_virtual,
+                    "online": node.online,
+                    "remote_id": node.remote_id,
+                    "channel": node.channel,
+                })
+        return result
 
     def __repr__(self):
         return (
             f"DETCore(tick={self.tick}, active={self.num_active}, "
-            f"bonds={self.num_bonds}, emotion={self.get_emotion_string()})"
+            f"bonds={self.num_bonds}, somatic={self.num_somatic}, "
+            f"emotion={self.get_emotion_string()})"
         )
 
 

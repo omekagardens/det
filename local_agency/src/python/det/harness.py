@@ -85,19 +85,20 @@ class HarnessController:
     Can be used directly or through the CLI interface.
     """
 
-    def __init__(self, core=None, storage_path: Optional[Path] = None):
+    def __init__(self, core=None, storage_path: Optional[Path] = None, start_paused: bool = False):
         """
         Initialize the harness controller.
 
         Args:
             core: DETCore instance to control.
             storage_path: Path for storing logs, snapshots, etc.
+            start_paused: Whether to start in paused state.
         """
         self.core = core
         self.storage_path = storage_path
 
         # Time control state
-        self._paused = False
+        self._paused = start_paused
         self._speed = 1.0  # 1.0 = normal, 2.0 = 2x, 0.5 = half
         self._step_mode = False
         self._steps_remaining = 0
@@ -1419,18 +1420,23 @@ OTHER:
 """)
 
 
-def create_harness(core=None, storage_path: Optional[Path] = None) -> HarnessController:
+def create_harness(
+    core=None,
+    storage_path: Optional[Path] = None,
+    start_paused: bool = False
+) -> HarnessController:
     """
     Create a harness controller.
 
     Args:
         core: DETCore instance to control.
         storage_path: Path for storage.
+        start_paused: Whether to start in paused state.
 
     Returns:
         Configured HarnessController.
     """
-    return HarnessController(core=core, storage_path=storage_path)
+    return HarnessController(core=core, storage_path=storage_path, start_paused=start_paused)
 
 
 def run_harness_cli(core=None, storage_path: Optional[Path] = None):

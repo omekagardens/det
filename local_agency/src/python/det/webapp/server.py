@@ -46,8 +46,12 @@ class ConnectionManager:
         disconnected = []
         for connection in self.active_connections:
             try:
-                await connection.send_json(message)
-            except Exception:
+                # Use timeout to prevent blocking on slow connections
+                await asyncio.wait_for(
+                    connection.send_json(message),
+                    timeout=5.0
+                )
+            except (asyncio.TimeoutError, Exception):
                 disconnected.append(connection)
 
         for conn in disconnected:
@@ -100,6 +104,11 @@ class DETWebApp:
         self.profiler = create_profiler(window_size=100)
         self._metrics_interval = 1.0  # Sample metrics every second
         self._last_metrics_sample = 0.0
+
+        # Visualization update throttling
+        self._viz_interval = 0.5  # Full viz data every 0.5 seconds
+        self._last_viz_update = 0.0
+        self._max_viz_nodes = 100  # Limit nodes sent for performance
 
         # LLM interface for chat (lazy initialized)
         self._llm_interface: Optional[DETLLMInterface] = None
@@ -280,6 +289,69 @@ class DETWebApp:
             """Get performance profiling data."""
             return self.profiler.get_report()
 
+        # Somatic (Physical I/O) endpoints
+        @app.get("/api/somatic")
+        async def get_somatic():
+            """Get all somatic nodes."""
+            if not self.core:
+                return {"error": "No core available", "nodes": []}
+            return {"nodes": self.core.get_all_somatic()}
+
+        @app.post("/api/somatic/create")
+        async def create_somatic(request: Request):
+            """Create a new somatic node."""
+            if not self.core:
+                return {"error": "No core available", "success": False}
+            data = await request.json()
+            from ..core import SomaticType
+            try:
+                somatic_type = SomaticType[data.get("type", "GENERIC_SENSOR").upper()]
+                idx = self.core.create_somatic(
+                    somatic_type=somatic_type,
+                    name=data.get("name", "unnamed"),
+                    is_virtual=data.get("is_virtual", True),
+                    remote_id=data.get("remote_id", 0),
+                    channel=data.get("channel", 0),
+                )
+                if idx >= 0:
+                    return {"success": True, "idx": idx}
+                return {"success": False, "error": "Failed to create somatic node"}
+            except (KeyError, ValueError) as e:
+                return {"success": False, "error": f"Invalid somatic type: {e}"}
+
+        @app.post("/api/somatic/remove")
+        async def remove_somatic(request: Request):
+            """Remove a somatic node."""
+            if not self.core:
+                return {"error": "No core available", "success": False}
+            data = await request.json()
+            idx = data.get("idx", -1)
+            success = self.core.remove_somatic(idx)
+            return {"success": success}
+
+        @app.post("/api/somatic/set_target")
+        async def set_somatic_target(request: Request):
+            """Set somatic actuator target."""
+            if not self.core:
+                return {"error": "No core available", "success": False}
+            data = await request.json()
+            idx = data.get("idx", -1)
+            target = data.get("target", 0.0)
+            self.core.set_somatic_target(idx, target)
+            return {"success": True}
+
+        @app.post("/api/somatic/update_value")
+        async def update_somatic_value(request: Request):
+            """Update somatic sensor value (for external input)."""
+            if not self.core:
+                return {"error": "No core available", "success": False}
+            data = await request.json()
+            idx = data.get("idx", -1)
+            value = data.get("value", 0.0)
+            raw_value = data.get("raw_value", value)
+            self.core.update_somatic_value(idx, value, raw_value)
+            return {"success": True}
+
         @app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             """WebSocket endpoint for real-time updates."""
@@ -304,19 +376,52 @@ class DETWebApp:
                     try:
                         data = await asyncio.wait_for(
                             websocket.receive_json(),
-                            timeout=30.0
+                            timeout=30.0  # Longer timeout to handle slow operations
                         )
-                        await self._handle_ws_message(websocket, data)
+                        # Handle message in background to not block pings
+                        asyncio.create_task(
+                            self._handle_ws_message_safe(websocket, data)
+                        )
                     except asyncio.TimeoutError:
                         # Send ping to keep alive
-                        await websocket.send_json({"type": "ping"})
+                        try:
+                            await asyncio.wait_for(
+                                websocket.send_json({"type": "ping"}),
+                                timeout=5.0
+                            )
+                        except (asyncio.TimeoutError, Exception):
+                            break  # Connection lost
+                    except asyncio.CancelledError:
+                        break  # Task cancelled, exit gracefully
 
             except WebSocketDisconnect:
-                self.connection_manager.disconnect(websocket)
-            except Exception:
+                pass  # Normal disconnect
+            except asyncio.CancelledError:
+                pass  # Task cancelled
+            except Exception as e:
+                # Log unexpected errors but don't crash
+                import sys
+                print(f"WebSocket error: {type(e).__name__}: {e}", file=sys.stderr)
+            finally:
                 self.connection_manager.disconnect(websocket)
 
         return app
+
+    async def _handle_ws_message_safe(self, websocket: WebSocket, data: Dict[str, Any]):
+        """Safely handle WebSocket messages with error catching."""
+        try:
+            await self._handle_ws_message(websocket, data)
+        except Exception as e:
+            # Don't let message handling errors crash the connection
+            import sys
+            print(f"WebSocket message error: {type(e).__name__}: {e}", file=sys.stderr)
+            try:
+                await websocket.send_json({
+                    "type": "error",
+                    "data": {"error": str(e)}
+                })
+            except Exception:
+                pass  # Connection may be closed
 
     async def _handle_ws_message(self, websocket: WebSocket, data: Dict[str, Any]):
         """Handle incoming WebSocket messages."""
@@ -427,6 +532,8 @@ class DETWebApp:
         """Background task to broadcast state updates and run simulation."""
         while self._running:
             try:
+                now = time.time()
+
                 # Auto-step simulation if not paused
                 if self.harness and not self.harness.paused and self.core:
                     # Profile the step
@@ -440,22 +547,26 @@ class DETWebApp:
                     self.metrics.end_tick()
 
                 # Sample metrics periodically
-                now = time.time()
                 if now - self._last_metrics_sample >= self._metrics_interval:
                     self.metrics.sample(self.core)
                     self.profiler.sample_memory()
                     self._last_metrics_sample = now
 
                 if self.connection_manager.connection_count > 0:
-                    # Send full state with visualization data
+                    # Always send basic state
                     state = self._get_state()
-                    state["nodes"] = self._get_nodes_viz()
-                    state["bonds"] = self._get_bonds()
+
+                    # Only send full viz data periodically to reduce load
+                    if now - self._last_viz_update >= self._viz_interval:
+                        state["nodes"] = self._get_nodes_viz()
+                        state["bonds"] = self._get_bonds()
+                        self._last_viz_update = now
 
                     await self.connection_manager.broadcast({
                         "type": "state",
                         "data": state,
                     })
+
                 await asyncio.sleep(self.update_interval)
             except asyncio.CancelledError:
                 break
@@ -472,6 +583,7 @@ class DETWebApp:
             "tick": self.core.tick,
             "num_active": self.core.num_active,
             "num_bonds": self.core.num_bonds,
+            "num_somatic": self.core.num_somatic,
             "aggregates": self.harness.get_aggregates() if self.harness else {},
             "affect": self.harness.get_affect() if self.harness else {},
             "emotional_state": self.harness.get_emotional_state() if self.harness else "unknown",
@@ -482,10 +594,11 @@ class DETWebApp:
         }
 
     def _get_full_state(self) -> Dict[str, Any]:
-        """Get full state including nodes and bonds."""
+        """Get full state including nodes, bonds, and somatic."""
         state = self._get_state()
         state["nodes"] = self._get_nodes_viz()  # Use viz data with positions
         state["bonds"] = self._get_bonds()
+        state["somatic"] = self.core.get_all_somatic() if self.core else []
         return state
 
     def _get_nodes(self) -> List[Dict[str, Any]]:
@@ -525,20 +638,29 @@ class DETWebApp:
         for i in range(self_struct.num_nodes):
             self_cluster.add(self_struct.nodes[i])
 
+        # Domain names for LLM areas
+        domain_names = ["math", "language", "tool_use", "science"]
+
         nodes = []
-        for i in range(self.core.num_active):
+        # Limit nodes for performance - prioritize P-layer and self-cluster
+        num_to_send = min(self.core.num_active, self._max_viz_nodes)
+        for i in range(num_to_send):
             node = self.core._core.contents.nodes[i]
 
-            # Position based on layer and index
-            if i < 16:  # P-layer: inner ring
-                angle = (i / 16) * 2 * math.pi
-                radius = 2.0
+            # Position based on layer and domain
+            if i < 16:  # P-layer: center cluster
+                angle = (i / 16) * 2 * math.pi + node.theta
+                radius = 1.5
                 y = 0.0
-            else:  # A-layer: outer ring
+            else:  # A-layer: grouped by domain (4 quadrants)
                 a_idx = i - 16
-                angle = (a_idx / 256) * 2 * math.pi
-                radius = 4.0
-                y = 0.0
+                domain = node.domain if hasattr(node, 'domain') else (a_idx // 64) % 4
+                domain_angle = (domain / 4) * 2 * math.pi  # Base angle for domain
+                local_idx = a_idx % 64
+                local_angle = (local_idx / 64) * (math.pi / 2)  # Spread within quadrant
+                angle = domain_angle + local_angle + node.theta * 0.5
+                radius = 3.0 + (local_idx % 8) * 0.3  # Vary radius within domain
+                y = (local_idx // 8 - 4) * 0.3  # Slight vertical spread
 
             x = math.cos(angle) * radius
             z = math.sin(angle) * radius
@@ -550,16 +672,66 @@ class DETWebApp:
             green = v * brightness
             blue = node.affect.b * brightness
 
+            # Get domain for A-layer nodes
+            domain_idx = 0
+            if i >= 16:
+                a_idx = i - 16
+                domain_idx = (a_idx // 64) % 4
+
             nodes.append({
                 "id": i,
                 "x": round(x, 3),
                 "y": round(y, 3),
                 "z": round(z, 3),
-                "size": round(0.15 + node.a * 0.2, 3),
+                "size": round(0.08 + node.a * 0.12, 3),  # Smaller nodes: 0.08-0.20
                 "color": {"r": round(red, 3), "g": round(green, 3), "b": round(blue, 3)},
                 "layer": "P" if i < 16 else "A",
+                "domain": domain_names[domain_idx] if i >= 16 else "core",
                 "in_self": i in self_cluster,
                 "P": round(node.P, 3),
+                "a": round(node.a, 3),
+                "F": round(node.F, 3),
+                "theta": round(node.theta, 3),
+            })
+
+        # Add somatic nodes in a separate cluster (below main cluster)
+        somatic_list = self.core.get_all_somatic()
+        for i, somatic in enumerate(somatic_list):
+            # Position in a ring below the main cluster
+            angle = (i / max(len(somatic_list), 1)) * 2 * math.pi
+            radius = 2.0
+            x = math.cos(angle) * radius
+            y = -2.0  # Below main cluster
+            z = math.sin(angle) * radius
+
+            # Color based on type (sensors=blue, actuators=orange)
+            if somatic.get("is_sensor"):
+                red, green, blue_c = 0.2, 0.5, 0.9  # Blue for sensors
+            else:
+                red, green, blue_c = 0.9, 0.5, 0.2  # Orange for actuators
+
+            # Brightness based on value
+            brightness = 0.4 + somatic["value"] * 0.6
+            red *= brightness
+            green *= brightness
+            blue_c *= brightness
+
+            nodes.append({
+                "id": f"somatic_{somatic['idx']}",
+                "x": round(x, 3),
+                "y": round(y, 3),
+                "z": round(z, 3),
+                "size": 0.15,  # Fixed size for somatic nodes
+                "color": {"r": round(red, 3), "g": round(green, 3), "b": round(blue_c, 3)},
+                "layer": "S",  # Somatic layer
+                "domain": somatic["type_name"],
+                "in_self": False,
+                "P": round(somatic["value"], 3),
+                "a": round(somatic["target"], 3),
+                "F": 0.5,
+                "theta": 0.0,
+                "is_somatic": True,
+                "somatic_name": somatic["name"],
             })
 
         return nodes
@@ -573,12 +745,16 @@ class DETWebApp:
         for i in range(self.core.num_bonds):
             bond = self.core._core.contents.bonds[i]
             if bond.C > 0.01:  # Only include active bonds
+                # Calculate flux for info flow visualization
+                flux = abs(bond.flux_ema) if hasattr(bond, 'flux_ema') else 0.0
                 bonds.append({
-                    "i": bond.i,
-                    "j": bond.j,
-                    "C": bond.C,
-                    "pi": bond.pi,
-                    "is_cross_layer": bond.is_cross_layer,
+                    "source": bond.i,
+                    "target": bond.j,
+                    "C": round(bond.C, 3),
+                    "strength": round(bond.C, 3),
+                    "pi": round(bond.pi, 3),
+                    "flux": round(flux, 3),
+                    "is_cross_layer": bool(bond.is_cross_layer),
                 })
         return bonds
 
@@ -652,6 +828,7 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 8420,
     update_interval: float = 0.1,
+    start_paused: bool = True,
 ):
     """
     Run the DET web server.
@@ -662,18 +839,60 @@ def run_server(
         host: Host to bind to.
         port: Port to bind to.
         update_interval: State update interval.
+        start_paused: Whether to start simulation in paused state.
     """
     try:
         import uvicorn
     except ImportError:
         raise ImportError("uvicorn not installed. Run: pip install uvicorn")
 
+    # Create harness if not provided, starting paused
+    if harness is None and core is not None:
+        from ..harness import create_harness
+        harness = create_harness(core=core, start_paused=start_paused)
+    elif harness is not None and start_paused:
+        harness.pause()
+
     webapp = DETWebApp(core=core, harness=harness, update_interval=update_interval)
     webapp.add_event_callback()
 
+    paused_msg = " (PAUSED)" if start_paused else ""
     print(f"\n{'='*60}")
-    print(f"  DET Mind Viewer")
+    print(f"  DET Mind Viewer{paused_msg}")
     print(f"  Open http://{host}:{port} in your browser")
     print(f"{'='*60}\n")
 
-    uvicorn.run(webapp.app, host=host, port=port)
+    # Configure uvicorn with longer websocket timeouts
+    # These are generous to handle slow LLM operations
+    config = uvicorn.Config(
+        webapp.app,
+        host=host,
+        port=port,
+        log_level="warning",
+        ws_ping_interval=30.0,   # Send ping every 30 seconds
+        ws_ping_timeout=120.0,   # Wait 120 seconds for pong (long LLM ops)
+        timeout_keep_alive=120,  # HTTP keep-alive timeout
+    )
+    server = uvicorn.Server(config)
+    server.run()
+
+
+def create_app(
+    core: Optional[DETCore] = None,
+    harness: Optional[HarnessController] = None,
+    update_interval: float = 0.1,
+):
+    """
+    Create a DET webapp without running it.
+
+    Args:
+        core: DETCore instance.
+        harness: HarnessController instance.
+        update_interval: State update interval.
+
+    Returns:
+        FastAPI app instance.
+    """
+    webapp = DETWebApp(core=core, harness=harness, update_interval=update_interval)
+    webapp.add_event_callback()
+    return webapp.app

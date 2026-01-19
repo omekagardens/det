@@ -29,6 +29,7 @@ extern "C" {
 #define DET_MAX_BONDS       16384   /* Sparse bond capacity */
 #define DET_MAX_PORTS       64      /* LLM interface port nodes */
 #define DET_MAX_DOMAINS     16      /* Memory domain types */
+#define DET_MAX_SOMATIC     64      /* Somatic (physical I/O) nodes */
 
 /* Layer sizes (Phase 1 defaults, tunable) */
 #define DET_P_LAYER_SIZE    16      /* Presence layer nodes */
@@ -44,8 +45,39 @@ typedef enum {
     DET_LAYER_DORMANT = 0,  /* Inactive, in dormant pool */
     DET_LAYER_A = 1,        /* Automaticity layer (System 1) */
     DET_LAYER_P = 2,        /* Presence layer (System 2) */
-    DET_LAYER_PORT = 3      /* LLM interface port node */
+    DET_LAYER_PORT = 3,     /* LLM interface port node */
+    DET_LAYER_SOMATIC = 4   /* Physical I/O node (sensors/actuators) */
 } DETLayer;
+
+/** Somatic node type classification */
+typedef enum {
+    /* Afferent (sensor → mind) */
+    SOMATIC_TEMPERATURE = 0,
+    SOMATIC_HUMIDITY = 1,
+    SOMATIC_LIGHT = 2,
+    SOMATIC_MOTION = 3,
+    SOMATIC_SOUND = 4,
+    SOMATIC_TOUCH = 5,
+    SOMATIC_DISTANCE = 6,
+    SOMATIC_VOLTAGE = 7,
+    SOMATIC_GENERIC_SENSOR = 15,
+
+    /* Efferent (mind → actuator) */
+    SOMATIC_SWITCH = 16,
+    SOMATIC_MOTOR = 17,
+    SOMATIC_LED = 18,
+    SOMATIC_SPEAKER = 19,
+    SOMATIC_SERVO = 20,
+    SOMATIC_RELAY = 21,
+    SOMATIC_PWM = 22,
+    SOMATIC_GENERIC_ACTUATOR = 31,
+
+    /* Proprioceptive (internal state) */
+    SOMATIC_BATTERY = 32,
+    SOMATIC_SIGNAL_STRENGTH = 33,
+    SOMATIC_ERROR_STATE = 34,
+    SOMATIC_HEARTBEAT = 35
+} SomaticType;
 
 /** Gatekeeper decision outcomes */
 typedef enum {
@@ -82,6 +114,16 @@ typedef struct {
     float lambda_a;         /* 30.0 - Agency ceiling coupling */
     float phi_L;            /* 0.5 - Angular/momentum ratio */
     float pi_max;           /* 3.0 - Momentum cap */
+
+    /* v6.4 Agency dynamics: Two-component model */
+    float beta_a;           /* 0.2 - Agency relaxation rate toward ceiling */
+    float gamma_a_max;      /* 0.15 - Max relational drive strength */
+    float gamma_a_power;    /* 2.0 - Coherence gating exponent (n >= 2) */
+
+    /* Momentum dynamics */
+    float alpha_pi;         /* 0.12 - Momentum charging gain */
+    float lambda_pi;        /* 0.008 - Momentum decay rate */
+    float beta_g;           /* 10.0 - Gravity-momentum coupling (= 5 × μ_g) */
 
     /* Layer-specific bond parameters */
     float alpha_AA, lambda_AA, slip_AA;   /* A↔A: fast, plastic */
@@ -181,6 +223,41 @@ typedef struct {
     uint8_t target_domain;  /* Which domain cluster this feeds */
 } DETPort;
 
+/** Somatic node for physical I/O (sensors/actuators)
+ *
+ * Somatic nodes are first-class members of the mind, not peripherals.
+ * They bond to P-layer and A-layer, participate in coherence dynamics,
+ * and have their own agency for autonomous behavior (reflexes).
+ */
+typedef struct {
+    uint16_t node_id;       /* Index in DET node array */
+    uint8_t remote_id;      /* Physical device ID (ESP32 address, 0=virtual) */
+    uint8_t channel;        /* Pin/channel on remote device */
+    SomaticType type;       /* Sensor/actuator type */
+    char name[32];          /* Human-readable name */
+
+    /* Current state */
+    float value;            /* Normalized 0-1 or -1 to 1 */
+    float raw_value;        /* Raw sensor reading (physical units) */
+    float min_range;        /* Calibration min */
+    float max_range;        /* Calibration max */
+    float target;           /* Target value for actuators */
+
+    /* Timing */
+    uint32_t last_update_ms;    /* Last reading timestamp */
+    uint32_t sample_rate_ms;    /* Desired sample rate */
+
+    /* Status */
+    bool online;            /* Device responding */
+    bool is_virtual;        /* True if simulated, false if physical */
+    uint8_t error_count;    /* Communication errors */
+
+    /* Simulation parameters (only used if is_virtual) */
+    float noise_level;      /* Gaussian noise amplitude */
+    float drift_rate;       /* Random walk rate */
+    float response_time;    /* Actuator response lag */
+} SomaticNode;
+
 /** Memory domain linkage */
 typedef struct {
     char name[32];          /* "math", "language", etc. */
@@ -222,6 +299,10 @@ typedef struct {
     /* Memory domains */
     DETDomain domains[DET_MAX_DOMAINS];
     uint32_t num_domains;
+
+    /* Somatic nodes (physical I/O) */
+    SomaticNode somatic[DET_MAX_SOMATIC];
+    uint32_t num_somatic;
 
     /* Self-cluster (current) */
     DETSelf self;
@@ -420,6 +501,56 @@ bool det_core_load_state(DETCore* core, const void* buffer, size_t data_size);
 
 /** Get state size for serialization */
 size_t det_core_state_size(const DETCore* core);
+
+/* ----- Somatic (Physical I/O) ----- */
+
+/** Create a somatic node (virtual or physical)
+ *  Returns somatic index, or -1 on error
+ */
+int32_t det_core_create_somatic(
+    DETCore* core,
+    SomaticType type,
+    const char* name,
+    bool is_virtual,
+    uint8_t remote_id,
+    uint8_t channel
+);
+
+/** Remove a somatic node */
+bool det_core_remove_somatic(DETCore* core, uint32_t somatic_idx);
+
+/** Update somatic node value (from sensor reading or simulation) */
+void det_core_update_somatic_value(
+    DETCore* core,
+    uint32_t somatic_idx,
+    float value,
+    float raw_value
+);
+
+/** Set somatic actuator target (for output nodes) */
+void det_core_set_somatic_target(
+    DETCore* core,
+    uint32_t somatic_idx,
+    float target
+);
+
+/** Get somatic node by index */
+SomaticNode* det_core_get_somatic(DETCore* core, uint32_t somatic_idx);
+
+/** Find somatic node by name (-1 if not found) */
+int32_t det_core_find_somatic(const DETCore* core, const char* name);
+
+/** Simulate virtual somatic nodes for one timestep */
+void det_core_simulate_somatic(DETCore* core, float dt);
+
+/** Get somatic output (for actuators, returns target value modulated by agency) */
+float det_core_get_somatic_output(const DETCore* core, uint32_t somatic_idx);
+
+/** Check if somatic type is a sensor (afferent) */
+bool det_somatic_is_sensor(SomaticType type);
+
+/** Check if somatic type is an actuator (efferent) */
+bool det_somatic_is_actuator(SomaticType type);
 
 /* ----- Default Parameters ----- */
 
