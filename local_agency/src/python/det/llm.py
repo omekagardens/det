@@ -19,6 +19,8 @@ class IntentType(IntEnum):
     EXECUTE = 2
     LEARN = 3
     DEBUG = 4
+    SENSE = 5      # Query a sensor (afferent - sensor → mind → user)
+    ACTUATE = 6    # Command an actuator (efferent - user → mind → actuator)
 
 
 class DomainType(IntEnum):
@@ -27,6 +29,7 @@ class DomainType(IntEnum):
     LANGUAGE = 1
     TOOL_USE = 2
     SCIENCE = 3
+    SOMATIC = 4    # Physical I/O domain (sensors/actuators)
 
 
 @dataclass
@@ -892,6 +895,26 @@ class DETLLMInterface:
         """
         text_lower = text.lower()
 
+        # Somatic SENSE keywords (query sensors) - check first for priority
+        sense_keywords = [
+            "what is the", "what's the", "tell me the", "check the",
+            "reading", "level", "status of", "current",
+            "temperature", "humidity", "light level", "motion",
+            "sensor", "how warm", "how cold", "how bright", "how humid"
+        ]
+        if any(kw in text_lower for kw in sense_keywords):
+            return IntentType.SENSE, 0.85
+
+        # Somatic ACTUATE keywords (control actuators)
+        actuate_keywords = [
+            "turn on", "turn off", "switch on", "switch off",
+            "set the", "adjust", "change the", "open", "close",
+            "activate", "deactivate", "enable", "disable",
+            "dim", "brighten", "increase", "decrease"
+        ]
+        if any(kw in text_lower for kw in actuate_keywords):
+            return IntentType.ACTUATE, 0.85
+
         # Execution keywords
         exec_keywords = ["run", "execute", "do", "create", "make", "write", "delete"]
         if any(kw in text_lower for kw in exec_keywords):
@@ -925,6 +948,15 @@ class DETLLMInterface:
             Tuple of (domain, confidence).
         """
         text_lower = text.lower()
+
+        # Somatic keywords (physical I/O) - check first
+        somatic_keywords = [
+            "temperature", "humidity", "light", "motion", "sensor",
+            "switch", "relay", "motor", "led", "actuator",
+            "turn on", "turn off", "reading", "level"
+        ]
+        if any(kw in text_lower for kw in somatic_keywords):
+            return DomainType.SOMATIC, 0.85
 
         # Math keywords
         math_keywords = ["calculate", "math", "equation", "number", "compute", "sum"]

@@ -47,7 +47,7 @@ from .routing import (
     ModelConfig, ModelPool, ModelStatus, LLMRouter, RoutingResult, MultiModelInterface,
     DEFAULT_MODELS
 )
-from .dialogue import InternalDialogue, DialogueTurn, DialogueState
+from .dialogue import InternalDialogue, DialogueTurn, DialogueState, SomaticBridge
 from .sandbox import BashSandbox, FileOperations, CommandAnalyzer, RiskLevel, PermissionLevel
 from .tasks import TaskManager, Task, TaskStep, TaskStatus, TaskPriority
 from .timer import TimerSystem, ScheduledEvent, ScheduleType, setup_default_schedule
@@ -97,7 +97,7 @@ __all__ = [
     "ModelConfig", "ModelPool", "ModelStatus", "LLMRouter", "RoutingResult",
     "MultiModelInterface", "DEFAULT_MODELS",
     # Dialogue
-    "InternalDialogue", "DialogueTurn", "DialogueState",
+    "InternalDialogue", "DialogueTurn", "DialogueState", "SomaticBridge",
     # Sandbox
     "BashSandbox", "FileOperations", "CommandAnalyzer", "RiskLevel", "PermissionLevel",
     # Tasks

@@ -274,6 +274,9 @@ Response:""",
         self.last_message_time: float = 0.0
         self.previous_input: Optional[str] = None
 
+        # Somatic bridge for physical I/O handling
+        self.somatic_bridge: Optional['SomaticBridge'] = None
+
         # Callbacks
         self.on_turn_complete: Optional[Callable[[DialogueTurn], None]] = None
         self.on_escalate: Optional[Callable[[str], str]] = None
@@ -416,6 +419,35 @@ Response:""",
 
     def _generate_response(self, text: str, internal_mode: Optional[str] = None) -> str:
         """Generate a response from the LLM."""
+        from .llm import IntentType, DomainType
+
+        # Check for somatic intents first
+        intent, intent_conf = self.signal_extractor.classify_intent(text) if hasattr(self.signal_extractor, 'classify_intent') else (IntentType.ANSWER, 0.5)
+
+        # Simple intent classification if signal_extractor doesn't have the method
+        if intent == IntentType.ANSWER and intent_conf < 0.6:
+            text_lower = text.lower()
+            # Check for SENSE intent
+            sense_keywords = ["what is the", "what's the", "tell me the", "check the", "temperature", "humidity", "reading", "sensor"]
+            if any(kw in text_lower for kw in sense_keywords):
+                intent = IntentType.SENSE
+            # Check for ACTUATE intent
+            actuate_keywords = ["turn on", "turn off", "switch", "set the", "adjust", "activate"]
+            if any(kw in text_lower for kw in actuate_keywords):
+                intent = IntentType.ACTUATE
+
+        # Route somatic intents to the bridge
+        if intent in (IntentType.SENSE, IntentType.ACTUATE):
+            # Lazy-initialize somatic bridge
+            if self.somatic_bridge is None:
+                self.somatic_bridge = SomaticBridge(self.core, self.client)
+
+            # Check if we have any somatic nodes
+            if self.core.num_somatic > 0:
+                result = self.somatic_bridge.process_somatic_request(text, intent)
+                return result.get("response", "I couldn't process that somatic request.")
+
+        # Standard LLM response generation
         affect, _ = self._get_det_state()
 
         # Adjust temperature based on affect
@@ -424,6 +456,13 @@ Response:""",
 
         # Get appropriate system prompt
         system_prompt = get_system_prompt(internal_mode=internal_mode)
+
+        # Add somatic context if we have nodes
+        if self.core.num_somatic > 0:
+            if self.somatic_bridge is None:
+                self.somatic_bridge = SomaticBridge(self.core, self.client)
+            somatic_context = self.somatic_bridge.get_somatic_context()
+            system_prompt += f"\n\n{somatic_context}"
 
         response = self.client.chat(
             messages=[
@@ -713,3 +752,446 @@ Response:""",
             Dictionary with temperature_mod, risk_tolerance, patience, formality.
         """
         return self.user_bond.get_modulation()
+
+
+class SomaticBridge:
+    """
+    Bridge between LLM natural language and DET somatic (physical I/O) nodes.
+
+    Handles:
+    - SENSE intents: Query sensors, return values in natural language
+    - ACTUATE intents: Command actuators through gatekeeper/agency
+
+    The bridge respects DET's agency system - the mind decides whether
+    to share sensor data or execute actuator commands based on its
+    current state (presence, coherence, screening, debt).
+    """
+
+    # Sensor type keywords for extraction
+    SENSOR_KEYWORDS = {
+        "temperature": ["temperature", "temp", "warm", "cold", "heat"],
+        "humidity": ["humidity", "humid", "moisture", "damp", "dry"],
+        "light": ["light", "bright", "dark", "lux", "illumination"],
+        "motion": ["motion", "movement", "pir", "presence", "activity"],
+        "sound": ["sound", "noise", "audio", "volume", "loud", "quiet"],
+        "pressure": ["pressure", "barometer", "atmospheric"],
+        "proximity": ["proximity", "distance", "near", "far", "close"],
+    }
+
+    # Actuator type keywords for extraction
+    ACTUATOR_KEYWORDS = {
+        "switch": ["switch", "relay", "power", "outlet"],
+        "light": ["light", "lamp", "bulb", "led"],
+        "motor": ["motor", "fan", "pump", "servo"],
+        "heater": ["heater", "heating", "heat"],
+        "valve": ["valve", "water", "irrigation"],
+    }
+
+    # Action keywords for actuator commands
+    ACTION_KEYWORDS = {
+        "on": ["turn on", "switch on", "enable", "activate", "start", "open"],
+        "off": ["turn off", "switch off", "disable", "deactivate", "stop", "close"],
+        "set": ["set to", "adjust to", "change to", "set the"],
+        "increase": ["increase", "raise", "brighten", "more", "higher", "up"],
+        "decrease": ["decrease", "lower", "dim", "less", "reduce", "down"],
+    }
+
+    def __init__(self, core: DETCore, client: Optional[OllamaClient] = None):
+        """
+        Initialize the somatic bridge.
+
+        Args:
+            core: DETCore instance with somatic nodes.
+            client: Optional OllamaClient for enhanced extraction.
+        """
+        self.core = core
+        self.client = client
+
+    def get_somatic_context(self) -> str:
+        """
+        Get a description of available somatic nodes for LLM context.
+
+        Returns:
+            String describing available sensors and actuators.
+        """
+        somatic_list = self.core.get_all_somatic()
+        if not somatic_list:
+            return "No somatic nodes (sensors/actuators) are currently available."
+
+        sensors = [s for s in somatic_list if s["is_sensor"]]
+        actuators = [s for s in somatic_list if s["is_actuator"]]
+
+        lines = ["Available somatic nodes:"]
+
+        if sensors:
+            lines.append("\nSensors:")
+            for s in sensors:
+                lines.append(f"  - {s['name']} ({s['type_name']}): {s['value']:.2f}")
+
+        if actuators:
+            lines.append("\nActuators:")
+            for a in actuators:
+                lines.append(f"  - {a['name']} ({a['type_name']}): target={a['target']:.2f}, output={a['output']:.2f}")
+
+        return "\n".join(lines)
+
+    def extract_target_node(self, text: str, intent_type: str = "sense") -> Optional[Dict[str, Any]]:
+        """
+        Extract the target somatic node from user text.
+
+        Uses keyword matching to find the most likely target node.
+
+        Args:
+            text: User input text.
+            intent_type: "sense" for sensors, "actuate" for actuators.
+
+        Returns:
+            Somatic node dict if found, None otherwise.
+        """
+        text_lower = text.lower()
+        somatic_list = self.core.get_all_somatic()
+
+        if not somatic_list:
+            return None
+
+        # Filter by intent type
+        if intent_type == "sense":
+            candidates = [s for s in somatic_list if s["is_sensor"]]
+            keywords = self.SENSOR_KEYWORDS
+        else:
+            candidates = [s for s in somatic_list if s["is_actuator"]]
+            keywords = self.ACTUATOR_KEYWORDS
+
+        if not candidates:
+            return None
+
+        # First, try exact name match
+        for node in candidates:
+            name_lower = node["name"].lower()
+            # Check if name appears in text (with word boundaries)
+            if name_lower in text_lower or name_lower.replace("_", " ") in text_lower:
+                return node
+
+        # Second, try type keyword match
+        for node in candidates:
+            type_name = node["type_name"].lower()
+            if type_name in keywords:
+                for kw in keywords[type_name]:
+                    if kw in text_lower:
+                        return node
+
+        # Third, try any keyword match
+        for type_name, kws in keywords.items():
+            for kw in kws:
+                if kw in text_lower:
+                    # Find a node of this type
+                    for node in candidates:
+                        if node["type_name"].lower() == type_name:
+                            return node
+
+        # Default: return first available if we have a generic query
+        if candidates and any(w in text_lower for w in ["sensor", "reading", "actuator", "status"]):
+            return candidates[0]
+
+        return None
+
+    def extract_target_value(self, text: str) -> Optional[float]:
+        """
+        Extract target value from actuator command text.
+
+        Args:
+            text: User input text.
+
+        Returns:
+            Target value (0.0-1.0) or None if not found.
+        """
+        text_lower = text.lower()
+
+        # Check for on/off
+        for kw in self.ACTION_KEYWORDS["on"]:
+            if kw in text_lower:
+                return 1.0
+        for kw in self.ACTION_KEYWORDS["off"]:
+            if kw in text_lower:
+                return 0.0
+
+        # Check for increase/decrease (relative)
+        for kw in self.ACTION_KEYWORDS["increase"]:
+            if kw in text_lower:
+                return None  # Will be handled as relative adjustment
+        for kw in self.ACTION_KEYWORDS["decrease"]:
+            if kw in text_lower:
+                return None  # Will be handled as relative adjustment
+
+        # Try to extract a percentage
+        import re
+        pct_match = re.search(r'(\d+)\s*%', text)
+        if pct_match:
+            return float(pct_match.group(1)) / 100.0
+
+        # Try to extract a decimal value
+        val_match = re.search(r'to\s+(\d+\.?\d*)', text_lower)
+        if val_match:
+            val = float(val_match.group(1))
+            if val > 1.0:
+                val = val / 100.0  # Assume percentage
+            return min(1.0, max(0.0, val))
+
+        return None
+
+    def process_sense_intent(self, text: str) -> Dict[str, Any]:
+        """
+        Process a SENSE intent - query a sensor through the mind.
+
+        The mind's agency gate modulates whether/how the value is shared.
+
+        Args:
+            text: User input text.
+
+        Returns:
+            Dict with success, value, response, and agency info.
+        """
+        target = self.extract_target_node(text, "sense")
+
+        if not target:
+            return {
+                "success": False,
+                "error": "no_sensor_found",
+                "response": "I don't have a sensor that matches that request. " + self.get_somatic_context()
+            }
+
+        # Get the sensor value
+        idx = target["idx"]
+        value = target["value"]
+
+        # Get the DET node's agency to modulate the response
+        node_id = target["node_id"]
+        det_node = self.core.get_node(node_id)
+
+        if det_node:
+            agency = det_node.a
+            presence = det_node.P
+        else:
+            agency = 0.5
+            presence = 0.5
+
+        # Agency modulates willingness to share
+        # Low agency = reluctant/uncertain, high agency = confident/direct
+        if agency < 0.3:
+            # Low agency - hesitant response
+            response = self._format_sensor_response(target, value, "uncertain")
+        elif agency < 0.6:
+            # Medium agency - normal response
+            response = self._format_sensor_response(target, value, "normal")
+        else:
+            # High agency - confident response
+            response = self._format_sensor_response(target, value, "confident")
+
+        return {
+            "success": True,
+            "node": target,
+            "value": value,
+            "agency": agency,
+            "presence": presence,
+            "response": response
+        }
+
+    def _format_sensor_response(self, node: Dict, value: float, tone: str) -> str:
+        """Format a sensor reading into natural language."""
+        name = node["name"].replace("_", " ")
+        type_name = node["type_name"].lower()
+
+        # Get human-readable value based on sensor type
+        if type_name == "temperature":
+            # Assume 0-1 maps to 0-40°C
+            temp_c = value * 40
+            val_str = f"{temp_c:.1f}°C ({temp_c * 9/5 + 32:.1f}°F)"
+        elif type_name == "humidity":
+            val_str = f"{value * 100:.1f}%"
+        elif type_name == "light":
+            if value < 0.2:
+                val_str = "dark"
+            elif value < 0.5:
+                val_str = "dim"
+            elif value < 0.8:
+                val_str = "moderate"
+            else:
+                val_str = "bright"
+        elif type_name == "motion":
+            val_str = "detected" if value > 0.5 else "none detected"
+        else:
+            val_str = f"{value:.2f}"
+
+        # Tone affects phrasing
+        if tone == "uncertain":
+            prefixes = ["I think", "It seems like", "The reading suggests"]
+            prefix = prefixes[hash(name) % len(prefixes)]
+            return f"{prefix} the {name} is showing {val_str}."
+        elif tone == "confident":
+            return f"The {name} is {val_str}."
+        else:
+            return f"The {name} reading is {val_str}."
+
+    def process_actuate_intent(self, text: str) -> Dict[str, Any]:
+        """
+        Process an ACTUATE intent - command an actuator through the mind.
+
+        The gatekeeper and agency system decide if the command proceeds.
+
+        Args:
+            text: User input text.
+
+        Returns:
+            Dict with success, decision, response, and agency info.
+        """
+        target = self.extract_target_node(text, "actuate")
+
+        if not target:
+            return {
+                "success": False,
+                "error": "no_actuator_found",
+                "response": "I don't have an actuator that matches that request. " + self.get_somatic_context()
+            }
+
+        # Extract the target value
+        target_value = self.extract_target_value(text)
+
+        if target_value is None:
+            # Check for relative adjustments
+            text_lower = text.lower()
+            current = target["target"]
+            for kw in self.ACTION_KEYWORDS["increase"]:
+                if kw in text_lower:
+                    target_value = min(1.0, current + 0.2)
+                    break
+            for kw in self.ACTION_KEYWORDS["decrease"]:
+                if kw in text_lower:
+                    target_value = max(0.0, current - 0.2)
+                    break
+
+        if target_value is None:
+            return {
+                "success": False,
+                "error": "no_target_value",
+                "response": f"I understand you want to control the {target['name']}, but I'm not sure what you want to set it to. Try 'turn on', 'turn off', or specify a value."
+            }
+
+        # Get current DET state for gatekeeper evaluation
+        idx = target["idx"]
+        node_id = target["node_id"]
+
+        # Step the core to get fresh state
+        self.core.step(0.05)
+
+        # Get gatekeeper decision based on DET state
+        p, c, f, q = self.core.get_aggregates()
+        emotion = self.core.get_emotion_string()
+
+        # Simple gatekeeper logic based on DET state
+        # In a full implementation, this would use the formal gatekeeper
+        proceed = True
+        reason = ""
+
+        if p < 0.2:
+            # Low presence - not ready to act
+            proceed = False
+            reason = "I'm not fully present right now."
+        elif q > 0.7:
+            # High debt - too stressed
+            proceed = False
+            reason = "I'm feeling overwhelmed at the moment."
+        elif c < 0.3:
+            # Low coherence - uncertain
+            proceed = False
+            reason = "I'm not confident enough to do that right now."
+
+        if not proceed:
+            return {
+                "success": False,
+                "error": "gatekeeper_blocked",
+                "decision": "STOP",
+                "reason": reason,
+                "response": f"I can't {self._describe_action(target, target_value)} right now. {reason}",
+                "det_state": {"presence": p, "coherence": c, "resource": f, "debt": q}
+            }
+
+        # Set the actuator target
+        self.core.set_somatic_target(idx, target_value)
+
+        # Get the actual output (agency-gated)
+        output = self.core.get_somatic_output(idx)
+
+        # Get agency for response tone
+        det_node = self.core.get_node(node_id)
+        agency = det_node.a if det_node else 0.5
+
+        response = self._format_actuator_response(target, target_value, output, agency)
+
+        return {
+            "success": True,
+            "node": target,
+            "target_value": target_value,
+            "output": output,
+            "agency": agency,
+            "decision": "PROCEED",
+            "response": response,
+            "det_state": {"presence": p, "coherence": c, "resource": f, "debt": q}
+        }
+
+    def _describe_action(self, node: Dict, value: float) -> str:
+        """Describe an actuator action in natural language."""
+        name = node["name"].replace("_", " ")
+        if value >= 0.9:
+            return f"turn on the {name}"
+        elif value <= 0.1:
+            return f"turn off the {name}"
+        else:
+            return f"set the {name} to {value * 100:.0f}%"
+
+    def _format_actuator_response(self, node: Dict, target: float, output: float, agency: float) -> str:
+        """Format an actuator command response."""
+        name = node["name"].replace("_", " ")
+
+        # Describe what was requested
+        if target >= 0.9:
+            action = "turned on"
+        elif target <= 0.1:
+            action = "turned off"
+        else:
+            action = f"set to {target * 100:.0f}%"
+
+        # Check if output matches target (agency gating)
+        if abs(output - target) < 0.01:
+            # Full agency - direct confirmation
+            if agency > 0.7:
+                return f"Done. The {name} is now {action}."
+            else:
+                return f"I've {action} the {name}."
+        else:
+            # Partial agency - explain the modulation
+            actual_pct = output * 100
+            return f"I've set the {name} target to {action}, but my current agency is limiting the actual output to {actual_pct:.0f}%."
+
+    def process_somatic_request(self, text: str, intent) -> Dict[str, Any]:
+        """
+        Main entry point for processing somatic requests.
+
+        Args:
+            text: User input text.
+            intent: IntentType (SENSE or ACTUATE).
+
+        Returns:
+            Result dict with success, response, and details.
+        """
+        from .llm import IntentType
+
+        if intent == IntentType.SENSE:
+            return self.process_sense_intent(text)
+        elif intent == IntentType.ACTUATE:
+            return self.process_actuate_intent(text)
+        else:
+            return {
+                "success": False,
+                "error": "invalid_intent",
+                "response": "I'm not sure what you're asking about the physical world."
+            }
