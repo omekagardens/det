@@ -67,6 +67,15 @@ class DETParams3D:
     q_enabled: bool = True
     alpha_q: float = 0.012
 
+    # Structural Debt Couplings (v6.4 extension)
+    # q reshapes conductivity, temporal flow, and coherence decay
+    debt_conductivity_enabled: bool = False  # q → σ_eff coupling
+    xi_conductivity: float = 2.0             # debt-conductivity strength
+    debt_temporal_enabled: bool = False      # q → P coupling
+    zeta_temporal: float = 0.5               # debt-temporal strength
+    debt_decoherence_enabled: bool = False   # q → C_decay coupling
+    theta_decoherence: float = 1.0           # debt-decoherence strength
+
     # Agency dynamics (VI.2B) - v6.4 update
     agency_dynamic: bool = True
     lambda_a: float = 30.0      # Structural ceiling coupling (was a_coupling)
@@ -417,7 +426,15 @@ class DETCollider3D:
             H = self._compute_coherence_weighted_H()
         else:
             H = self.sigma
-        self.P = self.a * self.sigma / (1.0 + self.F) / (1.0 + H)
+
+        # v6.4: Structural debt temporal coupling (q → P)
+        # High debt slows proper time - creates "temporal viscosity"
+        if p.debt_temporal_enabled:
+            debt_temporal_factor = 1.0 + p.zeta_temporal * self.q
+        else:
+            debt_temporal_factor = 1.0
+
+        self.P = self.a * self.sigma / (1.0 + self.F) / (1.0 + H) / debt_temporal_factor
         self.Delta_tau = self.P * dk
 
         # Track accumulated proper time (v6.3)
@@ -473,6 +490,22 @@ class DETCollider3D:
             cond_Ym = self.sigma * (Ym(self.C_Y) + 1e-4)
             cond_Zp = self.sigma * (self.C_Z + 1e-4)
             cond_Zm = self.sigma * (Zm(self.C_Z) + 1e-4)
+
+            # v6.4: Structural debt conductivity gate (q → σ_eff)
+            # High debt regions become insulators - flow routes around barriers
+            if p.debt_conductivity_enabled:
+                g_q_Xp = 1.0 / (1.0 + p.xi_conductivity * (self.q + Xp(self.q)))
+                g_q_Xm = 1.0 / (1.0 + p.xi_conductivity * (self.q + Xm(self.q)))
+                g_q_Yp = 1.0 / (1.0 + p.xi_conductivity * (self.q + Yp(self.q)))
+                g_q_Ym = 1.0 / (1.0 + p.xi_conductivity * (self.q + Ym(self.q)))
+                g_q_Zp = 1.0 / (1.0 + p.xi_conductivity * (self.q + Zp(self.q)))
+                g_q_Zm = 1.0 / (1.0 + p.xi_conductivity * (self.q + Zm(self.q)))
+                cond_Xp *= g_q_Xp
+                cond_Xm *= g_q_Xm
+                cond_Yp *= g_q_Yp
+                cond_Ym *= g_q_Ym
+                cond_Zp *= g_q_Zp
+                cond_Zm *= g_q_Zm
 
             J_diff_Xp = g_Xp * cond_Xp * classical_Xp
             J_diff_Xm = g_Xm * cond_Xm * classical_Xm
@@ -704,12 +737,25 @@ class DETCollider3D:
         J_mag = (np.abs(J_Xp_lim) + np.abs(J_Yp_lim) + np.abs(J_Zp_lim)) / 3.0
 
         if p.coherence_dynamic:
+            # v6.4: Structural debt decoherence coupling (q → C_decay)
+            # High debt regions decohere faster - classical behavior in scarred regions
+            if p.debt_decoherence_enabled:
+                # Bond-local q affects bond coherence decay
+                q_bond_X = 0.5 * (self.q + Xp(self.q))
+                q_bond_Y = 0.5 * (self.q + Yp(self.q))
+                q_bond_Z = 0.5 * (self.q + Zp(self.q))
+                lambda_C_X = p.lambda_C * (1.0 + p.theta_decoherence * q_bond_X)
+                lambda_C_Y = p.lambda_C * (1.0 + p.theta_decoherence * q_bond_Y)
+                lambda_C_Z = p.lambda_C * (1.0 + p.theta_decoherence * q_bond_Z)
+            else:
+                lambda_C_X = lambda_C_Y = lambda_C_Z = p.lambda_C
+
             self.C_X = np.clip(self.C_X + p.alpha_C * np.abs(J_Xp_lim) * self.Delta_tau
-                              - p.lambda_C * self.C_X * self.Delta_tau, p.C_init, 1.0)
+                              - lambda_C_X * self.C_X * self.Delta_tau, p.C_init, 1.0)
             self.C_Y = np.clip(self.C_Y + p.alpha_C * np.abs(J_Yp_lim) * self.Delta_tau
-                              - p.lambda_C * self.C_Y * self.Delta_tau, p.C_init, 1.0)
+                              - lambda_C_Y * self.C_Y * self.Delta_tau, p.C_init, 1.0)
             self.C_Z = np.clip(self.C_Z + p.alpha_C * np.abs(J_Zp_lim) * self.Delta_tau
-                              - p.lambda_C * self.C_Z * self.Delta_tau, p.C_init, 1.0)
+                              - lambda_C_Z * self.C_Z * self.Delta_tau, p.C_init, 1.0)
 
         if p.sigma_dynamic:
             self.sigma = 1.0 + 0.1 * np.log(1.0 + J_mag)
