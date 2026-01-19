@@ -1308,6 +1308,7 @@ class DETCore:
         for i in range(self.num_somatic):
             node = self.get_somatic(i)
             if node:
+                output = self.get_somatic_output(i)
                 result.append({
                     "idx": i,
                     "node_id": node.node_id,
@@ -1319,6 +1320,7 @@ class DETCore:
                     "value": round(node.value, 4),
                     "raw_value": round(node.raw_value, 4),
                     "target": round(node.target, 4),
+                    "output": round(output, 4),
                     "is_virtual": node.is_virtual,
                     "online": node.online,
                     "remote_id": node.remote_id,

@@ -475,6 +475,172 @@
             color: #ff4444;
         }
 
+        /* Somatic Panel Styles */
+        .somatic-section {
+            margin-bottom: 20px;
+        }
+
+        .somatic-section h3 {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .somatic-create-form {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .somatic-create-form select,
+        .somatic-create-form input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #2a2a4a;
+            border-radius: 4px;
+            background: #0a0a1a;
+            color: #fff;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+
+        .somatic-create-form select:focus,
+        .somatic-create-form input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        .somatic-type-group {
+            margin-bottom: 8px;
+        }
+
+        .somatic-type-group label {
+            display: block;
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .somatic-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .somatic-item {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+
+        .somatic-item.sensor {
+            border-left: 3px solid #4488ff;
+        }
+
+        .somatic-item.actuator {
+            border-left: 3px solid #ff8844;
+        }
+
+        .somatic-item .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .somatic-item .name {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .somatic-item .type-badge {
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+
+        .somatic-item.sensor .type-badge {
+            background: rgba(68, 136, 255, 0.2);
+            color: #4488ff;
+        }
+
+        .somatic-item.actuator .type-badge {
+            background: rgba(255, 136, 68, 0.2);
+            color: #ff8844;
+        }
+
+        .somatic-item .values {
+            display: flex;
+            gap: 15px;
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .somatic-item .values span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .somatic-item .values .val {
+            color: #fff;
+            font-family: monospace;
+        }
+
+        .somatic-item .control-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .somatic-item .slider-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .somatic-item input[type="range"] {
+            flex: 1;
+            height: 4px;
+        }
+
+        .somatic-item .slider-value {
+            width: 40px;
+            font-size: 0.75rem;
+            text-align: right;
+            font-family: monospace;
+        }
+
+        .somatic-item .btn-remove {
+            padding: 4px 8px;
+            font-size: 0.7rem;
+            background: #442222;
+            color: #ff6666;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .somatic-item .btn-remove:hover {
+            background: #ff4444;
+            color: #fff;
+        }
+
+        .somatic-empty {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+            font-size: 0.85rem;
+        }
+
         /* Overlay info */
         #overlay-info {
             position: absolute;
@@ -540,6 +706,7 @@
                 <button class="tab active" data-tab="status">Status</button>
                 <button class="tab" data-tab="chat">Chat</button>
                 <button class="tab" data-tab="control">Control</button>
+                <button class="tab" data-tab="somatic">Somatic</button>
                 <button class="tab" data-tab="nodes">Nodes</button>
                 <button class="tab" data-tab="log">Log</button>
             </div>
@@ -648,6 +815,65 @@
                     </div>
                 </div>
 
+                <!-- Somatic Tab -->
+                <div class="tab-pane" id="tab-somatic">
+                    <div class="somatic-section">
+                        <h3>Create Somatic Node</h3>
+                        <div class="somatic-create-form">
+                            <div class="somatic-type-group">
+                                <label>Node Type</label>
+                                <select id="somatic-type-select">
+                                    <optgroup label="Sensors (Afferent)">
+                                        <option value="0">Temperature</option>
+                                        <option value="1">Humidity</option>
+                                        <option value="2">Light</option>
+                                        <option value="3">Motion (PIR)</option>
+                                        <option value="4">Sound</option>
+                                        <option value="5">Pressure</option>
+                                        <option value="6">Proximity</option>
+                                        <option value="7">Accelerometer</option>
+                                        <option value="8">Gyroscope</option>
+                                        <option value="9">Compass</option>
+                                        <option value="10">GPS</option>
+                                        <option value="11">Touch</option>
+                                        <option value="12">pH</option>
+                                        <option value="13">Gas</option>
+                                        <option value="14">Current</option>
+                                        <option value="15">Generic Sensor</option>
+                                    </optgroup>
+                                    <optgroup label="Actuators (Efferent)">
+                                        <option value="16">Switch/Relay</option>
+                                        <option value="17">Motor</option>
+                                        <option value="18">LED</option>
+                                        <option value="19">Servo</option>
+                                        <option value="20">Speaker</option>
+                                        <option value="21">Display</option>
+                                        <option value="22">Pump</option>
+                                        <option value="23">Valve</option>
+                                        <option value="24">Heater</option>
+                                        <option value="25">Fan</option>
+                                        <option value="31">Generic Actuator</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <input type="text" id="somatic-name-input" placeholder="Node name (e.g., room_temp)">
+                            <button class="btn btn-primary" id="btn-create-somatic" style="width: 100%;">Create Node</button>
+                        </div>
+                    </div>
+
+                    <div class="somatic-section">
+                        <h3>Active Nodes <span id="somatic-count" style="color: #00d4ff;">(0)</span></h3>
+                        <div class="somatic-list" id="somatic-list">
+                            <div class="somatic-empty">No somatic nodes. Create one above.</div>
+                        </div>
+                    </div>
+
+                    <div class="control-row" style="margin-top: 10px;">
+                        <button class="btn btn-secondary" id="btn-simulate-somatic">Simulate Step</button>
+                        <button class="btn btn-secondary" id="btn-refresh-somatic">Refresh</button>
+                    </div>
+                </div>
+
                 <!-- Nodes Tab -->
                 <div class="tab-pane" id="tab-nodes">
                     <div class="node-list" id="node-list">
@@ -712,6 +938,7 @@
                 this.initControls();
                 this.initTabs();
                 this.initChat();
+                this.initSomatic();
                 this.animate();
             }
 
@@ -1466,6 +1693,248 @@
                 const div = document.createElement('div');
                 div.textContent = text;
                 return div.innerHTML;
+            }
+
+            // --------------------------------------------------------
+            // Somatic Controls
+            // --------------------------------------------------------
+
+            initSomatic() {
+                // Create button
+                document.getElementById('btn-create-somatic').addEventListener('click', () => {
+                    const typeSelect = document.getElementById('somatic-type-select');
+                    const nameInput = document.getElementById('somatic-name-input');
+                    const type = parseInt(typeSelect.value);
+                    const name = nameInput.value.trim();
+
+                    if (!name) {
+                        this.addLog('error', 'Please enter a node name');
+                        return;
+                    }
+
+                    this.createSomaticNode(type, name);
+                    nameInput.value = '';
+                });
+
+                // Simulate button
+                document.getElementById('btn-simulate-somatic').addEventListener('click', () => {
+                    this.simulateSomatic();
+                });
+
+                // Refresh button
+                document.getElementById('btn-refresh-somatic').addEventListener('click', () => {
+                    this.fetchSomaticList();
+                });
+
+                // Initial fetch
+                this.fetchSomaticList();
+            }
+
+            async fetchSomaticList() {
+                try {
+                    const response = await fetch('/api/somatic');
+                    const data = await response.json();
+                    this.renderSomaticList(data.somatic || []);
+                } catch (error) {
+                    this.addLog('error', `Failed to fetch somatic list: ${error.message}`);
+                }
+            }
+
+            renderSomaticList(somaticNodes) {
+                const container = document.getElementById('somatic-list');
+                const countSpan = document.getElementById('somatic-count');
+
+                countSpan.textContent = `(${somaticNodes.length})`;
+
+                if (somaticNodes.length === 0) {
+                    container.innerHTML = '<div class="somatic-empty">No somatic nodes. Create one above.</div>';
+                    return;
+                }
+
+                container.innerHTML = '';
+
+                somaticNodes.forEach((node, idx) => {
+                    const isSensor = node.is_sensor;
+                    const nodeClass = isSensor ? 'sensor' : 'actuator';
+                    const typeBadge = isSensor ? 'Sensor' : 'Actuator';
+
+                    const div = document.createElement('div');
+                    div.className = `somatic-item ${nodeClass}`;
+                    div.dataset.idx = idx;
+
+                    // Build the control row based on type
+                    let controlHtml = '';
+                    if (isSensor) {
+                        // Sensors: show value slider for manual override
+                        controlHtml = `
+                            <div class="slider-container">
+                                <span style="font-size: 0.7rem; color: #888;">Val:</span>
+                                <input type="range" min="0" max="1" step="0.01" value="${node.value.toFixed(2)}"
+                                    class="somatic-value-slider" data-idx="${idx}">
+                                <span class="slider-value">${node.value.toFixed(2)}</span>
+                            </div>
+                        `;
+                    } else {
+                        // Actuators: show target slider
+                        controlHtml = `
+                            <div class="slider-container">
+                                <span style="font-size: 0.7rem; color: #888;">Target:</span>
+                                <input type="range" min="0" max="1" step="0.01" value="${node.target.toFixed(2)}"
+                                    class="somatic-target-slider" data-idx="${idx}">
+                                <span class="slider-value">${node.target.toFixed(2)}</span>
+                            </div>
+                        `;
+                    }
+
+                    div.innerHTML = `
+                        <div class="header">
+                            <span class="name">${this.escapeHtml(node.name)}</span>
+                            <span class="type-badge">${typeBadge}</span>
+                        </div>
+                        <div class="values">
+                            <span>Type: <span class="val">${this.escapeHtml(node.type_name)}</span></span>
+                            <span>Value: <span class="val somatic-value-display">${node.value.toFixed(3)}</span></span>
+                            ${!isSensor ? `<span>Output: <span class="val">${node.output.toFixed(3)}</span></span>` : ''}
+                        </div>
+                        <div class="control-row">
+                            ${controlHtml}
+                            <button class="btn-remove" data-idx="${idx}">Remove</button>
+                        </div>
+                    `;
+
+                    container.appendChild(div);
+                });
+
+                // Attach event listeners for sliders and remove buttons
+                container.querySelectorAll('.somatic-value-slider').forEach(slider => {
+                    slider.addEventListener('input', (e) => {
+                        const val = parseFloat(e.target.value);
+                        e.target.parentElement.querySelector('.slider-value').textContent = val.toFixed(2);
+                    });
+                    slider.addEventListener('change', (e) => {
+                        const idx = parseInt(e.target.dataset.idx);
+                        const val = parseFloat(e.target.value);
+                        this.updateSomaticValue(idx, val);
+                    });
+                });
+
+                container.querySelectorAll('.somatic-target-slider').forEach(slider => {
+                    slider.addEventListener('input', (e) => {
+                        const val = parseFloat(e.target.value);
+                        e.target.parentElement.querySelector('.slider-value').textContent = val.toFixed(2);
+                    });
+                    slider.addEventListener('change', (e) => {
+                        const idx = parseInt(e.target.dataset.idx);
+                        const val = parseFloat(e.target.value);
+                        this.setSomaticTarget(idx, val);
+                    });
+                });
+
+                container.querySelectorAll('.btn-remove').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const idx = parseInt(e.target.dataset.idx);
+                        this.removeSomaticNode(idx);
+                    });
+                });
+            }
+
+            async createSomaticNode(type, name) {
+                try {
+                    const response = await fetch('/api/somatic/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: type,
+                            name: name,
+                            is_virtual: true
+                        })
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.addLog('somatic', `Created: ${name} (idx=${data.somatic_idx})`);
+                        this.fetchSomaticList();
+                    } else {
+                        this.addLog('error', `Failed to create: ${data.error || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    this.addLog('error', `Create failed: ${error.message}`);
+                }
+            }
+
+            async removeSomaticNode(idx) {
+                try {
+                    const response = await fetch('/api/somatic/remove', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ somatic_idx: idx })
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.addLog('somatic', `Removed node at idx=${idx}`);
+                        this.fetchSomaticList();
+                    } else {
+                        this.addLog('error', `Failed to remove: ${data.error || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    this.addLog('error', `Remove failed: ${error.message}`);
+                }
+            }
+
+            async setSomaticTarget(idx, target) {
+                try {
+                    const response = await fetch('/api/somatic/set_target', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ somatic_idx: idx, target: target })
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.addLog('somatic', `Set target for idx=${idx} to ${target.toFixed(2)}`);
+                    } else {
+                        this.addLog('error', `Failed to set target: ${data.error || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    this.addLog('error', `Set target failed: ${error.message}`);
+                }
+            }
+
+            async updateSomaticValue(idx, value) {
+                try {
+                    const response = await fetch('/api/somatic/update_value', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ somatic_idx: idx, value: value })
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.addLog('somatic', `Updated value for idx=${idx} to ${value.toFixed(2)}`);
+                    } else {
+                        this.addLog('error', `Failed to update value: ${data.error || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    this.addLog('error', `Update value failed: ${error.message}`);
+                }
+            }
+
+            async simulateSomatic() {
+                try {
+                    // Send step command then refresh
+                    this.sendCommand('step', { n: 1, dt: 0.1 });
+                    // Also call simulate on backend
+                    const response = await fetch('/api/somatic/simulate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dt: 0.1 })
+                    });
+                    // Refresh the list after simulation
+                    setTimeout(() => this.fetchSomaticList(), 100);
+                } catch (error) {
+                    this.addLog('error', `Simulate failed: ${error.message}`);
+                }
             }
 
             // --------------------------------------------------------

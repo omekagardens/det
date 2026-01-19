@@ -294,8 +294,8 @@ class DETWebApp:
         async def get_somatic():
             """Get all somatic nodes."""
             if not self.core:
-                return {"error": "No core available", "nodes": []}
-            return {"nodes": self.core.get_all_somatic()}
+                return {"error": "No core available", "somatic": []}
+            return {"somatic": self.core.get_all_somatic()}
 
         @app.post("/api/somatic/create")
         async def create_somatic(request: Request):
@@ -305,7 +305,12 @@ class DETWebApp:
             data = await request.json()
             from ..core import SomaticType
             try:
-                somatic_type = SomaticType[data.get("type", "GENERIC_SENSOR").upper()]
+                type_val = data.get("type", 15)  # Default to GENERIC_SENSOR
+                # Handle both integer and string type values
+                if isinstance(type_val, int):
+                    somatic_type = SomaticType(type_val)
+                else:
+                    somatic_type = SomaticType[str(type_val).upper()]
                 idx = self.core.create_somatic(
                     somatic_type=somatic_type,
                     name=data.get("name", "unnamed"),
@@ -314,7 +319,7 @@ class DETWebApp:
                     channel=data.get("channel", 0),
                 )
                 if idx >= 0:
-                    return {"success": True, "idx": idx}
+                    return {"success": True, "somatic_idx": idx}
                 return {"success": False, "error": "Failed to create somatic node"}
             except (KeyError, ValueError) as e:
                 return {"success": False, "error": f"Invalid somatic type: {e}"}
@@ -346,10 +351,20 @@ class DETWebApp:
             if not self.core:
                 return {"error": "No core available", "success": False}
             data = await request.json()
-            idx = data.get("idx", -1)
+            idx = data.get("somatic_idx", data.get("idx", -1))
             value = data.get("value", 0.0)
             raw_value = data.get("raw_value", value)
             self.core.update_somatic_value(idx, value, raw_value)
+            return {"success": True}
+
+        @app.post("/api/somatic/simulate")
+        async def simulate_somatic(request: Request):
+            """Simulate one step of virtual somatic nodes."""
+            if not self.core:
+                return {"error": "No core available", "success": False}
+            data = await request.json()
+            dt = data.get("dt", 0.1)
+            self.core.simulate_somatic(dt)
             return {"success": True}
 
         @app.websocket("/ws")
