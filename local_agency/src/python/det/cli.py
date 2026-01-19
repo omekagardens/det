@@ -449,6 +449,36 @@ def run_repl(
                     core.reset()
                     print("\nCleared conversation and reset DET state.")
 
+                elif cmd == "somatic":
+                    # Show somatic introspection
+                    if dialogue and hasattr(dialogue, 'explain_last_somatic'):
+                        if args == "list":
+                            # List all somatic nodes
+                            somatic_list = core.get_all_somatic()
+                            if somatic_list:
+                                print("\n" + "=" * 50)
+                                print("Somatic Nodes (Physical I/O)")
+                                print("=" * 50)
+                                sensors = [s for s in somatic_list if s["is_sensor"]]
+                                actuators = [s for s in somatic_list if s["is_actuator"]]
+                                if sensors:
+                                    print("\nSensors:")
+                                    for s in sensors:
+                                        print(f"  [{s['idx']}] {s['name']} ({s['type_name']}): {s['value']:.3f}")
+                                if actuators:
+                                    print("\nActuators:")
+                                    for a in actuators:
+                                        print(f"  [{a['idx']}] {a['name']} ({a['type_name']}): target={a['target']:.2f}, output={a['output']:.2f}")
+                                print("=" * 50)
+                            else:
+                                print("\nNo somatic nodes configured.")
+                        else:
+                            # Show last somatic processing
+                            explanation = dialogue.explain_last_somatic()
+                            print("\n" + explanation)
+                    else:
+                        print("\nDialogue system with somatic bridge not available.")
+
                 elif cmd == "help":
                     print("\nCommands:")
                     print("  /state   - Show detailed DET state")
@@ -460,6 +490,7 @@ def run_repl(
                     print("  /recall  - Recall memories (usage: /recall <query>)")
                     print("  /think   - Internal thinking (usage: /think <topic>)")
                     print("  /train   - Autonomous training (usage: /train [duration] [--prompts N])")
+                    print("  /somatic - Show somatic processing details (usage: /somatic [list])")
                     print("  /webapp  - Launch web visualization (usage: /webapp [port])")
                     print("  /clear   - Clear conversation and memory")
                     print("  /help    - Show this help")

@@ -276,6 +276,7 @@ Response:""",
 
         # Somatic bridge for physical I/O handling
         self.somatic_bridge: Optional['SomaticBridge'] = None
+        self.last_somatic_result: Optional[Dict[str, Any]] = None  # Store last somatic processing
 
         # Callbacks
         self.on_turn_complete: Optional[Callable[[DialogueTurn], None]] = None
@@ -445,6 +446,12 @@ Response:""",
             # Check if we have any somatic nodes
             if self.core.num_somatic > 0:
                 result = self.somatic_bridge.process_somatic_request(text, intent)
+                # Store for introspection
+                self.last_somatic_result = {
+                    "input": text,
+                    "intent": intent.name,
+                    "result": result,
+                }
                 return result.get("response", "I couldn't process that somatic request.")
 
         # Standard LLM response generation
@@ -752,6 +759,88 @@ Response:""",
             Dictionary with temperature_mod, risk_tolerance, patience, formality.
         """
         return self.user_bond.get_modulation()
+
+    def get_last_somatic_details(self) -> Optional[Dict[str, Any]]:
+        """
+        Get details of the last somatic processing for introspection.
+
+        Returns:
+            Dict with input, intent, and full result details, or None.
+        """
+        return self.last_somatic_result
+
+    def explain_last_somatic(self) -> str:
+        """
+        Get a human-readable explanation of the last somatic processing.
+
+        Returns:
+            Formatted string explaining the internal processing.
+        """
+        if not self.last_somatic_result:
+            return "No somatic request has been processed yet."
+
+        r = self.last_somatic_result
+        result = r.get("result", {})
+
+        lines = [
+            "=== Internal Somatic Processing ===",
+            f"Input: \"{r.get('input', 'N/A')}\"",
+            f"Intent: {r.get('intent', 'N/A')}",
+            "",
+        ]
+
+        if result.get("success"):
+            node = result.get("node", {})
+            lines.extend([
+                "Target Node Found:",
+                f"  Name: {node.get('name', 'N/A')}",
+                f"  Type: {node.get('type_name', 'N/A')}",
+                f"  Node ID: {node.get('node_id', 'N/A')} (DET node)",
+                f"  Is Sensor: {node.get('is_sensor', 'N/A')}",
+                "",
+            ])
+
+            if r.get("intent") == "SENSE":
+                lines.extend([
+                    "Sensor Query:",
+                    f"  Raw Value: {result.get('value', 'N/A')}",
+                    f"  Agency: {result.get('agency', 'N/A'):.2f}" if result.get('agency') else "  Agency: N/A",
+                    f"  Presence: {result.get('presence', 'N/A'):.2f}" if result.get('presence') else "  Presence: N/A",
+                    "",
+                    "Response Generation:",
+                    f"  Agency determines tone: {'uncertain' if result.get('agency', 0.5) < 0.3 else 'confident' if result.get('agency', 0.5) > 0.6 else 'normal'}",
+                ])
+            else:  # ACTUATE
+                lines.extend([
+                    "Actuator Command:",
+                    f"  Target Value: {result.get('target_value', 'N/A')}",
+                    f"  Output (agency-gated): {result.get('output', 'N/A')}",
+                    f"  Agency: {result.get('agency', 'N/A'):.2f}" if result.get('agency') else "  Agency: N/A",
+                    f"  Decision: {result.get('decision', 'N/A')}",
+                    "",
+                ])
+                if result.get("det_state"):
+                    ds = result["det_state"]
+                    lines.extend([
+                        "DET State at Decision:",
+                        f"  Presence: {ds.get('presence', 'N/A'):.2f}",
+                        f"  Coherence: {ds.get('coherence', 'N/A'):.2f}",
+                        f"  Resource: {ds.get('resource', 'N/A'):.2f}",
+                        f"  Debt: {ds.get('debt', 'N/A'):.2f}",
+                    ])
+        else:
+            lines.extend([
+                f"Error: {result.get('error', 'Unknown')}",
+                f"Reason: {result.get('reason', 'N/A')}" if result.get('reason') else "",
+            ])
+
+        lines.extend([
+            "",
+            "Final Response:",
+            f"  \"{result.get('response', 'N/A')}\"",
+        ])
+
+        return "\n".join(lines)
 
 
 class SomaticBridge:
