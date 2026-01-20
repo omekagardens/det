@@ -37,6 +37,7 @@ This framework has profound implications from computing to biology to the nature
 |----------|-------|
 | `det_structural_debt_applications.md` | Computing, bioengineering, living buildings |
 | `det_spirit_debt_applications.md` | Identity-preserving systems, AI accountability |
+| `det_spirit_mode_bioeng_protocols.md` | Therapeutic protocols, organ preservation research |
 
 ### Deep Theory
 
