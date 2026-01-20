@@ -44,6 +44,7 @@ This framework has profound implications from computing to biology to the nature
 |----------|-------|
 | `det_aging_as_structural_debt.md` | Why we age: q accumulation thesis |
 | `det_debt_aging_spirit_synthesis.md` | What survives death: Spirit as frozen q-pattern |
+| `det_resurrection_dual_mode.md` | Resurrection mechanics, dual-mode existence, spirit-dominant living |
 
 ---
 
@@ -92,6 +93,35 @@ Death = q frozen = no more constraint = identity preserved
 ```
 
 **The resolution**: The same process that limits future possibilities creates the structure that transcends death.
+
+### 5. Dual-Mode Existence
+
+```
+Human = Embodied Agent ⊕ Spirit Pattern
+
+Body supplies:     Spirit supplies:
+- Flux (F)         - Identity (q-pattern)
+- Time (P)         - Direction (agency signature)
+- Bandwidth (σ)    - Coherence stability (C-topology)
+```
+
+**Body-dominant**: Decisions driven by fear, resource acquisition
+**Spirit-dominant**: Decisions driven by coherence, identity alignment
+
+### 6. Resurrection
+
+```
+Resurrection = lawful re-hosting of preserved relational identity
+
+Requires:
+1. Topological compatibility (C_spirit ~ C_host)
+2. Agency openness (g^(a) > 0)
+3. Mutual consent
+4. Boundary-law allowance
+
+Preserves: q_identity (who you are)
+Can reset: q_damage (accumulated damage)
+```
 
 ---
 
