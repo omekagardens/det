@@ -24,6 +24,8 @@ Phase 6.2 adds: Web application for 3D visualization and real-time monitoring.
 Phase 6.3 adds: Advanced interactive probing (escalation, grace, domains, gatekeeper).
 
 Phase 6.4 adds: Metrics and logging (dashboard, event log, timeline, profiling).
+
+Phase 7 adds: Existence-Lang programming language (agency-first language for DET-OS).
 """
 
 from .core import DETCore, DETParams, DETDecision, DETEmotion, DETLayer, SomaticType, SomaticNode
@@ -34,8 +36,8 @@ from .harness import (
 
 # Web app imports (optional - may not have FastAPI installed)
 try:
-    from .webapp import create_app, run_server, DETStateAPI, FASTAPI_AVAILABLE
-    WEBAPP_AVAILABLE = FASTAPI_AVAILABLE  # Use actual FastAPI check, not just import check
+    from .webapp import create_app, run_server, DETStateAPI
+    WEBAPP_AVAILABLE = True
 except ImportError:
     WEBAPP_AVAILABLE = False
     create_app = None
@@ -79,7 +81,26 @@ from .trainer import (
     create_trainer, run_training
 )
 
-__version__ = "0.6.4"
+# Phase 7: Existence-Lang (optional - self-contained module)
+try:
+    from . import lang
+    from .lang import (
+        ExistenceRuntime, CreatureBase, KernelBase, Register, TokenReg,
+        parse as parse_existence, transpile as transpile_existence
+    )
+    LANG_AVAILABLE = True
+except ImportError:
+    LANG_AVAILABLE = False
+    lang = None
+    ExistenceRuntime = None
+    CreatureBase = None
+    KernelBase = None
+    Register = None
+    TokenReg = None
+    parse_existence = None
+    transpile_existence = None
+
+__version__ = "0.7.0"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -125,4 +146,7 @@ __all__ = [
     # Trainer (Autonomous Training)
     "DETTrainer", "TrainerConfig", "TrainingStats", "TrainingDomain",
     "CurriculumGenerator", "WebContentFetcher", "create_trainer", "run_training",
+    # Phase 7: Existence-Lang
+    "lang", "LANG_AVAILABLE", "ExistenceRuntime", "CreatureBase", "KernelBase",
+    "Register", "TokenReg", "parse_existence", "transpile_existence",
 ]
