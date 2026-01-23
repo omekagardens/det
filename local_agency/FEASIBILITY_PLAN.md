@@ -1241,6 +1241,44 @@ Deliverable: Continuous throughout development
 - Visual understanding of emergent behavior
 ```
 
+### Phase 7: DET-OS (Long-term Vision)
+
+**Objective**: Evolve DET Local Agency into a complete operating system
+
+See `explorations/09_det_os_feasibility.md` for full analysis.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 7.1 Existence-Lang Compiler                                         │
+│     - DET-native programming language                               │
+│     - Creatures (processes), Bonds (IPC), Presence (scheduling)     │
+│     - Transpiler to C (Phase 1) → EIS bytecode (Phase 2)            │
+├─────────────────────────────────────────────────────────────────────┤
+│ 7.2 Existence Instruction Set (EIS)                                 │
+│     - Resource flow: PUSH.F, PULL.F, FLOW.F, GRACE.F                │
+│     - Bond ops: BOND.CREATE, BOND.STRENGTHEN, BOND.WEAKEN           │
+│     - Agency gating: AGENCY.CHECK, AGENCY.GATE, GATE.REQUEST        │
+│     - Somatic I/O: SOMA.READ, SOMA.WRITE, SOMA.POLL                 │
+├─────────────────────────────────────────────────────────────────────┤
+│ 7.3 DET-OS Kernel                                                   │
+│     - Presence-based scheduling (emergent, not preemptive)          │
+│     - Resource (F) allocation (memory = flux flow)                  │
+│     - Bond-based IPC (coherence = communication channel)            │
+│     - Agency-gated syscalls (built-in capability security)          │
+├─────────────────────────────────────────────────────────────────────┤
+│ 7.4 Hardware Targets                                                │
+│     - Virtualized: Run on macOS/Linux as process                    │
+│     - Embedded: ESP32 minimal DET kernel                            │
+│     - Native: DET Processing Unit (DPU) custom silicon              │
+└─────────────────────────────────────────────────────────────────────┘
+
+Deliverable: det_os v0.1.0
+- Existence-Lang compiler
+- EIS virtual machine
+- DET-OS running creatures
+- LLM as native memory layer
+```
+
 ---
 
 ## Part 7: Technical Feasibility Analysis
@@ -1458,6 +1496,7 @@ This document serves as the foundation for implementation. The next step is to b
 11. Cross-Layer Dynamics: `explorations/06_cross_layer_dynamics.md`
 12. Temporal Dynamics: `explorations/07_temporal_dynamics.md`
 13. Emotional Feedback: `explorations/08_emotional_feedback.md`
+14. DET-OS Feasibility: `explorations/09_det_os_feasibility.md`
 
 ### External Tools & Frameworks
 14. Orla Project: https://github.com/dorcha-inc/orla
