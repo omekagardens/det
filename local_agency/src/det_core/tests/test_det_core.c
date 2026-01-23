@@ -90,9 +90,9 @@ int test_reset(void) {
     /* Reset */
     det_core_reset(core);
 
-    /* Reset zeroes the struct (except params), node values become 0 */
+    /* Reset re-initializes to default state (tick = 0, P-layer F = 1.0) */
     ASSERT(core->tick == 0);
-    ASSERT_FLOAT_EQ(core->nodes[0].F, 0.0f, 0.01f);
+    ASSERT_FLOAT_EQ(core->nodes[0].F, 1.0f, 0.01f);  /* P-layer default F */
 
     det_core_destroy(core);
     return 1;

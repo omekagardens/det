@@ -34,8 +34,8 @@ from .harness import (
 
 # Web app imports (optional - may not have FastAPI installed)
 try:
-    from .webapp import create_app, run_server, DETStateAPI
-    WEBAPP_AVAILABLE = True
+    from .webapp import create_app, run_server, DETStateAPI, FASTAPI_AVAILABLE
+    WEBAPP_AVAILABLE = FASTAPI_AVAILABLE  # Use actual FastAPI check, not just import check
 except ImportError:
     WEBAPP_AVAILABLE = False
     create_app = None
