@@ -1187,6 +1187,369 @@ Truth is witnessed reconciliation.
 
 ---
 
+## Part 21: Performance Optimizations (DET-Clean)
+
+### 21.1 The Guiding Rule
+
+You can achieve significant speedups without compromising the core ontology by being disciplined about where you pay "DET honesty costs."
+
+**The Rule**: Keep DET semantics for state + causality, but allow optimized representations and lowerings when they are **provably equivalent in trace**.
+
+---
+
+### 21.2 Fast Iteration Without While/For
+
+#### 21.2.1 Bounded Microsteps as Runtime Schedule
+
+You already have `repeat_past(N)` as a bounded microstep schedule (deterministic from a past token). The performance trick is: **lower it to vectorized unrolling**.
+
+**Compiler Lowering**:
+```
+repeat_past(N<=K) → unroll K lanes + mask by N
+                  → use SIMD predication (branchless) instead of
+                    proposal machinery per microstep
+```
+
+**Why DET-Clean**:
+- N is a past token (determined before execution)
+- No present-time branching
+- Trace after the tick matches the K-step micro-evolution
+
+#### 21.2.2 Kernel Fusion
+
+If you have a pipeline:
+```
+Add → Clamp → Compare → Mux → Commit
+```
+
+Don't schedule five kernels. **Fuse them into one "superkernel"** with one choose/commit.
+
+```existence
+// Instead of separate kernels:
+kernel FusedAddClampCompare {
+    in  a, b: Register;
+    out result: Register;
+    out w: TokenReg;
+
+    phase COMMIT {
+        proposal RUN {
+            score = 1.0;
+            effect {
+                // All operations in one atomic step
+                temp := a.F + b.F;
+                clamped := clamp(temp, 0.0, 1.0);
+                result.F := clamped;
+            }
+        }
+        choice χ = choose({RUN}, decisiveness = 1.0, seed = local_seed(k, r, θ));
+        commit χ;
+        w ::= "OK";
+    }
+}
+```
+
+**Win**:
+- Fewer memory round-trips
+- Fewer token writes
+- Fewer passes over neighborhoods
+
+**Why DET-Clean**:
+- Fusion doesn't change the update ordering (still compute → choose → commit)
+- It's just a compiler optimization
+
+#### 21.2.3 Delta Kernels (Sparse Activity)
+
+Most DET lattices are sparse in activity. Standard hardware hates sweeping huge arrays each tick.
+
+**Allowed Runtime Facility**:
+- **Active set** = nodes with nontrivial ΔF, Δq, ΔC, or pending tokens
+- Run kernels only on active nodes + their 1-hop neighbors
+
+```existence
+// Runtime maintains active set
+runtime.active_set = {
+    nodes where |ΔF| > threshold OR
+                |Δq| > threshold OR
+                |ΔC| > threshold OR
+                has_pending_tokens
+}
+
+// Scheduler only visits active nodes
+schedule.tick() {
+    for node in runtime.active_set ∪ neighbors(runtime.active_set) {
+        node.execute_kernels();
+    }
+}
+```
+
+**Win**: Massive speedups when dynamics are localized
+
+**Why DET-Clean**:
+- The active set is derived from local trace (thresholds on local deltas)
+- No global normalization or cross-component peeking
+
+#### 21.2.4 Event-Count Clocking (Skip Low-Presence Nodes)
+
+You already have presence/local clock ideas. On CPUs, skipping work matters more than fancy math.
+
+**Lawful Skip Rule**:
+- If local "activity metric" < ε for M ticks, node enters "sleep"
+- Sleeping nodes don't execute costly kernels
+- Can still be woken by neighbor flux
+
+```existence
+// Node sleep policy
+node.sleep_policy {
+    activity_metric := |ΔF| + |Δq| + |token_activity|;
+
+    if activity_metric < ε for M consecutive ticks {
+        status := SLEEPING;
+    }
+
+    // Wake on neighbor activity
+    if any(neighbor.flux_to_me > 0) {
+        status := ACTIVE;
+    }
+}
+```
+
+**Win**: Near-linear speedups on calm regions
+
+**Why DET-Clean**:
+- It's a deterministic local policy based on local trace
+- No global state inspection
+
+---
+
+### 21.3 Cheap ASCII Byte Writes
+
+The pedagogically pure approach (mux selection over fixed cells, token writes per character) is slow. Here's how to achieve near-native speed while staying DET-clean.
+
+#### 21.3.1 Boundary Readout Types
+
+**Core Semantics**: "Output is trace."
+**Changed Representation**: Store output in a ByteBuffer field (host-managed), treat it as a **boundary readout**, not a physics variable.
+
+```existence
+// Boundary sink definition
+boundary ConsoleSink {
+    // Host buffer (bytes) - not part of core physics
+    buffer stdout: bytes;
+
+    // Readout law - export trace to host
+    law emit(ch: u8) {
+        stdout.push(ch);    // pointer increment + store (fast)
+    }
+}
+```
+
+**Why DET-Clean**:
+- `emit()` is not part of core causality; it's a readout/export of trace
+- It cannot flow back into core dynamics unless explicitly re-imported through lawful channels
+- This mirrors "measurement layer" in DET: mapping is permitted; it's not an axiom
+
+#### 21.3.2 Streaming Tape Representation
+
+Replace mux trees with a **stream cursor**:
+
+```existence
+// Instead of random-access: Tape.read(idx) → mux tree
+// Use stream cursor:
+
+creature TapeReader {
+    register tape: bytes[];     // Contiguous byte array
+    register pc: TokenReg;      // Past token integer (cursor)
+
+    kernel ReadNext {
+        out ch: TokenReg;
+        out w: TokenReg;
+
+        phase COMMIT {
+            proposal READ {
+                score = 1.0;
+                effect {
+                    ch ::= tape[pc];    // Load byte
+                    pc ::= pc + 1;      // Advance cursor (trace write)
+                }
+            }
+            commit choose({READ});
+            w ::= "OK";
+        }
+    }
+}
+```
+
+**Compiles To**:
+- Load byte
+- Store byte
+- Increment integer
+
+No mux trees.
+
+**Why DET-Clean**:
+- `pc` advance is a trace write (past token update)
+- The read uses only local tape memory (within the "program creature")
+
+#### 21.3.3 Token Alphabet vs ASCII Bytes
+
+For performance, define characters as u8 directly (ASCII), but keep the "ur-choice / distinction" story in the type system:
+
+```existence
+// Type system view: tokens from finite alphabet
+type Symbol = Token<CharacterAlphabet>;
+
+// Representation view: byte encoding at boundary/compiler level
+impl Symbol {
+    repr = u8;  // 0x00..0xFF
+}
+
+// Semantics: token from a finite alphabet
+// Representation: byte
+// Best of both worlds
+```
+
+#### 21.3.4 Output Buffering + Commit Batching
+
+Instead of committing one character per tick, allow a kernel to emit a batch:
+
+```existence
+kernel EmitBatch {
+    in  source: bytes[];
+    in  count: TokenReg;    // Past token: how many to emit
+    out sink: boundary ConsoleSink;
+    out w: TokenReg;
+
+    phase COMMIT {
+        proposal BATCH_EMIT {
+            score = 1.0;
+            effect {
+                // Emit contiguous block in one go
+                repeat_past(count) {
+                    sink.emit(source[cursor]);
+                    cursor ::= cursor + 1;
+                }
+            }
+        }
+        commit choose({BATCH_EMIT});
+        w ::= "OK";
+    }
+}
+```
+
+This is exactly the same trick as microstep unrolling, applied to I/O.
+
+---
+
+### 21.4 Tightening the Boundary Layer
+
+#### 21.4.1 Readout-Only Boundary Contracts
+
+To preserve core integrity, boundary objects must satisfy:
+
+```existence
+boundary contract ReadoutOnly {
+    // No writes into core state
+    forbid: write(core.F), write(core.q), write(core.C), write(core.a);
+
+    // Only read trace and export it
+    allow: read(trace), export(external);
+
+    // Any import must come through explicit "ingest kernels"
+    // with local gating + witness tokens
+    require_for_import: IngestKernel with {
+        local_gating: true,
+        witness_token: required
+    };
+}
+```
+
+This prevents accidental hidden globals.
+
+#### 21.4.2 Deterministic Boundary Maps
+
+For reproducibility, make boundary reads deterministic functions of trace:
+
+```existence
+boundary map DeterministicRender {
+    // Deterministic serialization of tokens/bytes
+    law render(tape: OutputTape) -> bytes {
+        // No reliance on wall-clock time
+        forbid: system_time(), random();
+
+        // Pure function of trace
+        return deterministic_serialize(tape.tokens);
+    }
+}
+```
+
+#### 21.4.3 Dual Representation: Token Trace + Byte Cache
+
+For debugging and falsifiability:
+
+```existence
+creature OutputManager {
+    // Canonical trace (tokens or compact codes)
+    register canonical_trace: Token[];
+
+    // Derived byte cache (can be regenerated from trace)
+    cache byte_cache: bytes[];
+
+    // Invariant: byte_cache = render(canonical_trace)
+    invariant {
+        byte_cache == deterministic_render(canonical_trace)
+    }
+
+    // Write goes to canonical trace; cache updates automatically
+    kernel Write {
+        in tok: Token;
+
+        phase COMMIT {
+            proposal RECORD {
+                effect {
+                    canonical_trace.append(tok);
+                    byte_cache := render(canonical_trace);  // Derived
+                }
+            }
+            commit choose({RECORD});
+        }
+    }
+}
+```
+
+This gives you **speed** (fast byte operations) and **auditability** (canonical trace).
+
+---
+
+### 21.5 Optimization Summary
+
+| Technique | What It Does | Speedup | DET-Clean? |
+|-----------|--------------|---------|------------|
+| Microstep unrolling | SIMD/vectorize `repeat_past` | 4-8x | Yes - past token count |
+| Kernel fusion | Combine pipeline into one kernel | 2-5x | Yes - same trace output |
+| Delta kernels | Only process active nodes | 10-100x | Yes - local activity thresholds |
+| Event-count clocking | Skip sleeping nodes | 5-50x | Yes - deterministic local policy |
+| Boundary readouts | Fast byte I/O to host | 100x | Yes - export only, no import |
+| Streaming tape | Cursor instead of mux tree | 10x | Yes - past token cursor |
+| Commit batching | Multiple outputs per tick | 5-20x | Yes - past token count |
+| Dual representation | Trace + byte cache | 2x | Yes - derived from canonical |
+
+### 21.6 The Tradeoffs
+
+**Pros**:
+- Iteration becomes SIMD/unrolled instead of many tiny kernel calls
+- ASCII output becomes near-native speed (pointer increment + store)
+- You keep the "present unfalsifiable" discipline because tokens still gate behavior
+- You avoid global bottlenecks by staying local and sparse
+
+**Cons**:
+- You introduce a measurement/boundary layer that must be carefully fenced
+- Debugging needs clear "canonical trace vs derived buffers" distinction
+- Some "beautifully pure" pedagogical code becomes "lowered" code
+
+**The Key Insight**: Optimization doesn't compromise ontology if the trace is equivalent. The physics are real; the implementation is practical.
+
+---
+
 ## References
 
 1. DET Theory Card v6.3 - Core physics
@@ -1194,3 +1557,4 @@ Truth is witnessed reconciliation.
 3. FEASIBILITY_PLAN.md - Architecture decisions
 4. User-provided Existence-Lang v1.1 specification
 5. User-provided kernel/function design (this section)
+6. User-provided performance optimization techniques (Part 21)
