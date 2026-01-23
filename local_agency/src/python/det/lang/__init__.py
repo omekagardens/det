@@ -68,6 +68,11 @@ from .semantic import SemanticAnalyzer, analyze, Scope
 
 from .transpiler import Transpiler, transpile
 
+from .eis_compiler import (
+    EISCompiler, compile_to_eis, compile_source as compile_to_eis_source,
+    CompiledProgram, CompiledCreature, CompiledKernel, RegAlloc
+)
+
 from .runtime import (
     # Core classes
     ExistenceRuntime, CreatureBase, KernelBase, BondInstance,
@@ -112,6 +117,10 @@ __all__ = [
 
     # Transpiler
     "Transpiler", "transpile",
+
+    # EIS Compiler
+    "EISCompiler", "compile_to_eis", "compile_to_eis_source",
+    "CompiledProgram", "CompiledCreature", "CompiledKernel", "RegAlloc",
 
     # Runtime
     "ExistenceRuntime", "CreatureBase", "KernelBase", "BondInstance",
