@@ -1497,6 +1497,7 @@ This document serves as the foundation for implementation. The next step is to b
 12. Temporal Dynamics: `explorations/07_temporal_dynamics.md`
 13. Emotional Feedback: `explorations/08_emotional_feedback.md`
 14. DET-OS Feasibility: `explorations/09_det_os_feasibility.md`
+15. Existence-Lang v1.1 (Agency-First): `explorations/10_existence_lang_v1_1.md`
 
 ### External Tools & Frameworks
 14. Orla Project: https://github.com/dorcha-inc/orla
