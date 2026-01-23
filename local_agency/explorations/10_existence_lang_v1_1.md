@@ -762,7 +762,416 @@ agency {
 
 ---
 
-## Part 13: The Final Law
+## Part 13: Kernels - Functions as Law Modules
+
+### 13.1 What a Function Is (and Is Not)
+
+In Existence-Lang, a "function" is not a value-returning procedure. It is a **named local law kernel** that produces proposals, trace tokens, and conserved flux commits.
+
+**NOT Allowed (Classic Function)**:
+- `f(x) -> y` computed "instantly"
+- Implicit mutation
+- Hidden state
+- Present-time truth
+
+**Allowed (DET Kernel)**:
+- **Ports**: Register references, bond handles, token handles
+- **Phase**: Which step of the canonical loop it runs in
+- **Proposal set**: What it can do
+- **Commit rules**: How it writes traces/fluxes
+- **Witness output**: Tokenized success/failure
+
+Think "hardware block" or "local circuit," not "subroutine."
+
+### 13.2 Kernel Syntax
+
+```existence
+kernel AddSigned {
+    // Input ports (read-only references)
+    in  xP: Register;
+    in  xM: Register;
+    in  yP: Register;
+    in  yM: Register;
+
+    // Output ports (write destinations)
+    out oP: Register;
+    out oM: Register;
+    out w:  TokenReg;        // Witness token
+
+    // Local constants only (no mutable state)
+    params { J_step = 0.01; }
+
+    // Phase declaration (when this kernel runs)
+    phase COMMIT {
+        // Proposal set (no if/else - all proposals evaluated)
+        proposal RUN {
+            score = 1.0;
+            effect {
+                Pump(J_step).move(xP, oP);
+                Pump(J_step).move(yP, oP);
+                Pump(J_step).move(xM, oM);
+                Pump(J_step).move(yM, oM);
+            }
+        }
+
+        // Choose from proposals (agency-weighted, deterministic from seed)
+        choice χ = choose(
+            {RUN},
+            decisiveness = 1.0,
+            seed = local_seed(k, r, θ)
+        );
+
+        // Commit chosen proposal
+        commit χ;
+
+        // Write witness token
+        w ::= "OK";
+    }
+}
+```
+
+**Key Rules**:
+- Kernels do NOT return values
+- Kernels write ONLY through declared outputs
+- Kernels may take multiple ticks (convergent operators)
+- Correctness is signaled with witness tokens
+
+### 13.3 Calling a Kernel: Wiring, Not Stack Frames
+
+A "call" is local instantiation and wiring, not a stack frame:
+
+```existence
+// This places the kernel in the local update graph
+call AddSigned(
+    xP: Aplus,
+    xM: Aminus,
+    yP: Bplus,
+    yM: Bminus,
+    oP: Outplus,
+    oM: Outminus,
+    w:  Wtok
+)
+```
+
+No stack. No global calls. Just wiring into the update schedule.
+
+---
+
+## Part 14: Operator Lowering - Macros Over Kernels
+
+### 14.1 Operators Are Not Primitives
+
+Operators like `+`, `*`, `<=`, `=` are NOT primitives. They are **macros** that expand into kernel instantiations.
+
+```existence
+// Operator definition mechanism (compile-time)
+operator (X + Y) lowers_to AddSigned(...)
+operator (X * N) lowers_to MulSmallInt(...)
+operator (A = B) lowers_to Reconcile(...)
+```
+
+This prevents cyclicity: operators are syntax sugar over kernels already defined from physics primitives.
+
+### 14.2 The `+=` Operator
+
+```existence
+// X += Y is AddSigned with output wired back to input
+operator (X += Y) lowers_to AddSigned(
+    xP: X+,
+    xM: X-,
+    yP: Y+,
+    yM: Y-,
+    oP: X+,    // Output back to input
+    oM: X-,
+    w:  _      // Witness discarded
+)
+```
+
+This is legal because it's still flux-based, not instantaneous assignment.
+
+### 14.3 The `=` Operator (Reconciliation)
+
+The reconciliation equality is explicitly a kernel:
+
+```existence
+kernel Reconcile {
+    inout A: Register;
+    inout B: Register;
+    out   w: TokenReg;
+    params { eps = 1e-3; J_step = 0.01; }
+
+    phase COMMIT {
+        // Proposal to repair (reduce distinction)
+        proposal REPAIR {
+            score = sqrt(a_local());     // Willingness, NOT spend
+            effect {
+                Diffuse(σ = 1.0).step(A, B);
+            }
+        }
+
+        // Proposal to refuse (agency declines)
+        proposal REFUSE {
+            score = 1.0 - sqrt(a_local());
+            effect { /* no flux */ }
+        }
+
+        // Choose based on agency and coherence
+        choice χ = choose(
+            {REPAIR, REFUSE},
+            decisiveness = g(a_local(), coherence_local()),
+            seed = local_seed(k, r, θ)
+        );
+        commit χ;
+
+        // Witness based on trace measurement
+        w ::= cmp(A.F, B.F, eps);  // EQ/NEQ token
+    }
+}
+```
+
+Now `=` is never "truth." It's "attempt unification" with a witness.
+
+---
+
+## Part 15: Minimal Primitive Set
+
+To support functional composition, the compiler/runtime provides these primitives:
+
+### 15.1 Tier-0 Physics Primitives
+
+```
+transfer(src.F, dst.F, J_quanta)    ; Antisymmetric, clamped
+diffuse(i.F, j.F, σ)                ; Antisymmetric flux
+choose(proposals, decisiveness, seed) ; Tokenization
+commit(choice)                       ; Write trace
+repeat_past(N)                       ; Bounded schedule from past token
+cmp(x, y, ε) → token                ; Trace measurement
+```
+
+**Everything else is kernels/macros built from these.**
+
+### 15.2 Primitive Classification
+
+| Primitive | What It Does | Cost |
+|-----------|--------------|------|
+| `transfer` | Move quanta between registers | k += 1 |
+| `diffuse` | Bond-local flux exchange | k += 1 |
+| `choose` | Select from proposal set | k += 0 (decision) |
+| `commit` | Write chosen proposal to trace | k += proposal_cost |
+| `repeat_past` | Bounded iteration (past token count) | k += N |
+| `cmp` | Measure past traces | k += 1 |
+
+---
+
+## Part 16: Convergent Kernels - Operations Over Time
+
+Many DET operations aren't instantaneous. Kernels declare completion via witness tokens.
+
+### 16.1 Convergent Kernel Pattern
+
+Example: "copy" finishes when |X−Y| < ε:
+
+```existence
+kernel CopyConverge {
+    in  src: Register;
+    in  dst: Register;
+    out w:   TokenReg;
+    params { eps = 1e-3; J_step = 0.01; }
+
+    phase COMMIT {
+        // Push quanta from src toward dst
+        proposal PUSH {
+            score = 1.0;
+            effect {
+                Pump(J_step).move(src, dst);
+            }
+        }
+
+        choice χ = choose({PUSH}, decisiveness = 1.0, seed = local_seed(k, r, θ));
+        commit χ;
+
+        // Witness from past trace (convergence check)
+        w ::= cmp(dst.F, src.F, eps);  // EQ when converged
+    }
+}
+```
+
+**No while loops**. The caller watches `w` to know when complete.
+
+### 16.2 Caller Watches Witness
+
+```existence
+creature Copier {
+    call CopyConverge(src: source_reg, dst: dest_reg, w: copy_witness)
+
+    // React to witness in NEXT tick (not same tick!)
+    participate(bond: Bond) {
+        if_past(copy_witness == EQ) {
+            // Copy complete - proceed with next operation
+        }
+    }
+}
+```
+
+---
+
+## Part 17: Pipeline Composition
+
+### 17.1 The `pipe` Construct
+
+Wire kernels together without control flow:
+
+```existence
+pipe {
+    call AddSigned(
+        xP: Aplus, xM: Aminus,
+        yP: Bplus, yM: Bminus,
+        oP: Tplus, oM: Tminus,
+        w: W1
+    )
+    call Clamp0_1(
+        in: Tplus/Tminus,
+        out: Uplus/Uminus,
+        w: W2
+    )
+}
+```
+
+These are multiple kernels scheduled each tick, not sequential execution.
+
+### 17.2 Function-Like Syntax Sugar
+
+For ergonomics, support "return-like" syntax:
+
+```existence
+(z, w) <~ add(x, y)
+```
+
+Lowers to:
+
+```existence
+call AddSigned(
+    xP: x+, xM: x-,
+    yP: y+, yM: y-,
+    oP: z+, oM: z-,
+    w: w
+)
+```
+
+The `<~` operator means "wire outputs to these destinations."
+
+---
+
+## Part 18: The Anti-Drift Rule
+
+### 18.1 The One Rule That Prevents Returning to "C"
+
+**A kernel may not read a token it just wrote in the same tick to decide whether to run.**
+
+Tokens only influence the **next** tick.
+
+```existence
+// ILLEGAL - same-tick read of own witness
+phase COMMIT {
+    w ::= cmp(A.F, B.F, eps);
+    if_past(w == EQ) { ... }  // NO! w was just written!
+}
+
+// LEGAL - react in next tick
+phase COMMIT {
+    w ::= cmp(A.F, B.F, eps);
+}
+// In creature's participate(), which runs NEXT tick:
+if_past(w == EQ) { ... }  // OK - reading from past
+```
+
+### 18.2 Why This Matters
+
+This enforces "present unfalsifiable" in code, not just philosophy:
+- No instantaneous feedback loops
+- No hidden present-time branching
+- All decisions flow from past trace
+- Time moves forward, never sideways
+
+---
+
+## Part 19: Sub-Primitive Operator Library
+
+### 19.1 `+` Over Signed Values
+
+```existence
+kernel AddSigned {
+    // ... (as defined above)
+}
+
+operator (X + Y) lowers_to AddSigned(
+    xP: X.positive, xM: X.negative,
+    yP: Y.positive, yM: Y.negative,
+    oP: _.positive, oM: _.negative,
+    w: _
+)
+```
+
+### 19.2 `*` Multiplication (Nested Repetition)
+
+Multiplication requires `repeat_past`:
+
+```existence
+kernel MulByPastToken {
+    in  base: Register;
+    in  count: TokenReg;   // Must be past token (integer)
+    out result: Register;
+    out w: TokenReg;
+
+    phase COMMIT {
+        repeat_past(count) {
+            // Each iteration is a separate tick
+            call AddSigned(
+                xP: result+, xM: result-,
+                yP: base+, yM: base-,
+                oP: result+, oM: result-,
+                w: _
+            )
+        }
+        w ::= "OK";
+    }
+}
+```
+
+`*` is only definable when:
+- The multiplier is a past token integer, OR
+- A dedicated multiplier module exists (log-domain or bitwise)
+
+### 19.3 `<=` Converge-To-Target
+
+```existence
+kernel ConvergeTo {
+    inout X: Register;
+    in    target: Register;
+    out   w: TokenReg;
+    params { J_step = 0.01; eps = 1e-3; }
+
+    phase COMMIT {
+        proposal ADJUST {
+            score = 1.0;
+            effect {
+                Diffuse(σ = 1.0).step(X, target);
+            }
+        }
+
+        choice χ = choose({ADJUST}, decisiveness = 1.0, seed = local_seed(k, r, θ));
+        commit χ;
+
+        w ::= cmp(X.F, target.F, eps);
+    }
+}
+
+operator (X <= target) lowers_to ConvergeTo(X: X, target: target, w: _)
+```
+
+---
+
+## Part 20: The Final Law
 
 ```
 Agency creates distinction.
@@ -784,3 +1193,4 @@ Truth is witnessed reconciliation.
 2. Exploration 09 - DET-OS Feasibility
 3. FEASIBILITY_PLAN.md - Architecture decisions
 4. User-provided Existence-Lang v1.1 specification
+5. User-provided kernel/function design (this section)
