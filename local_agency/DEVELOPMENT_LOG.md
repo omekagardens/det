@@ -904,6 +904,47 @@
 
 ---
 
+## DET-OS CLI Integration (2026-01-24)
+
+### LLM as Creature ✅
+- **Files Created**:
+  - `src/python/det_os_cli.py` - DET-OS CLI with LLM as creature
+  - `src/python/det/os/creatures/base.py` - CreatureWrapper base class
+  - `src/python/det/os/creatures/memory.py` - MemoryCreature for store/recall
+  - `src/python/test_det_os_cli.py` - Integration test suite (13 tests)
+
+- **Architecture**:
+  ```
+  User Input
+      ↓
+  LLMCreature (F, a, bonds)
+      ↓ bond
+  MemoryCreature (stores/recalls)
+      ↓
+  DET-OS Kernel (kernel.ex)
+      ↓
+  Substrate v2 (C/Metal)
+  ```
+
+- **Features**:
+  - LLMCreature with resource (F) depletion per token
+  - Agency (a) modulates LLM temperature
+  - Creature-to-creature bonding via channels
+  - MemoryCreature with store/recall protocol
+  - Bond-based IPC with coherence tracking
+  - Commands: /store, /recall, /memory, /state, /bonds, /inject
+
+### Bond Coherence Stability Fix ✅
+- **Issue**: Bond coherence was decaying too aggressively during idle time
+  - Coherence dropped from 1.0 to 0.0 after ~10 seconds of user inactivity
+  - Caused /store and /recall commands to fail
+- **Fix**: Perfect bonds (coherence >= 0.99) no longer decay from idleness
+  - Imperfect bonds only decay after 30 seconds (not 1 second)
+  - Decay rate reduced 10x for stability
+- **Tests**: 13/13 passing including new `test_bond_coherence_stability`
+
+---
+
 ## Next Steps
 
 1. **Phase 15: CUDA Backend**:
@@ -972,4 +1013,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-23 (Phase 14 GPU Backend with Metal Compute Shaders Complete)*
+*Last Updated: 2026-01-24 (DET-OS CLI Integration + Bond Coherence Fix)*

@@ -569,14 +569,23 @@ class ExistenceKernelRuntime:
                 creature.state = CreatureState.RUNNING
 
         # 3. Update IPC coherence
+        # Note: Channels created with coherence=1.0 (perfect bonds) don't decay
+        # This allows stable IPC between bonded creatures.
+        # Lower coherence bonds (emergent bonds) do decay over time.
         now = time.time()
         for channel in self.channels.values():
             if channel.closed:
                 continue
 
+            # Perfect bonds (coherence=1.0 initially) don't decay from idleness
+            # Only decay if coherence was initially imperfect
+            if channel.coherence >= 0.99:
+                continue
+
             idle_time = now - channel.last_activity
-            if idle_time > 1.0:
-                decay = dt * 0.01 * idle_time
+            # Decay only after 30 seconds of inactivity (not 1 second)
+            if idle_time > 30.0:
+                decay = dt * 0.001 * (idle_time - 30.0)  # Much slower decay
                 channel.coherence = max(0, channel.coherence - decay)
 
             if channel.coherence <= 0:

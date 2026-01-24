@@ -406,6 +406,10 @@ def run_cli(
                         print("Usage: /store <text to store>")
                         continue
 
+                    if debug:
+                        print(f"  DEBUG: llm.memory_cid={llm.memory_cid}, llm.bonds={llm.bonds}")
+                        print(f"  DEBUG: memory.cid={memory.cid}, memory.bonds={memory.bonds}")
+
                     # Retry up to 3 times (coherence-based delivery can fail)
                     success = False
                     for attempt in range(3):
@@ -420,6 +424,8 @@ def run_cli(
                         time.sleep(0.1)
                         memory.process_messages()
                         responses = llm.get_memory_responses()
+                        if debug:
+                            print(f"  DEBUG: responses={responses}")
                         stored = False
                         for r in responses:
                             if r.get("type") == "store_ack":
@@ -430,8 +436,14 @@ def run_cli(
                                     print("  Storage failed (memory creature low on F?)")
                         if not stored and not responses:
                             print("  No acknowledgment received (processing...)")
+                            if debug:
+                                ch = bootstrap.runtime.channels.get(llm.bonds.get(memory.cid))
+                                if ch:
+                                    print(f"  DEBUG: channel queues a->b={len(ch.queue_a_to_b)}, b->a={len(ch.queue_b_to_a)}")
                     else:
                         print(f"Failed to send store request (LLM F={llm.F:.1f}, bond coherence={llm.get_bond_coherence(memory.cid):.2f})")
+                        if debug:
+                            print(f"  DEBUG: llm.memory_cid={llm.memory_cid}")
 
                 elif cmd == "recall":
                     if not args:

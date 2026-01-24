@@ -329,6 +329,47 @@ def test_can_think_check():
     print("PASS")
 
 
+def test_bond_coherence_stability():
+    """Test that perfect bonds (coherence=1.0) don't decay over time."""
+    print("  test_bond_coherence_stability...", end=" ")
+
+    from det_os_cli import LLMCreature
+
+    config = BootConfig(total_F=100000.0, tick_rate=100.0)  # Fast ticks
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    # Create LLM
+    cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
+    bootstrap.runtime.creatures[cid].state = CreatureState.RUNNING
+    llm = LLMCreature(bootstrap.runtime, cid, "http://localhost:11434", "test")
+
+    # Create and bond memory with perfect coherence
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+    llm.bond_to_memory(memory, coherence=1.0)
+
+    initial_coherence = llm.get_bond_coherence(memory.cid)
+    assert initial_coherence == 1.0, f"Expected 1.0, got {initial_coherence}"
+
+    # Run many ticks (simulating idle time)
+    for _ in range(100):
+        bootstrap.tick()
+
+    # Coherence should remain stable (>= 0.99 for perfect bonds)
+    final_coherence = llm.get_bond_coherence(memory.cid)
+    assert final_coherence >= 0.99, f"Bond coherence decayed to {final_coherence}"
+
+    # Bond should still work
+    success = llm.store_memory("Test after many ticks")
+    assert success, "Store failed after ticks"
+
+    memory.process_messages()
+    assert len(memory.memories) == 1, "Memory not stored"
+
+    bootstrap.halt()
+    print("PASS")
+
+
 def run_tests():
     """Run all tests."""
     print("\n" + "=" * 60)
@@ -356,6 +397,7 @@ def run_tests():
     test_llm_creature()
     test_llm_memory_integration()
     test_can_think_check()
+    test_bond_coherence_stability()
 
     print("\n" + "=" * 60)
     print("All DET-OS CLI tests passed!")
