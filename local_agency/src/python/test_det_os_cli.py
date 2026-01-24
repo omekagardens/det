@@ -13,6 +13,9 @@ from det.os.existence.bootstrap import DETOSBootstrap, BootConfig, BootState
 from det.os.existence.runtime import CreatureState
 from det.os.creatures.base import CreatureWrapper
 from det.os.creatures.memory import MemoryCreature, spawn_memory_creature
+from det.os.creatures.tool import ToolCreature, spawn_tool_creature
+from det.os.creatures.reasoner import ReasonerCreature, spawn_reasoner_creature
+from det.os.creatures.planner import PlannerCreature, spawn_planner_creature
 
 
 def test_kernel_boot():
@@ -465,6 +468,155 @@ def test_memory_importance_scoring():
     print("PASS")
 
 
+def test_tool_creature_spawn():
+    """Test ToolCreature spawns correctly."""
+    print("  test_tool_creature_spawn...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    tool = spawn_tool_creature(bootstrap.runtime, "tool", initial_f=30.0, initial_a=0.6)
+
+    assert tool.cid > 0
+    assert tool.F == 30.0
+    assert tool.a == 0.6
+    assert tool.execution_count == 0
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_tool_execute_safe():
+    """Test tool executes safe commands."""
+    print("  test_tool_execute_safe...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    tool = spawn_tool_creature(bootstrap.runtime, "tool", initial_f=30.0, initial_a=0.6)
+
+    # Execute a safe command
+    result = tool.execute("echo hello", timeout_ms=5000)
+
+    assert result.success
+    assert "hello" in result.output
+    assert result.cost > 0
+    assert tool.F < 30.0  # Cost deducted
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_tool_risk_analysis():
+    """Test tool analyzes command risk correctly."""
+    print("  test_tool_risk_analysis...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    tool = spawn_tool_creature(bootstrap.runtime, "tool", initial_f=30.0, initial_a=0.6)
+
+    # Test risk levels
+    assert tool.analyze_risk("echo hello") == 'safe'
+    assert tool.analyze_risk("rm file.txt") == 'moderate'
+    assert tool.analyze_risk("sudo apt update") == 'high'
+    assert tool.analyze_risk("rm -rf /") == 'critical'
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_reasoner_creature_spawn():
+    """Test ReasonerCreature spawns correctly."""
+    print("  test_reasoner_creature_spawn...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    reasoner = spawn_reasoner_creature(bootstrap.runtime, "reasoner", initial_f=40.0, initial_a=0.7)
+
+    assert reasoner.cid > 0
+    assert reasoner.F == 40.0
+    assert reasoner.a == 0.7
+    assert reasoner.max_depth == 7  # 0.7 * 10
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_reasoner_reason():
+    """Test reasoner generates reasoning chain."""
+    print("  test_reasoner_reason...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    reasoner = spawn_reasoner_creature(bootstrap.runtime, "reasoner", initial_f=40.0, initial_a=0.7)
+
+    chain = reasoner.reason("Why is the sky blue?", max_steps=3)
+
+    assert len(chain.steps) > 0
+    assert len(chain.steps) <= 3
+    assert chain.conclusion != ""
+    assert chain.total_cost > 0
+    assert reasoner.F < 40.0  # Cost deducted
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_planner_creature_spawn():
+    """Test PlannerCreature spawns correctly."""
+    print("  test_planner_creature_spawn...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    planner = spawn_planner_creature(bootstrap.runtime, "planner", initial_f=35.0, initial_a=0.65)
+
+    assert planner.cid > 0
+    assert planner.F == 35.0
+    assert planner.a == 0.65
+    assert planner.total_planned == 0
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_planner_plan():
+    """Test planner generates plan."""
+    print("  test_planner_plan...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    planner = spawn_planner_creature(bootstrap.runtime, "planner", initial_f=35.0, initial_a=0.65)
+
+    plan = planner.plan("Find all Python files and count lines", constraints={"max_steps": 5})
+
+    assert len(plan.steps) > 0
+    assert len(plan.steps) <= 5
+    assert plan.total_cost > 0
+    assert planner.F < 35.0  # Cost deducted
+    assert planner.total_planned == 1
+
+    # Check that steps have proper structure
+    for step in plan.steps:
+        assert step.step_id != ""
+        assert step.description != ""
+        assert step.action_type in ['think', 'execute', 'store', 'recall', 'reason', 'ask']
+
+    bootstrap.halt()
+    print("PASS")
+
+
 def run_tests():
     """Run all tests."""
     print("\n" + "=" * 60)
@@ -492,6 +644,19 @@ def run_tests():
     test_creature_bonding()
     test_bond_message_passing()
     test_memory_via_bond()
+
+    print("\nTool Creature Tests:")
+    test_tool_creature_spawn()
+    test_tool_execute_safe()
+    test_tool_risk_analysis()
+
+    print("\nReasoner Creature Tests:")
+    test_reasoner_creature_spawn()
+    test_reasoner_reason()
+
+    print("\nPlanner Creature Tests:")
+    test_planner_creature_spawn()
+    test_planner_plan()
 
     print("\nLLM Creature Tests:")
     test_llm_creature()

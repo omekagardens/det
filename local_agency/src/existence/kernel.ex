@@ -36,6 +36,14 @@ import physics.{
     GraceFlow           // Full grace protocol
 };
 
+// Import standard creatures from creatures.ex
+import creatures.{
+    MemoryCreature,     // Store/recall memories via bonds
+    ToolCreature,       // Execute commands in sandbox
+    ReasonerCreature,   // Chain-of-thought processing
+    PlannerCreature     // Task decomposition
+};
+
 // =============================================================================
 // KERNEL CREATURE - The Root of All Existence
 // =============================================================================
