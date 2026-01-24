@@ -43,43 +43,135 @@ except ImportError:
     create_app = None
     run_server = None
     DETStateAPI = None
-from .llm import DETLLMInterface, OllamaClient, DetIntentPacket, IntentType, DomainType
-from .memory import MemoryManager, MemoryDomain, MemoryEntry, DomainRouter, ContextWindow
-from .routing import (
-    ModelConfig, ModelPool, ModelStatus, LLMRouter, RoutingResult, MultiModelInterface,
-    DEFAULT_MODELS
-)
-from .dialogue import InternalDialogue, DialogueTurn, DialogueState, SomaticBridge
-from .sandbox import BashSandbox, FileOperations, CommandAnalyzer, RiskLevel, PermissionLevel
-from .tasks import TaskManager, Task, TaskStep, TaskStatus, TaskPriority
-from .timer import TimerSystem, ScheduledEvent, ScheduleType, setup_default_schedule
-from .executor import CodeExecutor, ExecutionSession, LanguageRunner, ErrorInterpreter
-from .emotional import (
-    EmotionalIntegration, EmotionalMode, BehaviorModulation,
-    RecoveryState, MultiSessionManager, SessionContext
-)
-from .training import (
-    TrainingConfig, TrainingExample, TrainingJob, TrainingStatus,
-    TrainingDataGenerator, LoRATrainer, MemoryRetuner, is_mlx_available
-)
-from .consolidation import (
-    ConsolidationManager, ConsolidationConfig, ConsolidationState,
-    ConsolidationPhase, ConsolidationCycle, IdleDetector, setup_consolidation
-)
-from .network import (
-    MessageType, NodeType, NodeStatus, DETMessage, NodeInfo,
-    Transport, ExternalNode, StubTransport, StubExternalNode,
-    NetworkRegistry, create_stub_network
-)
-from .metrics import (
-    MetricsCollector, MetricsSample, DETEvent, DETEventType, Profiler,
-    create_metrics_collector, create_profiler
-)
-from .trainer import (
-    DETTrainer, TrainingConfig as TrainerConfig, TrainingStats,
-    TrainingDomain, CurriculumGenerator, WebContentFetcher,
-    create_trainer, run_training
-)
+# LLM imports (optional - requires 'requests' package)
+try:
+    from .llm import DETLLMInterface, OllamaClient, DetIntentPacket, IntentType, DomainType
+    from .memory import MemoryManager, MemoryDomain, MemoryEntry, DomainRouter, ContextWindow
+    from .routing import (
+        ModelConfig, ModelPool, ModelStatus, LLMRouter, RoutingResult, MultiModelInterface,
+        DEFAULT_MODELS
+    )
+    from .dialogue import InternalDialogue, DialogueTurn, DialogueState, SomaticBridge
+    from .sandbox import BashSandbox, FileOperations, CommandAnalyzer, RiskLevel, PermissionLevel
+    from .tasks import TaskManager, Task, TaskStep, TaskStatus, TaskPriority
+    from .timer import TimerSystem, ScheduledEvent, ScheduleType, setup_default_schedule
+    from .executor import CodeExecutor, ExecutionSession, LanguageRunner, ErrorInterpreter
+    from .emotional import (
+        EmotionalIntegration, EmotionalMode, BehaviorModulation,
+        RecoveryState, MultiSessionManager, SessionContext
+    )
+    from .training import (
+        TrainingConfig, TrainingExample, TrainingJob, TrainingStatus,
+        TrainingDataGenerator, LoRATrainer, MemoryRetuner, is_mlx_available
+    )
+    from .consolidation import (
+        ConsolidationManager, ConsolidationConfig, ConsolidationState,
+        ConsolidationPhase, ConsolidationCycle, IdleDetector, setup_consolidation
+    )
+    from .network import (
+        MessageType, NodeType, NodeStatus, DETMessage, NodeInfo,
+        Transport, ExternalNode, StubTransport, StubExternalNode,
+        NetworkRegistry, create_stub_network
+    )
+    from .metrics import (
+        MetricsCollector, MetricsSample, DETEvent, DETEventType, Profiler,
+        create_metrics_collector, create_profiler
+    )
+    from .trainer import (
+        DETTrainer, TrainingConfig as TrainerConfig, TrainingStats,
+        TrainingDomain, CurriculumGenerator, WebContentFetcher,
+        create_trainer, run_training
+    )
+    LLM_AVAILABLE = True
+except ImportError:
+    # LLM features not available without requests
+    LLM_AVAILABLE = False
+    DETLLMInterface = None
+    OllamaClient = None
+    DetIntentPacket = None
+    IntentType = None
+    DomainType = None
+    MemoryManager = None
+    MemoryDomain = None
+    MemoryEntry = None
+    DomainRouter = None
+    ContextWindow = None
+    ModelConfig = None
+    ModelPool = None
+    ModelStatus = None
+    LLMRouter = None
+    RoutingResult = None
+    MultiModelInterface = None
+    DEFAULT_MODELS = None
+    InternalDialogue = None
+    DialogueTurn = None
+    DialogueState = None
+    SomaticBridge = None
+    BashSandbox = None
+    FileOperations = None
+    CommandAnalyzer = None
+    RiskLevel = None
+    PermissionLevel = None
+    TaskManager = None
+    Task = None
+    TaskStep = None
+    TaskStatus = None
+    TaskPriority = None
+    TimerSystem = None
+    ScheduledEvent = None
+    ScheduleType = None
+    setup_default_schedule = None
+    CodeExecutor = None
+    ExecutionSession = None
+    LanguageRunner = None
+    ErrorInterpreter = None
+    EmotionalIntegration = None
+    EmotionalMode = None
+    BehaviorModulation = None
+    RecoveryState = None
+    MultiSessionManager = None
+    SessionContext = None
+    TrainingConfig = None
+    TrainingExample = None
+    TrainingJob = None
+    TrainingStatus = None
+    TrainingDataGenerator = None
+    LoRATrainer = None
+    MemoryRetuner = None
+    is_mlx_available = lambda: False
+    ConsolidationManager = None
+    ConsolidationConfig = None
+    ConsolidationState = None
+    ConsolidationPhase = None
+    ConsolidationCycle = None
+    IdleDetector = None
+    setup_consolidation = None
+    MessageType = None
+    NodeType = None
+    NodeStatus = None
+    DETMessage = None
+    NodeInfo = None
+    Transport = None
+    ExternalNode = None
+    StubTransport = None
+    StubExternalNode = None
+    NetworkRegistry = None
+    create_stub_network = None
+    MetricsCollector = None
+    MetricsSample = None
+    DETEvent = None
+    DETEventType = None
+    Profiler = None
+    create_metrics_collector = None
+    create_profiler = None
+    DETTrainer = None
+    TrainerConfig = None
+    TrainingStats = None
+    TrainingDomain = None
+    CurriculumGenerator = None
+    WebContentFetcher = None
+    create_trainer = None
+    run_training = None
 
 # Phase 7: Existence-Lang (optional - self-contained module)
 try:
@@ -100,7 +192,15 @@ except ImportError:
     parse_existence = None
     transpile_existence = None
 
-__version__ = "0.7.0"
+# Phase 9: DET-OS Kernel (optional - self-contained module)
+try:
+    from . import os as det_os
+    DETOS_AVAILABLE = True
+except ImportError:
+    DETOS_AVAILABLE = False
+    det_os = None
+
+__version__ = "0.9.0"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -149,4 +249,8 @@ __all__ = [
     # Phase 7: Existence-Lang
     "lang", "LANG_AVAILABLE", "ExistenceRuntime", "CreatureBase", "KernelBase",
     "Register", "TokenReg", "parse_existence", "transpile_existence",
+    # Phase 9: DET-OS Kernel
+    "det_os", "DETOS_AVAILABLE",
+    # Availability flags
+    "LLM_AVAILABLE",
 ]
