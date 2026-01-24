@@ -102,6 +102,32 @@ NodeField = _eis_types.NodeField
 BondField = _eis_types.BondField
 EISWitnessToken = _eis_types.WitnessToken
 
+# Import V2 opcodes for phase-aware substrate compilation
+V2_PHASE_R = getattr(_eis_encoding, 'V2_PHASE_R', 0x04)
+V2_PHASE_P = getattr(_eis_encoding, 'V2_PHASE_P', 0x05)
+V2_PHASE_C = getattr(_eis_encoding, 'V2_PHASE_C', 0x06)
+V2_PHASE_X = getattr(_eis_encoding, 'V2_PHASE_X', 0x07)
+V2_PROP_NEW = getattr(_eis_encoding, 'V2_PROP_NEW', 0x50)
+V2_PROP_SCORE = getattr(_eis_encoding, 'V2_PROP_SCORE', 0x51)
+V2_PROP_EFFECT = getattr(_eis_encoding, 'V2_PROP_EFFECT', 0x52)
+V2_PROP_ARG = getattr(_eis_encoding, 'V2_PROP_ARG', 0x53)
+V2_PROP_END = getattr(_eis_encoding, 'V2_PROP_END', 0x54)
+V2_CHOOSE = getattr(_eis_encoding, 'V2_CHOOSE', 0x60)
+V2_COMMIT = getattr(_eis_encoding, 'V2_COMMIT', 0x61)
+V2_WITNESS = getattr(_eis_encoding, 'V2_WITNESS', 0x62)
+
+# Phase name to opcode mapping
+V2_PHASE_OPCODES = {
+    'read': V2_PHASE_R,
+    'propose': V2_PHASE_P,
+    'choose': V2_PHASE_C,
+    'commit': V2_PHASE_X,
+    'READ': V2_PHASE_R,
+    'PROPOSE': V2_PHASE_P,
+    'CHOOSE': V2_PHASE_C,
+    'COMMIT': V2_PHASE_X,
+}
+
 
 # ==============================================================================
 # Register Allocator
@@ -233,9 +259,15 @@ class EISCompiler(ASTVisitor):
         - Variables map to registers
         - Expressions compile to arithmetic sequences
         - Witness bindings use token registers
+
+    V2 Mode:
+        When use_v2=True, emits phase-aware substrate v2 opcodes:
+        - V2_PHASE_R/P/C/X for phase transitions
+        - V2_PROP_NEW/SCORE/EFFECT/END for proposals
+        - V2_CHOOSE/COMMIT/WITNESS for selection
     """
 
-    def __init__(self):
+    def __init__(self, use_v2: bool = False):
         self.regs = RegAlloc()
         self.instructions: List[Instruction] = []
         self.labels: Dict[str, int] = {}
@@ -248,6 +280,9 @@ class EISCompiler(ASTVisitor):
         # Current context
         self.current_creature: Optional[str] = None
         self.current_kernel: Optional[str] = None
+
+        # V2 substrate mode
+        self.use_v2 = use_v2
 
         # Compiled output
         self.output = CompiledProgram()
@@ -328,8 +363,7 @@ class EISCompiler(ASTVisitor):
 
         # Compile kernel phases
         for phase_block in kernel.phases:
-            if hasattr(phase_block, 'body') and phase_block.body:
-                self._compile_block(phase_block.body)
+            self._compile_phase_block(phase_block)
 
         # RET instruction
         self._emit(Instruction(Opcode.RET))
@@ -341,6 +375,93 @@ class EISCompiler(ASTVisitor):
         )
         self.output.kernels[kernel.name] = compiled
         self.current_kernel = None
+
+    def _compile_phase_block(self, phase_block: PhaseBlock):
+        """
+        Compile a phase block with proper phase transitions.
+
+        In v2 mode, emits:
+        - V2_PHASE_R before READ phase
+        - V2_PHASE_P before PROPOSE phase
+        - V2_PHASE_C before CHOOSE
+        - V2_PHASE_X before COMMIT
+        """
+        phase_name = getattr(phase_block, 'phase_name', '').lower()
+
+        # Emit phase transition opcode in v2 mode
+        if self.use_v2 and phase_name in V2_PHASE_OPCODES:
+            phase_opcode = V2_PHASE_OPCODES[phase_name]
+            self._emit_raw(phase_opcode, 0, 0, 0, 0)
+
+        # Compile proposals in PROPOSE phase
+        if hasattr(phase_block, 'proposals') and phase_block.proposals:
+            for proposal in phase_block.proposals:
+                self._compile_proposal(proposal)
+
+        # Compile choice in CHOOSE phase
+        if hasattr(phase_block, 'choice') and phase_block.choice:
+            self._compile_choice(phase_block.choice)
+
+        # Compile commit in COMMIT phase
+        if hasattr(phase_block, 'commit') and phase_block.commit:
+            self._compile_commit(phase_block.commit)
+
+        # Compile witness write
+        if hasattr(phase_block, 'witness_write') and phase_block.witness_write:
+            self._compile_witness_decl(phase_block.witness_write)
+
+        # Compile general statements
+        if hasattr(phase_block, 'statements') and phase_block.statements:
+            for stmt in phase_block.statements:
+                self._compile_statement(stmt)
+
+        # Legacy: compile body if present
+        if hasattr(phase_block, 'body') and phase_block.body:
+            self._compile_block(phase_block.body)
+
+    def _compile_choice(self, choice):
+        """
+        Compile choice declaration (CHOOSE phase).
+
+        Emits V2_CHOOSE in v2 mode.
+        """
+        # Allocate ref register for chosen proposal
+        choice_ref = self.regs.alloc_ref()
+
+        if self.use_v2:
+            # V2: CHOOSE opcode - H[dst] = chosen proposal index
+            # The choose expression provides the decisiveness parameter
+            if hasattr(choice, 'choose_expr') and choice.choose_expr:
+                # Compile decisiveness if provided
+                if hasattr(choice.choose_expr, 'decisiveness') and choice.choose_expr.decisiveness:
+                    dec_reg = self._compile_expression(choice.choose_expr.decisiveness)
+                    self._emit_raw(V2_CHOOSE, choice_ref - 16, dec_reg, 0, 0)
+                    self.regs.free_scalar(dec_reg)
+                else:
+                    # Default decisiveness = 1.0 (100% highest score)
+                    self._emit_raw(V2_CHOOSE, choice_ref - 16, 0, 0, 1)
+            else:
+                self._emit_raw(V2_CHOOSE, choice_ref - 16, 0, 0, 1)
+        else:
+            # V1: Use CHOOSE opcode
+            self._emit(Instruction(Opcode.CHOOSE, dst=choice_ref))
+
+        # Store choice result in variable if named
+        if hasattr(choice, 'name') and choice.name:
+            self.regs.var_regs[choice.name] = choice_ref
+
+    def _compile_commit(self, commit_target):
+        """
+        Compile commit statement (COMMIT phase).
+
+        Emits V2_COMMIT in v2 mode.
+        """
+        if self.use_v2:
+            # V2: COMMIT opcode - applies chosen effect
+            self._emit_raw(V2_COMMIT, 0, 0, 0, 0)
+        else:
+            # V1: Use COMMIT opcode
+            self._emit(Instruction(Opcode.COMMIT))
 
     # ==========================================================================
     # Presence Compilation
@@ -600,23 +721,100 @@ class EISCompiler(ASTVisitor):
         self.regs.free_scalar(amount_reg)
 
     def _compile_proposal(self, proposal: Proposal):
-        """Compile proposal statement."""
-        # Begin proposal
+        """
+        Compile proposal statement.
+
+        V2 mode emits:
+        - V2_PROP_NEW: Begin new proposal
+        - V2_PROP_SCORE: Set proposal score
+        - V2_PROP_EFFECT: Set proposal effect
+        - V2_PROP_ARG: Add effect arguments
+        - V2_PROP_END: Finalize proposal
+        """
+        # Allocate ref register for proposal handle
         prop_ref = self.regs.alloc_ref()
-        self._emit(Instruction(Opcode.PROP_BEGIN, dst=prop_ref))
+        prop_idx = prop_ref - 16  # H register index (0-7)
 
-        # Compile score expression
-        score_reg = self._compile_expression(proposal.score)
-        self._emit(Instruction(Opcode.PROP_SCORE, dst=prop_ref, src0=score_reg))
-        self.regs.free_scalar(score_reg)
+        if self.use_v2:
+            # V2: PROP_NEW - H[dst] = new proposal
+            self._emit_raw(V2_PROP_NEW, prop_idx, 0, 0, 0)
 
-        # Compile effects
-        for effect in proposal.effects:
-            self._compile_statement(effect)
+            # V2: Compile and set score
+            score_reg = self._compile_expression(proposal.score)
+            self._emit_raw(V2_PROP_SCORE, prop_idx, score_reg, 0, 0)
+            self.regs.free_scalar(score_reg)
 
-        # End proposal
-        self._emit(Instruction(Opcode.PROP_END, dst=prop_ref))
+            # V2: Compile effects - each effect becomes V2_PROP_EFFECT + V2_PROP_ARG
+            for effect in proposal.effects:
+                self._compile_proposal_effect_v2(prop_idx, effect)
+
+            # V2: PROP_END - finalize proposal
+            self._emit_raw(V2_PROP_END, prop_idx, 0, 0, 0)
+        else:
+            # V1: Original implementation
+            self._emit(Instruction(Opcode.PROP_BEGIN, dst=prop_ref))
+
+            # Compile score expression
+            score_reg = self._compile_expression(proposal.score)
+            self._emit(Instruction(Opcode.PROP_SCORE, dst=prop_ref, src0=score_reg))
+            self.regs.free_scalar(score_reg)
+
+            # Compile effects
+            for effect in proposal.effects:
+                self._compile_statement(effect)
+
+            # End proposal
+            self._emit(Instruction(Opcode.PROP_END, dst=prop_ref))
+
         self.regs.free_ref(prop_ref)
+
+    def _compile_proposal_effect_v2(self, prop_idx: int, effect: Statement):
+        """
+        Compile a proposal effect for v2 substrate.
+
+        Effects are encoded as:
+        - V2_PROP_EFFECT: effect_id (transfer=1, store=2, etc.)
+        - V2_PROP_ARG: argument values
+        """
+        # Determine effect type from statement
+        if isinstance(effect, Assignment):
+            # Store effect
+            effect_id = 2  # EFFECT_STORE
+            self._emit_raw(V2_PROP_EFFECT, prop_idx, 0, 0, effect_id)
+
+            # Compile target and value as arguments
+            if isinstance(effect.target, Identifier):
+                target_reg = self.regs.lookup(effect.target.name)
+                if target_reg is not None:
+                    self._emit_raw(V2_PROP_ARG, prop_idx, target_reg, 0, 0)
+
+            val_reg = self._compile_expression(effect.value)
+            self._emit_raw(V2_PROP_ARG, prop_idx, val_reg, 0, 1)
+            self.regs.free_scalar(val_reg)
+
+        elif isinstance(effect, KernelCall):
+            if effect.kernel_name == 'transfer':
+                effect_id = 1  # EFFECT_TRANSFER
+                self._emit_raw(V2_PROP_EFFECT, prop_idx, 0, 0, effect_id)
+
+                # Compile transfer arguments
+                for i, arg in enumerate(effect.arguments):
+                    arg_reg = self._compile_expression(arg)
+                    self._emit_raw(V2_PROP_ARG, prop_idx, arg_reg, 0, i)
+                    self.regs.free_scalar(arg_reg)
+            else:
+                # Generic kernel call effect
+                kernel_id = list(self.kernels.keys()).index(effect.kernel_name) if effect.kernel_name in self.kernels else 0
+                effect_id = 0x10 + kernel_id  # EFFECT_KERNEL_BASE + id
+                self._emit_raw(V2_PROP_EFFECT, prop_idx, 0, 0, effect_id)
+
+                for i, arg in enumerate(effect.arguments):
+                    arg_reg = self._compile_expression(arg)
+                    self._emit_raw(V2_PROP_ARG, prop_idx, arg_reg, 0, i)
+                    self.regs.free_scalar(arg_reg)
+        else:
+            # Generic statement - compile as nested
+            self._compile_statement(effect)
 
     # ==========================================================================
     # Expression Compilation
@@ -955,6 +1153,24 @@ class EISCompiler(ASTVisitor):
         """Emit an instruction."""
         self.instructions.append(instr)
 
+    def _emit_raw(self, opcode: int, dst: int = 0, src0: int = 0, src1: int = 0, imm: int = 0):
+        """
+        Emit a raw instruction by opcode value.
+
+        Used for v2 opcodes that aren't in the Opcode enum.
+        Creates a pseudo-instruction that will be encoded directly.
+        """
+        # Create instruction with raw opcode
+        # We use a wrapper that stores the raw opcode value
+        instr = Instruction(
+            opcode=opcode,  # This will be the raw value
+            dst=dst,
+            src0=src0,
+            src1=src1,
+            imm=imm
+        )
+        self.instructions.append(instr)
+
     def _define_label(self, name: str):
         """Define a label at current position."""
         self.labels[name] = len(self.instructions)
@@ -1010,14 +1226,32 @@ class EISCompiler(ASTVisitor):
 # Public API
 # ==============================================================================
 
-def compile_to_eis(program: Program) -> CompiledProgram:
-    """Compile an Existence-Lang program to EIS bytecode."""
-    compiler = EISCompiler()
+def compile_to_eis(program: Program, use_v2: bool = False) -> CompiledProgram:
+    """
+    Compile an Existence-Lang program to EIS bytecode.
+
+    Args:
+        program: Parsed AST program
+        use_v2: If True, emit v2 substrate opcodes with phase transitions
+
+    Returns:
+        Compiled program with bytecode for each creature/kernel
+    """
+    compiler = EISCompiler(use_v2=use_v2)
     return compiler.compile(program)
 
 
-def compile_source(source: str) -> CompiledProgram:
-    """Compile Existence-Lang source code to EIS bytecode."""
+def compile_source(source: str, use_v2: bool = False) -> CompiledProgram:
+    """
+    Compile Existence-Lang source code to EIS bytecode.
+
+    Args:
+        source: Existence-Lang source code
+        use_v2: If True, emit v2 substrate opcodes with phase transitions
+
+    Returns:
+        Compiled program with bytecode for each creature/kernel
+    """
     # Load parser and lexer directly to avoid import issues
     if "det.lang.tokens" not in sys.modules:
         _tokens = _load_module_direct("det.lang.tokens", os.path.join(_BASE_PATH, "tokens.py"))
@@ -1037,4 +1271,4 @@ def compile_source(source: str) -> CompiledProgram:
     parser = Parser(tokens)
     program = parser.parse()
 
-    return compile_to_eis(program)
+    return compile_to_eis(program, use_v2=use_v2)

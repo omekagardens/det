@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 11 - Substrate v2 DET-Honesty Improvements (Complete)
+**Current Phase**: Phase 12 - Compiler v2 Update (Complete)
 
 ---
 
@@ -668,10 +668,68 @@
 
 ---
 
+## Phase 12: Compiler v2 Update (Complete)
+
+### 12.1 EIS Encoding v2 Opcodes ✅
+- **Status**: Complete
+- **Files Modified**:
+  - `src/python/det/eis/encoding.py` - Added v2 opcodes
+- **New Constants**:
+  - Phase control: `V2_PHASE_R` (0x04), `V2_PHASE_P` (0x05), `V2_PHASE_C` (0x06), `V2_PHASE_X` (0x07)
+  - Proposals: `V2_PROP_NEW` (0x50), `V2_PROP_SCORE` (0x51), `V2_PROP_EFFECT` (0x52), `V2_PROP_ARG` (0x53), `V2_PROP_END` (0x54)
+  - Choose/Commit: `V2_CHOOSE` (0x60), `V2_COMMIT` (0x61), `V2_WITNESS` (0x62)
+  - Stores: `V2_STN` (0x70), `V2_STB` (0x71), `V2_STT` (0x72)
+  - Typed loads: `V2_LDN` (0x10), `V2_LDB` (0x11), `V2_LDI` (0x13), `V2_LDI_F` (0x14)
+  - Register ops: `V2_MOV` (0x20), `V2_MOVR` (0x21), `V2_MOVT` (0x22), `V2_TSET` (0x23), `V2_TGET` (0x24)
+  - Comparison: `V2_CMP` (0x40), `V2_CMPE` (0x41), `V2_TEQ` (0x42), `V2_TNE` (0x43)
+  - I/O: `V2_IN` (0x80), `V2_OUT` (0x81), `V2_EMIT` (0x82), `V2_POLL` (0x83)
+  - System: `V2_RAND` (0xF0), `V2_SEED` (0xF1), `V2_LANE` (0xF2), `V2_TIME` (0xF3), `V2_DEBUG` (0xFE)
+
+### 12.2 Phase-Aware Code Generation ✅
+- **Status**: Complete
+- **Files Modified**:
+  - `src/python/det/lang/eis_compiler.py` - Added v2 mode
+- **Changes**:
+  - Added `use_v2` parameter to `EISCompiler` class
+  - New `_compile_phase_block()` method emits `V2_PHASE_*` opcodes
+  - Updated `_compile_kernel()` to use phase-aware compilation
+  - Added `_compile_choice()` and `_compile_commit()` for v2 opcodes
+  - Added `_emit_raw()` helper for raw opcode emission
+
+### 12.3 Proposal Compilation v2 ✅
+- **Status**: Complete
+- **Changes**:
+  - Updated `_compile_proposal()` for v2 mode
+  - New sequence: `V2_PROP_NEW` → `V2_PROP_SCORE` → `V2_PROP_EFFECT` → `V2_PROP_ARG` → `V2_PROP_END`
+  - Added `_compile_proposal_effect_v2()` for effect encoding
+  - Effect types: TRANSFER (1), STORE (2), KERNEL_BASE (0x10+)
+
+### 12.4 V2 Compiler Tests ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/test_compiler_v2.py` - V2 compiler test suite
+- **Tests**:
+  - Opcode value verification (matches C substrate)
+  - Phase opcode mapping
+  - Compiler mode flags (v1/v2)
+  - Raw instruction emission
+  - Bytecode encoding/decoding roundtrip
+  - Full compilation flow integration
+- **Total**: 11/11 tests passing
+
+### Phase 12 Summary
+- **V2 opcodes**: Match C substrate `eis_substrate_v2.h` exactly
+- **Compilation modes**: V1 (default) maintains compatibility, V2 for substrate v2
+- **Phase-aware**: Emits `V2_PHASE_R/P/C/X` at phase boundaries
+- **Proposal sequence**: Full v2 proposal instruction sequence support
+
+---
+
 ## Current Test Summary
 
 | Component | Tests | Status |
 |-----------|-------|--------|
+| Compiler v2 | 11/11 | ✅ |
 | Substrate v2 | 40/40 | ✅ |
 | Substrate v1 | 56/56 | ✅ |
 | DET Core | 37/37 | ✅ |
@@ -684,12 +742,13 @@
 
 ## Next Steps
 
-1. **Phase 12: Full Existence-Lang Compilation**:
-   - [ ] Complete EIS compiler for all Existence-Lang constructs
-   - [ ] Compile physics.ex and kernel.ex to EIS bytecode
+1. **Phase 13: Full Existence-Lang Compilation**:
+   - [ ] Parse and compile physics.ex to EIS v2 bytecode
+   - [ ] Parse and compile kernel.ex to EIS v2 bytecode
    - [ ] Run compiled kernel on substrate v2
+   - [ ] End-to-end integration test
 
-2. **Phase 13: GPU Backend**:
+2. **Phase 14: GPU Backend**:
    - [ ] Metal compute shaders for macOS
    - [ ] CUDA backend for NVIDIA
    - [ ] Parallel proposal evaluation
@@ -755,4 +814,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-23 (Phase 11 Substrate v2 DET-Honesty Improvements Complete)*
+*Last Updated: 2026-01-23 (Phase 12 Compiler v2 Update Complete)*

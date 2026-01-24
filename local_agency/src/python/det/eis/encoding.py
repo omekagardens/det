@@ -42,10 +42,10 @@ class Opcode(IntEnum):
     - 0x10-0x1F: Load operations
     - 0x20-0x2F: Store operations (staged)
     - 0x30-0x4F: Arithmetic/math
-    - 0x50-0x5F: Comparison and token ops
-    - 0x60-0x6F: Proposal operations
-    - 0x70-0x7F: Choose/commit
-    - 0x80-0x8F: Reference/handle ops
+    - 0x50-0x5F: Comparison and token ops (v1) / Proposals (v2)
+    - 0x60-0x6F: Proposal operations (v1) / Choose/Commit (v2)
+    - 0x70-0x7F: Choose/commit (v1) / Stores (v2)
+    - 0x80-0x8F: Reference/handle ops / I/O (v2)
     - 0x90-0x9F: Conservation primitives
     - 0xA0-0xAF: Grace protocol
     - 0xF0-0xFF: System/debug
@@ -53,11 +53,17 @@ class Opcode(IntEnum):
 
     # === Phase Control (0x00-0x0F) ===
     NOP = 0x00
-    PHASE = 0x01        # Set current phase: PHASE imm
+    PHASE = 0x01        # Set current phase: PHASE imm (v1)
     HALT = 0x02         # Stop execution
     YIELD = 0x03        # Yield to scheduler
     FENCE = 0x04        # Memory fence
     TICK = 0x05         # Advance tick counter
+
+    # V2 phase control (0x04-0x07) - use V2_ prefix
+    V2_PHASE_R = 0x04   # Enter READ phase (v2)
+    V2_PHASE_P = 0x05   # Enter PROPOSE phase (v2)
+    V2_PHASE_C = 0x06   # Enter CHOOSE phase (v2)
+    V2_PHASE_X = 0x07   # Enter COMMIT phase (v2)
 
     # === Load Operations (0x10-0x1F) ===
     LDI = 0x10          # Load immediate: LDI dst, imm
@@ -69,11 +75,25 @@ class Opcode(IntEnum):
     LDR = 0x16          # Load from ref: LDR dst, refReg
     LDBUF = 0x17        # Load from buffer: LDBUF dst, bufRef, offset
 
+    # V2 Typed Loads (0x10-0x1F) - match C substrate
+    V2_LDN = 0x10       # Load node field: dst = nodes[ref].field
+    V2_LDB = 0x11       # Load bond field: dst = bonds[ref].field
+    V2_LDNB = 0x12      # Load neighbor field via bond
+    V2_LDI = 0x13       # Load immediate: dst = imm
+    V2_LDI_F = 0x14     # Load float immediate (uses ext word)
+
     # === Store Operations (0x20-0x2F) - Staged for COMMIT ===
     ST_TOK = 0x20       # Stage token write: ST_TOK tokRef, src
     ST_NODE = 0x21      # Stage node field write: ST_NODE nodeRef, fieldId, src
     ST_BOND = 0x22      # Stage bond field write: ST_BOND bondRef, fieldId, src
     ST_BUF = 0x23       # Stage buffer write: ST_BUF bufRef, offset, src
+
+    # V2 Register Ops (0x20-0x2F) - match C substrate
+    V2_MOV = 0x20       # Copy: dst = src
+    V2_MOVR = 0x21      # Ref to/from scalar
+    V2_MOVT = 0x22      # Token to/from scalar
+    V2_TSET = 0x23      # Set token: T[dst] = imm
+    V2_TGET = 0x24      # Get token as scalar: dst = (float)T[src]
 
     # === Arithmetic (0x30-0x3F) ===
     ADD = 0x30          # ADD dst, src0, src1
@@ -84,6 +104,13 @@ class Opcode(IntEnum):
     NEG = 0x35          # NEG dst, src
     ABS = 0x36          # ABS dst, src
     MOD = 0x37          # MOD dst, src0, src1
+
+    # V2 Arithmetic (0x30-0x3F) - same as v1, adding missing ops
+    V2_SQRT = 0x37      # SQRT dst = sqrt(max(0, src0))
+    V2_MIN = 0x38       # MIN dst = min(src0, src1)
+    V2_MAX = 0x39       # MAX dst = max(src0, src1)
+    V2_RELU = 0x3A      # RELU dst = max(0, src0)
+    V2_CLAMP = 0x3B     # CLAMP dst = clamp(src0, 0, 1)
 
     # === Math Functions (0x40-0x4F) ===
     SQRT = 0x40         # SQRT dst, src
@@ -97,8 +124,8 @@ class Opcode(IntEnum):
     RELU = 0x48         # RELU dst, src (max(0, src))
     SIGMOID = 0x49      # SIGMOID dst, src
 
-    # === Comparison and Token Ops (0x50-0x5F) ===
-    CMP = 0x50          # Compare: CMP dstTok, src0, src1 → LT/EQ/GT
+    # === Comparison and Token Ops (0x40-0x4F in v2) ===
+    CMP = 0x50          # Compare: CMP dstTok, src0, src1 → LT/EQ/GT (v1 position)
     CMP_EPS = 0x51      # Compare with epsilon: CMP_EPS dstTok, src0, src1, eps
     TEQ = 0x52          # Token equality: TEQ dstTok, tok0, tok1
     TNE = 0x53          # Token not equal: TNE dstTok, tok0, tok1
@@ -106,19 +133,48 @@ class Opcode(IntEnum):
     TSET = 0x55         # Set token: TSET dstTok, imm
     TGET = 0x56         # Get token value to scalar: TGET dst, srcTok
 
-    # === Proposal Operations (0x60-0x6F) ===
-    PROP_BEGIN = 0x60   # Begin proposal: PROP_BEGIN propRef
-    PROP_SCORE = 0x61   # Set score: PROP_SCORE propRef, scoreReg
-    PROP_EFFECT = 0x62  # Add effect: PROP_EFFECT propRef, effectId, args...
-    PROP_END = 0x63     # End proposal: PROP_END propRef
-    PROP_LIST = 0x64    # Get proposal list ref: PROP_LIST dst
+    # V2 comparison (0x40-0x4F)
+    V2_CMP = 0x40       # Compare: T[dst] = LT/EQ/GT
+    V2_CMPE = 0x41      # Compare with epsilon
+    V2_TEQ = 0x42       # Token equal
+    V2_TNE = 0x43       # Token not equal
 
-    # === Choose/Commit (0x70-0x7F) ===
-    CHOOSE = 0x70       # Choose: CHOOSE choiceRef, propListRef, decisiveness, seed
-    COMMIT = 0x71       # Commit: COMMIT choiceRef
-    COMMIT_ALL = 0x72   # Commit all pending: COMMIT_ALL
-    WITNESS = 0x73      # Write witness: WITNESS tokRef, value
-    ABORT = 0x74        # Abort proposals: ABORT
+    # === Proposal Operations (0x60-0x6F v1, 0x50-0x5F v2) ===
+    PROP_BEGIN = 0x60   # Begin proposal: PROP_BEGIN propRef (v1)
+    PROP_SCORE = 0x61   # Set score: PROP_SCORE propRef, scoreReg (v1)
+    PROP_EFFECT = 0x62  # Add effect: PROP_EFFECT propRef, effectId, args... (v1)
+    PROP_END = 0x63     # End proposal: PROP_END propRef (v1)
+    PROP_LIST = 0x64    # Get proposal list ref: PROP_LIST dst (v1)
+
+    # V2 Proposals (0x50-0x5F) - match C substrate eis_substrate_v2.h
+    V2_PROP_NEW = 0x50    # Begin new proposal: H[dst] = new proposal
+    V2_PROP_SCORE = 0x51  # Set score: proposals[H[dst]].score = src0
+    V2_PROP_EFFECT = 0x52 # Set effect: proposals[H[dst]].effect = ...
+    V2_PROP_ARG = 0x53    # Add argument to current proposal
+    V2_PROP_END = 0x54    # Finalize proposal
+
+    # === Choose/Commit (0x70-0x7F v1, 0x60-0x6F v2) ===
+    CHOOSE = 0x70       # Choose: CHOOSE choiceRef, propListRef, decisiveness, seed (v1)
+    COMMIT = 0x71       # Commit: COMMIT choiceRef (v1)
+    COMMIT_ALL = 0x72   # Commit all pending: COMMIT_ALL (v1)
+    WITNESS = 0x73      # Write witness: WITNESS tokRef, value (v1)
+    ABORT = 0x74        # Abort proposals: ABORT (v1)
+
+    # V2 Choose/Commit (0x60-0x6F) - match C substrate
+    V2_CHOOSE = 0x60    # Select proposal: H[dst] = chosen index
+    V2_COMMIT = 0x61    # Apply chosen effect
+    V2_WITNESS = 0x62   # Emit witness: T[dst] = witness token
+
+    # V2 Stores (0x70-0x7F) - match C substrate
+    V2_STN = 0x70       # Store node field: nodes[ref].field = src
+    V2_STB = 0x71       # Store bond field: bonds[ref].field = src
+    V2_STT = 0x72       # Store token: token_store[ref] = T[src]
+
+    # V2 I/O (0x80-0x8F)
+    V2_IN = 0x80        # Read from channel: dst = io[imm]
+    V2_OUT = 0x81       # Write to channel: io[imm] = src0
+    V2_EMIT = 0x82      # Emit byte to buffer
+    V2_POLL = 0x83      # Poll channel ready
 
     # === Reference/Handle Ops (0x80-0x8F) ===
     MKNODE = 0x80       # Make node ref: MKNODE dst, nodeId
@@ -157,6 +213,14 @@ class Opcode(IntEnum):
     STATS = 0xF4        # Emit statistics
     INVALID = 0xFF      # Invalid opcode (trap)
 
+    # V2 System (0xF0-0xFF) - match C substrate
+    V2_RAND = 0xF0      # Random [0,1): dst = random()
+    V2_SEED = 0xF1      # Set seed: seed = src0
+    V2_LANE = 0xF2      # Get lane ID: dst = lane_id
+    V2_TIME = 0xF3      # Get tick: dst = tick
+    V2_DEBUG = 0xFE     # Debug breakpoint
+    V2_INVALID = 0xFF   # Invalid opcode
+
 
 # ==============================================================================
 # Instruction Format
@@ -175,7 +239,7 @@ class InstructionFormat(IntEnum):
 
 # Opcode to format mapping
 OPCODE_FORMAT = {
-    # Phase control
+    # Phase control (v1)
     Opcode.NOP: InstructionFormat.NONE,
     Opcode.PHASE: InstructionFormat.I,
     Opcode.HALT: InstructionFormat.NONE,
@@ -183,7 +247,13 @@ OPCODE_FORMAT = {
     Opcode.FENCE: InstructionFormat.NONE,
     Opcode.TICK: InstructionFormat.NONE,
 
-    # Loads
+    # Phase control (v2)
+    Opcode.V2_PHASE_R: InstructionFormat.NONE,
+    Opcode.V2_PHASE_P: InstructionFormat.NONE,
+    Opcode.V2_PHASE_C: InstructionFormat.NONE,
+    Opcode.V2_PHASE_X: InstructionFormat.NONE,
+
+    # Loads (v1)
     Opcode.LDI: InstructionFormat.RI,
     Opcode.LDI_EXT: InstructionFormat.EXT,
     Opcode.LDN: InstructionFormat.R,
@@ -192,12 +262,31 @@ OPCODE_FORMAT = {
     Opcode.LDT: InstructionFormat.RR,
     Opcode.LDR: InstructionFormat.RR,
 
-    # Stores
+    # Loads (v2)
+    Opcode.V2_LDN: InstructionFormat.R,      # dst, ref, field
+    Opcode.V2_LDB: InstructionFormat.R,      # dst, ref, field
+    Opcode.V2_LDNB: InstructionFormat.R,     # dst, ref, neighbor_idx
+    Opcode.V2_LDI: InstructionFormat.RI,     # dst, imm
+    Opcode.V2_LDI_F: InstructionFormat.EXT,  # dst + ext word
+
+    # Register ops (v2)
+    Opcode.V2_MOV: InstructionFormat.RR,
+    Opcode.V2_MOVR: InstructionFormat.RRI,   # dst, src, direction
+    Opcode.V2_MOVT: InstructionFormat.RRI,   # dst, src, direction
+    Opcode.V2_TSET: InstructionFormat.RI,    # dst, imm
+    Opcode.V2_TGET: InstructionFormat.RR,    # dst, src
+
+    # Stores (v1)
     Opcode.ST_TOK: InstructionFormat.RR,
     Opcode.ST_NODE: InstructionFormat.R,
     Opcode.ST_BOND: InstructionFormat.R,
 
-    # Arithmetic
+    # Stores (v2)
+    Opcode.V2_STN: InstructionFormat.R,      # ref, field, src
+    Opcode.V2_STB: InstructionFormat.R,      # ref, field, src
+    Opcode.V2_STT: InstructionFormat.RR,     # ref, src
+
+    # Arithmetic (v1)
     Opcode.ADD: InstructionFormat.R,
     Opcode.SUB: InstructionFormat.R,
     Opcode.MUL: InstructionFormat.R,
@@ -205,29 +294,67 @@ OPCODE_FORMAT = {
     Opcode.NEG: InstructionFormat.RR,
     Opcode.ABS: InstructionFormat.RR,
 
-    # Math
+    # Arithmetic (v2 additions)
+    Opcode.V2_SQRT: InstructionFormat.RR,
+    Opcode.V2_MIN: InstructionFormat.R,
+    Opcode.V2_MAX: InstructionFormat.R,
+    Opcode.V2_RELU: InstructionFormat.RR,
+    Opcode.V2_CLAMP: InstructionFormat.RR,
+
+    # Math (v1)
     Opcode.SQRT: InstructionFormat.RR,
     Opcode.MIN: InstructionFormat.R,
     Opcode.MAX: InstructionFormat.R,
     Opcode.RELU: InstructionFormat.RR,
 
-    # Comparison
+    # Comparison (v1)
     Opcode.CMP: InstructionFormat.R,
     Opcode.CMP_EPS: InstructionFormat.EXT,
     Opcode.TMOV: InstructionFormat.RR,
     Opcode.TSET: InstructionFormat.RI,
 
-    # Proposals
+    # Comparison (v2)
+    Opcode.V2_CMP: InstructionFormat.R,
+    Opcode.V2_CMPE: InstructionFormat.RRI,   # dst, src0, src1 + eps in imm
+    Opcode.V2_TEQ: InstructionFormat.R,
+    Opcode.V2_TNE: InstructionFormat.R,
+
+    # Proposals (v1)
     Opcode.PROP_BEGIN: InstructionFormat.RR,
     Opcode.PROP_SCORE: InstructionFormat.RR,
     Opcode.PROP_EFFECT: InstructionFormat.EXT,
     Opcode.PROP_END: InstructionFormat.RR,
 
-    # Choose/Commit
+    # Proposals (v2)
+    Opcode.V2_PROP_NEW: InstructionFormat.RR,     # dst (ref register)
+    Opcode.V2_PROP_SCORE: InstructionFormat.RR,   # dst (prop ref), src (score)
+    Opcode.V2_PROP_EFFECT: InstructionFormat.EXT, # dst, effect_id + ext for args
+    Opcode.V2_PROP_ARG: InstructionFormat.RR,     # prop_ref, arg_reg
+    Opcode.V2_PROP_END: InstructionFormat.RR,     # prop_ref
+
+    # Choose/Commit (v1)
     Opcode.CHOOSE: InstructionFormat.EXT,
     Opcode.COMMIT: InstructionFormat.RR,
     Opcode.COMMIT_ALL: InstructionFormat.NONE,
     Opcode.WITNESS: InstructionFormat.RR,
+
+    # Choose/Commit (v2)
+    Opcode.V2_CHOOSE: InstructionFormat.RR,   # dst, decisiveness_reg
+    Opcode.V2_COMMIT: InstructionFormat.RR,   # dst (result token)
+    Opcode.V2_WITNESS: InstructionFormat.RI,  # dst, witness_value
+
+    # I/O (v2)
+    Opcode.V2_IN: InstructionFormat.RI,       # dst, channel
+    Opcode.V2_OUT: InstructionFormat.RRI,     # src, channel
+    Opcode.V2_EMIT: InstructionFormat.R,      # buf_ref, byte_src
+    Opcode.V2_POLL: InstructionFormat.RI,     # dst, channel
+
+    # System (v2)
+    Opcode.V2_RAND: InstructionFormat.RR,     # dst
+    Opcode.V2_SEED: InstructionFormat.RR,     # src
+    Opcode.V2_LANE: InstructionFormat.RR,     # dst
+    Opcode.V2_TIME: InstructionFormat.RR,     # dst
+    Opcode.V2_DEBUG: InstructionFormat.NONE,
 
     # References
     Opcode.MKNODE: InstructionFormat.RI,
