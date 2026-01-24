@@ -7,20 +7,34 @@
  * the operating system, expressed in agency-first semantics.
  *
  * Architecture:
- *   KernelCreature (this file)
+ *   physics.ex       ← Fundamental physics (Transfer, Diffuse, Grace)
+ *   kernel.ex        ← You are here (OS services)
  *     ├── kernel Schedule    - presence-based CPU allocation
  *     ├── kernel Allocate    - F-conserving memory management
- *     ├── kernel Transfer    - bond-based IPC
+ *     ├── kernel Send        - bond-based IPC
  *     ├── kernel Gate        - agency-based access control
- *     └── kernel Grace       - boundary recovery
+ *     └── kernel Grace       - boundary recovery using physics.GraceFlow
  *
- * The minimal C layer provides:
- *   - DET physics (F conservation, flux, coherence decay)
- *   - EIS instruction execution
- *   - Hardware abstraction
+ * The substrate layer (eis_substrate_v2) provides:
+ *   - Phase-based execution (READ → PROPOSE → CHOOSE → COMMIT)
+ *   - Effect table (XFER_F, DIFFUSE, etc.)
+ *   - Node/bond state storage
  *
  * With DET-native hardware, this kernel runs directly on silicon.
  */
+
+// Import fundamental physics from physics.ex
+import physics.{
+    Transfer,           // Antisymmetric resource movement
+    Diffuse,            // Symmetric flux exchange
+    Compare,            // Trace measurement
+    Distinct,           // Create distinction
+    Reconcile,          // Attempted unification
+    ComputePresence,    // P = F · C · a
+    CoherenceDecay,     // Bond decay
+    CoherenceStrengthen,// Bond strengthening
+    GraceFlow           // Full grace protocol
+};
 
 // =============================================================================
 // KERNEL CREATURE - The Root of All Existence

@@ -7,47 +7,72 @@ This is not a simulation - this IS the kernel, expressed in agency-first semanti
 
 Architecture:
     ┌─────────────────────────────────────────────┐
-    │         Existence-Lang Kernel               │
-    │   (kernel.ex - Schedule, Allocate, etc.)    │
+    │         Existence-Lang (kernel.ex)          │
+    │   Schedule, Allocate, Send, Gate, Grace     │
+    └─────────────────────────────────────────────┘
+                        │ imports
+    ┌─────────────────────────────────────────────┐
+    │         Existence-Lang (physics.ex)         │
+    │   Transfer, Diffuse, Compare, GraceFlow     │
     └─────────────────────────────────────────────┘
                         │
-                        ▼ compiles to
+                        ▼ bridges via
     ┌─────────────────────────────────────────────┐
-    │              EIS Bytecode                   │
-    │   (Existence Instruction Set)               │
+    │         Physics Bridge (Python)             │
+    │   physics_bridge.py → PhysicsKernels        │
     └─────────────────────────────────────────────┘
                         │
                         ▼ executes on
     ┌─────────────────────────────────────────────┐
-    │         Minimal C Layer                     │
-    │   (EIS VM + DET Core + Hardware Abstraction)│
+    │         Substrate v2 (C)                    │
+    │   Phase-based: READ→PROPOSE→CHOOSE→COMMIT   │
+    │   Effects: XFER_F, DIFFUSE, SET_F, etc.     │
     └─────────────────────────────────────────────┘
                         │
                         ▼ future
     ┌─────────────────────────────────────────────┐
     │         DET-Native Hardware                 │
-    │   (Direct EIS execution on silicon)         │
+    │   (Direct substrate execution on silicon)   │
     └─────────────────────────────────────────────┘
 
 Usage:
-    from det.os.existence import DETOSBootstrap
+    from det.os.existence import DETOSBootstrap, PhysicsKernels
 
     # Boot the kernel
     os = DETOSBootstrap()
     os.boot()
 
-    # Spawn a creature
-    creature = os.spawn("my_app", initial_f=10.0)
-
-    # Run
-    os.run()
+    # Or use physics directly
+    from det.os.existence import create_physics_runtime
+    physics = create_physics_runtime()
+    witness = physics.transfer(src_id=0, dst_id=1, amount=10.0)
 """
 
 from .bootstrap import DETOSBootstrap, BootState
 from .runtime import ExistenceKernelRuntime
+from .physics_bridge import (
+    PhysicsKernels,
+    SubstrateInterface,
+    WitnessToken,
+    create_physics_runtime,
+    EffectId,
+    TokenValue,
+    NodeFieldId,
+    BondFieldId,
+)
 
 __all__ = [
+    # Bootstrap
     'DETOSBootstrap',
     'BootState',
     'ExistenceKernelRuntime',
+    # Physics
+    'PhysicsKernels',
+    'SubstrateInterface',
+    'WitnessToken',
+    'create_physics_runtime',
+    'EffectId',
+    'TokenValue',
+    'NodeFieldId',
+    'BondFieldId',
 ]
