@@ -181,6 +181,9 @@ typedef enum {
     TOK_COV_ALIGNED  = 0x0230,
     TOK_COV_DRIFT    = 0x0231,
     TOK_COV_BROKEN   = 0x0232,
+
+    /* Phase violation */
+    TOK_PHASE_VIOLATION = 0xFF00,
 } TokenValue;
 
 /* ==========================================================================
@@ -229,6 +232,28 @@ typedef struct {
 } BoundaryBuffer;
 
 /* ==========================================================================
+ * LANE OWNERSHIP MODE
+ * ========================================================================== */
+
+/**
+ * Lane ownership determines how effects are deduplicated:
+ *
+ * NODE_LANE: Each lane is a node. For XFER_F, only lane with
+ *            lane_id == min(src, dst) can emit. For bond effects,
+ *            only lane with lane_id == node_i can emit.
+ *
+ * BOND_LANE: Each lane is a bond. Only lane with lane_id == bond_id
+ *            can emit effects for that bond.
+ *
+ * NONE: No ownership enforcement (legacy behavior, may double-count).
+ */
+typedef enum {
+    LANE_OWNER_NONE = 0,    /* No enforcement */
+    LANE_OWNER_NODE = 1,    /* Node-lane model */
+    LANE_OWNER_BOND = 2,    /* Bond-lane model */
+} LaneOwnershipMode;
+
+/* ==========================================================================
  * EXECUTION STATE
  * ========================================================================== */
 
@@ -254,6 +279,21 @@ typedef struct {
     uint32_t ext;       /* Extension word */
     bool has_ext;
 } SubstrateInstr;
+
+/* ==========================================================================
+ * PREDECODED PROGRAM
+ * ========================================================================== */
+
+/**
+ * Predecoded instruction for fast dispatch.
+ * Instructions are decoded once at load time, eliminating
+ * decode overhead from the hot execution path.
+ */
+typedef struct {
+    SubstrateInstr* instrs;     /* Array of decoded instructions */
+    uint32_t count;             /* Number of instructions */
+    uint32_t capacity;          /* Allocated capacity */
+} PredecodedProgram;
 
 #ifdef __cplusplus
 }

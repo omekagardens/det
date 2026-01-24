@@ -16,14 +16,12 @@
  * INSTRUCTION DECODE/ENCODE
  * ========================================================================== */
 
-SubstrateInstr substrate_decode(const uint8_t* data, uint32_t offset, uint32_t* consumed) {
+/**
+ * Decode helper: extract fields from 32-bit word
+ * Encoding: [opcode:8][dst:5][src0:5][src1:5][imm:9]
+ */
+static SubstrateInstr decode_word(uint32_t word, const uint8_t* ext_data, uint32_t* consumed) {
     SubstrateInstr instr = {0};
-
-    /* Read 32-bit word (big-endian) */
-    uint32_t word = ((uint32_t)data[offset] << 24) |
-                    ((uint32_t)data[offset + 1] << 16) |
-                    ((uint32_t)data[offset + 2] << 8) |
-                    ((uint32_t)data[offset + 3]);
 
     instr.opcode = (word >> 24) & 0xFF;
     instr.dst = (word >> 19) & 0x1F;
@@ -43,10 +41,13 @@ SubstrateInstr substrate_decode(const uint8_t* data, uint32_t offset, uint32_t* 
         case OP_LDI_F:
         case OP_PROP_EFFECT:
             instr.has_ext = true;
-            instr.ext = ((uint32_t)data[offset + 4] << 24) |
-                        ((uint32_t)data[offset + 5] << 16) |
-                        ((uint32_t)data[offset + 6] << 8) |
-                        ((uint32_t)data[offset + 7]);
+            if (ext_data) {
+                /* Extension word follows in same endianness */
+                instr.ext = ((uint32_t)ext_data[0] << 24) |
+                            ((uint32_t)ext_data[1] << 16) |
+                            ((uint32_t)ext_data[2] << 8) |
+                            ((uint32_t)ext_data[3]);
+            }
             *consumed = 8;
             break;
         default:
@@ -57,6 +58,68 @@ SubstrateInstr substrate_decode(const uint8_t* data, uint32_t offset, uint32_t* 
     return instr;
 }
 
+/**
+ * Decode instruction from big-endian bytecode (network order, portable)
+ */
+SubstrateInstr substrate_decode(const uint8_t* data, uint32_t offset, uint32_t* consumed) {
+    /* Read 32-bit word (big-endian) */
+    uint32_t word = ((uint32_t)data[offset] << 24) |
+                    ((uint32_t)data[offset + 1] << 16) |
+                    ((uint32_t)data[offset + 2] << 8) |
+                    ((uint32_t)data[offset + 3]);
+
+    return decode_word(word, data + offset + 4, consumed);
+}
+
+/**
+ * Decode instruction from little-endian bytecode (native for most CPUs)
+ * This is the fast path for x86/ARM.
+ */
+SubstrateInstr substrate_decode_le(const uint8_t* data, uint32_t offset, uint32_t* consumed) {
+    /* Read 32-bit word (little-endian) */
+    uint32_t word = ((uint32_t)data[offset + 3] << 24) |
+                    ((uint32_t)data[offset + 2] << 16) |
+                    ((uint32_t)data[offset + 1] << 8) |
+                    ((uint32_t)data[offset]);
+
+    SubstrateInstr instr = {0};
+
+    instr.opcode = (word >> 24) & 0xFF;
+    instr.dst = (word >> 19) & 0x1F;
+    instr.src0 = (word >> 14) & 0x1F;
+    instr.src1 = (word >> 9) & 0x1F;
+    instr.imm = word & 0x1FF;
+
+    /* Sign-extend 9-bit immediate */
+    if (instr.imm & 0x100) {
+        instr.imm = instr.imm - 0x200;
+    }
+
+    *consumed = 4;
+
+    /* Check if extension word needed */
+    switch (instr.opcode) {
+        case OP_LDI_F:
+        case OP_PROP_EFFECT:
+            instr.has_ext = true;
+            /* Extension in little-endian */
+            instr.ext = ((uint32_t)data[offset + 7] << 24) |
+                        ((uint32_t)data[offset + 6] << 16) |
+                        ((uint32_t)data[offset + 5] << 8) |
+                        ((uint32_t)data[offset + 4]);
+            *consumed = 8;
+            break;
+        default:
+            instr.has_ext = false;
+            break;
+    }
+
+    return instr;
+}
+
+/**
+ * Encode instruction to big-endian bytecode (portable)
+ */
 uint32_t substrate_encode(const SubstrateInstr* instr, uint8_t* out) {
     uint32_t imm_bits = instr->imm & 0x1FF;
     uint32_t word = ((uint32_t)(instr->opcode & 0xFF) << 24) |
@@ -79,6 +142,93 @@ uint32_t substrate_encode(const SubstrateInstr* instr, uint8_t* out) {
     }
 
     return 4;
+}
+
+/**
+ * Encode instruction to little-endian bytecode (fast native)
+ */
+uint32_t substrate_encode_le(const SubstrateInstr* instr, uint8_t* out) {
+    uint32_t imm_bits = instr->imm & 0x1FF;
+    uint32_t word = ((uint32_t)(instr->opcode & 0xFF) << 24) |
+                    ((uint32_t)(instr->dst & 0x1F) << 19) |
+                    ((uint32_t)(instr->src0 & 0x1F) << 14) |
+                    ((uint32_t)(instr->src1 & 0x1F) << 9) |
+                    (imm_bits);
+
+    /* Little-endian */
+    out[0] = word & 0xFF;
+    out[1] = (word >> 8) & 0xFF;
+    out[2] = (word >> 16) & 0xFF;
+    out[3] = (word >> 24) & 0xFF;
+
+    if (instr->has_ext) {
+        out[4] = instr->ext & 0xFF;
+        out[5] = (instr->ext >> 8) & 0xFF;
+        out[6] = (instr->ext >> 16) & 0xFF;
+        out[7] = (instr->ext >> 24) & 0xFF;
+        return 8;
+    }
+
+    return 4;
+}
+
+/* ==========================================================================
+ * PREDECODING
+ * ========================================================================== */
+
+bool substrate_predecode(SubstrateVM* vm) {
+    if (!vm || !vm->program || vm->program_size == 0) {
+        return false;
+    }
+
+    /* Free existing predecoded program */
+    substrate_free_predecoded(vm);
+
+    /* Estimate instruction count (max = size/4) */
+    uint32_t max_instrs = vm->program_size / 4;
+
+    vm->predecoded = (PredecodedProgram*)calloc(1, sizeof(PredecodedProgram));
+    if (!vm->predecoded) return false;
+
+    vm->predecoded->instrs = (SubstrateInstr*)calloc(max_instrs, sizeof(SubstrateInstr));
+    if (!vm->predecoded->instrs) {
+        free(vm->predecoded);
+        vm->predecoded = NULL;
+        return false;
+    }
+
+    vm->predecoded->capacity = max_instrs;
+
+    /* Decode all instructions */
+    uint32_t offset = 0;
+    while (offset < vm->program_size) {
+        uint32_t consumed;
+        SubstrateInstr instr = substrate_decode(vm->program, offset, &consumed);
+
+        vm->predecoded->instrs[vm->predecoded->count++] = instr;
+        offset += consumed;
+
+        if (instr.opcode == OP_HALT) {
+            break;  /* Stop at HALT */
+        }
+    }
+
+    vm->use_predecoded = true;
+    return true;
+}
+
+void substrate_free_predecoded(SubstrateVM* vm) {
+    if (!vm || !vm->predecoded) return;
+
+    free(vm->predecoded->instrs);
+    free(vm->predecoded);
+    vm->predecoded = NULL;
+    vm->use_predecoded = false;
+}
+
+void substrate_use_predecoded(SubstrateVM* vm, bool enable) {
+    if (!vm) return;
+    vm->use_predecoded = enable && (vm->predecoded != NULL);
 }
 
 /* ==========================================================================
@@ -218,8 +368,178 @@ void substrate_bond_set_i(SubstrateVM* vm, uint32_t bond_id, BondFieldId field, 
 }
 
 /* ==========================================================================
- * RANDOM NUMBER GENERATOR (xorshift64)
+ * PHASE LEGALITY TABLE
  * ========================================================================== */
+
+/**
+ * Phase legality enforcement:
+ * - READ phase: Loads only (LDN, LDB, LDNB, LDI, LDI_F)
+ * - PROPOSE phase: Proposal ops only (PROP_NEW, PROP_SCORE, PROP_EFFECT, PROP_ARG, PROP_END)
+ * - CHOOSE phase: CHOOSE only
+ * - COMMIT phase: Stores and COMMIT only (STN, STB, STT, COMMIT)
+ *
+ * Arithmetic, register ops, and comparisons are allowed in all phases
+ * (they operate on registers, not trace state).
+ */
+
+typedef enum {
+    PHASE_MASK_READ    = (1 << PHASE_READ),
+    PHASE_MASK_PROPOSE = (1 << PHASE_PROPOSE),
+    PHASE_MASK_CHOOSE  = (1 << PHASE_CHOOSE),
+    PHASE_MASK_COMMIT  = (1 << PHASE_COMMIT),
+    PHASE_MASK_ALL     = 0x0F,
+} PhaseMask;
+
+static uint8_t opcode_phase_mask(uint8_t opcode) {
+    switch (opcode) {
+        /* Phase control - allowed anywhere */
+        case OP_NOP:
+        case OP_HALT:
+        case OP_YIELD:
+        case OP_TICK:
+        case OP_PHASE_R:
+        case OP_PHASE_P:
+        case OP_PHASE_C:
+        case OP_PHASE_X:
+            return PHASE_MASK_ALL;
+
+        /* Typed loads - READ phase only */
+        case OP_LDN:
+        case OP_LDB:
+        case OP_LDNB:
+            return PHASE_MASK_READ;
+
+        /* Immediate loads - anywhere (no trace access) */
+        case OP_LDI:
+        case OP_LDI_F:
+            return PHASE_MASK_ALL;
+
+        /* Register ops - anywhere */
+        case OP_MOV:
+        case OP_MOVR:
+        case OP_MOVT:
+        case OP_TSET:
+        case OP_TGET:
+            return PHASE_MASK_ALL;
+
+        /* Arithmetic - anywhere (pure register computation) */
+        case OP_ADD:
+        case OP_SUB:
+        case OP_MUL:
+        case OP_DIV:
+        case OP_MAD:
+        case OP_NEG:
+        case OP_ABS:
+        case OP_SQRT:
+        case OP_MIN:
+        case OP_MAX:
+        case OP_RELU:
+        case OP_CLAMP:
+            return PHASE_MASK_ALL;
+
+        /* Comparison - anywhere */
+        case OP_CMP:
+        case OP_CMPE:
+        case OP_TEQ:
+        case OP_TNE:
+            return PHASE_MASK_ALL;
+
+        /* Proposals - PROPOSE phase only */
+        case OP_PROP_NEW:
+        case OP_PROP_SCORE:
+        case OP_PROP_EFFECT:
+        case OP_PROP_ARG:
+        case OP_PROP_END:
+            return PHASE_MASK_PROPOSE;
+
+        /* Choose - CHOOSE phase only */
+        case OP_CHOOSE:
+            return PHASE_MASK_CHOOSE;
+
+        /* Commit/Witness - COMMIT phase only */
+        case OP_COMMIT:
+        case OP_WITNESS:
+            return PHASE_MASK_COMMIT;
+
+        /* Stores - COMMIT phase only */
+        case OP_STN:
+        case OP_STB:
+        case OP_STT:
+            return PHASE_MASK_COMMIT;
+
+        /* I/O - READ for input, COMMIT for output */
+        case OP_IN:
+        case OP_POLL:
+            return PHASE_MASK_READ;
+
+        case OP_OUT:
+        case OP_EMIT:
+            return PHASE_MASK_COMMIT;
+
+        /* System - anywhere */
+        case OP_RAND:
+        case OP_SEED:
+        case OP_LANE:
+        case OP_TIME:
+        case OP_DEBUG:
+            return PHASE_MASK_ALL;
+
+        default:
+            return 0; /* Unknown opcode - disallowed */
+    }
+}
+
+static bool opcode_allowed_in_phase(uint8_t opcode, SubstratePhase phase) {
+    uint8_t mask = opcode_phase_mask(opcode);
+    return (mask & (1 << phase)) != 0;
+}
+
+/* ==========================================================================
+ * RANDOM NUMBER GENERATOR - Trace-derived (DET-clean)
+ * ========================================================================== */
+
+/**
+ * MurmurHash3 32-bit finalizer - fast hash mixing
+ * Used to derive deterministic seed from trace state.
+ */
+static uint32_t hash_mix32(uint32_t h) {
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
+}
+
+/**
+ * Combine multiple values into a hash.
+ * seed = hash(r, k, tick, lane_id) for node lanes
+ * seed = hash(r_i ^ r_j, bond_id, tick, lane_id) for bond lanes
+ */
+static uint32_t hash_combine(uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
+    uint32_t h = a;
+    h = hash_mix32(h ^ b);
+    h = hash_mix32(h ^ c);
+    h = hash_mix32(h ^ d);
+    return h;
+}
+
+/**
+ * Derive lane-local seed from trace state.
+ * This ensures reproducibility and parallel safety.
+ */
+static uint64_t derive_lane_seed(SubstrateVM* vm, uint32_t extra) {
+    uint32_t r = 0, k = 0;
+
+    /* Get trace values if we have a current node */
+    if (vm->nodes && vm->lane_id < vm->nodes->num_nodes) {
+        r = vm->nodes->r[vm->lane_id];
+        k = vm->nodes->k[vm->lane_id];
+    }
+
+    uint32_t h = hash_combine(r, k, (uint32_t)vm->tick, vm->lane_id ^ extra);
+    return (uint64_t)h | ((uint64_t)hash_mix32(h + 1) << 32);
+}
 
 static uint64_t xorshift64(uint64_t* state) {
     uint64_t x = *state;
@@ -230,9 +550,24 @@ static uint64_t xorshift64(uint64_t* state) {
     return x;
 }
 
+/**
+ * Get random float [0,1) using trace-derived seed.
+ * The seed is updated per-call but derived from trace state.
+ */
 static float random_float(SubstrateVM* vm) {
+    /* Derive seed from trace on first call of tick, then iterate */
+    if (vm->seed == 0) {
+        vm->seed = derive_lane_seed(vm, 0);
+    }
     uint64_t r = xorshift64(&vm->seed);
     return (float)(r & 0xFFFFFFFF) / 4294967296.0f;
+}
+
+/**
+ * Reset seed for new tick (will be re-derived on next random_float call)
+ */
+static void reset_lane_seed(SubstrateVM* vm) {
+    vm->seed = 0;  /* Will be derived from trace on next use */
 }
 
 /* ==========================================================================
@@ -354,7 +689,60 @@ uint32_t substrate_commit(SubstrateVM* vm) {
  * EFFECT APPLICATION
  * ========================================================================== */
 
+/**
+ * Check if current lane owns this effect (for deduplication).
+ * Returns true if the effect should be applied, false to skip.
+ */
+static bool effect_ownership_check(SubstrateVM* vm, EffectId effect_id, const uint32_t* args) {
+    if (vm->lane_mode == LANE_OWNER_NONE) {
+        return true;  /* No ownership enforcement */
+    }
+
+    switch (effect_id) {
+        case EFFECT_XFER_F: {
+            /* For node-lane model: only lane with lane_id == min(src, dst) owns */
+            if (vm->lane_mode == LANE_OWNER_NODE) {
+                uint32_t src_node = args[0];
+                uint32_t dst_node = args[1];
+                uint32_t owner = (src_node < dst_node) ? src_node : dst_node;
+                return (vm->lane_id == owner);
+            }
+            return true;
+        }
+
+        case EFFECT_DIFFUSE:
+        case EFFECT_SET_C:
+        case EFFECT_ADD_C:
+        case EFFECT_SET_PI:
+        case EFFECT_ADD_PI:
+        case EFFECT_SET_BOND_SIGMA: {
+            /* For bond-lane model: only lane with lane_id == bond_id owns */
+            if (vm->lane_mode == LANE_OWNER_BOND) {
+                uint32_t bond_id = args[0];
+                return (vm->lane_id == bond_id);
+            }
+            /* For node-lane model: only lane with lane_id == node_i owns */
+            if (vm->lane_mode == LANE_OWNER_NODE && vm->bonds) {
+                uint32_t bond_id = args[0];
+                if (bond_id < vm->bonds->num_bonds) {
+                    uint32_t owner = vm->bonds->node_i[bond_id];
+                    return (vm->lane_id == owner);
+                }
+            }
+            return true;
+        }
+
+        default:
+            return true;  /* Other effects have no ownership requirements */
+    }
+}
+
 uint32_t effect_apply(SubstrateVM* vm, EffectId effect_id, const uint32_t* args) {
+    /* Ownership check - skip if this lane doesn't own the effect */
+    if (!effect_ownership_check(vm, effect_id, args)) {
+        return TOK_OK;  /* Silent skip - another lane will handle it */
+    }
+
     switch (effect_id) {
         case EFFECT_NONE:
             return TOK_OK;
@@ -464,6 +852,18 @@ static void execute_instruction(SubstrateVM* vm, const SubstrateInstr* instr) {
     float a, b, c;
     union { uint32_t u; float f; } conv;
 
+    /* Phase legality check - reject instructions not allowed in current phase */
+    if (!opcode_allowed_in_phase(instr->opcode, vm->phase)) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg),
+                 "Phase violation: %s (0x%02X) not allowed in %s phase at PC=0x%X",
+                 substrate_opcode_name(instr->opcode), instr->opcode,
+                 substrate_phase_name(vm->phase), vm->pc);
+        vm->state = SUB_STATE_ERROR;
+        /* Store phase violation token in T0 for inspection */
+        write_token(regs, 0, TOK_PHASE_VIOLATION);
+        return;
+    }
+
     switch (instr->opcode) {
 
     /* ===== Phase Control ===== */
@@ -483,6 +883,8 @@ static void execute_instruction(SubstrateVM* vm, const SubstrateInstr* instr) {
         /* Clear proposal buffer for new tick */
         vm->prop_buf.count = 0;
         vm->prop_buf.chosen = 0xFFFFFFFF;
+        /* Reset seed so it's re-derived from trace */
+        reset_lane_seed(vm);
         break;
 
     case OP_PHASE_R:
@@ -822,6 +1224,9 @@ SubstrateVM* substrate_create(void) {
 void substrate_destroy(SubstrateVM* vm) {
     if (!vm) return;
 
+    /* Free predecoded program */
+    substrate_free_predecoded(vm);
+
     /* Free node arrays */
     if (vm->nodes) {
         free(vm->nodes->F);
@@ -981,17 +1386,35 @@ void substrate_set_lane(SubstrateVM* vm, uint32_t lane_id) {
     vm->lane_id = lane_id;
 }
 
+void substrate_set_lane_mode(SubstrateVM* vm, LaneOwnershipMode mode) {
+    vm->lane_mode = mode;
+}
+
 SubstrateState substrate_step(SubstrateVM* vm) {
     if (!vm) return SUB_STATE_ERROR;
     if (vm->state != SUB_STATE_RUNNING) return vm->state;
-    if (vm->pc >= vm->program_size) {
-        vm->state = SUB_STATE_HALTED;
-        return vm->state;
-    }
 
-    /* Decode */
-    uint32_t consumed;
-    SubstrateInstr instr = substrate_decode(vm->program, vm->pc, &consumed);
+    SubstrateInstr instr;
+
+    /* Use predecoded path if available (faster) */
+    if (vm->use_predecoded && vm->predecoded) {
+        if (vm->pc >= vm->predecoded->count) {
+            vm->state = SUB_STATE_HALTED;
+            return vm->state;
+        }
+        instr = vm->predecoded->instrs[vm->pc];
+        vm->pc++;  /* PC is instruction index in predecoded mode */
+    } else {
+        /* Raw bytecode decode */
+        if (vm->pc >= vm->program_size) {
+            vm->state = SUB_STATE_HALTED;
+            return vm->state;
+        }
+
+        uint32_t consumed;
+        instr = substrate_decode(vm->program, vm->pc, &consumed);
+        vm->pc += consumed;
+    }
 
     /* Trace */
     if (vm->trace_fn) {
@@ -1000,9 +1423,6 @@ SubstrateState substrate_step(SubstrateVM* vm) {
 
     /* Execute */
     execute_instruction(vm, &instr);
-
-    /* Advance PC */
-    vm->pc += consumed;
 
     return vm->state;
 }
@@ -1015,6 +1435,336 @@ SubstrateState substrate_run(SubstrateVM* vm, uint32_t max_steps) {
     }
     return vm->state;
 }
+
+/* ==========================================================================
+ * THREADED DISPATCH (GCC/Clang computed goto)
+ * ========================================================================== */
+
+#if defined(__GNUC__) || defined(__clang__)
+
+/**
+ * Fast execution using computed goto (threaded dispatch).
+ * This eliminates switch overhead by using a dispatch table.
+ * Only available on GCC/Clang. For MSVC, falls back to substrate_run.
+ */
+SubstrateState substrate_run_fast(SubstrateVM* vm, uint32_t max_steps) {
+    if (!vm || !vm->predecoded || !vm->use_predecoded) {
+        /* Fall back to standard run if predecoded not available */
+        return substrate_run(vm, max_steps);
+    }
+
+    if (vm->state != SUB_STATE_RUNNING) return vm->state;
+
+    /* Local register cache for hot loop */
+    SubstrateRegs* regs = &vm->regs;
+    PredecodedProgram* prog = vm->predecoded;
+    uint32_t pc = vm->pc;
+    uint32_t steps = 0;
+
+    /* Dispatch table - must match SubstrateOpcode enum */
+    /* Default all entries to op_invalid, then set specific handlers */
+    static const void* dispatch_table[256] = {
+        [0 ... 255] = &&op_invalid,  /* Default */
+    };
+
+    /* Initialize handlers on first call (static ensures single init) */
+    static bool table_initialized = false;
+    if (!table_initialized) {
+        ((void**)dispatch_table)[OP_NOP] = &&op_nop;
+        ((void**)dispatch_table)[OP_HALT] = &&op_halt;
+        ((void**)dispatch_table)[OP_YIELD] = &&op_yield;
+        ((void**)dispatch_table)[OP_TICK] = &&op_tick;
+        ((void**)dispatch_table)[OP_PHASE_R] = &&op_phase_r;
+        ((void**)dispatch_table)[OP_PHASE_P] = &&op_phase_p;
+        ((void**)dispatch_table)[OP_PHASE_C] = &&op_phase_c;
+        ((void**)dispatch_table)[OP_PHASE_X] = &&op_phase_x;
+        ((void**)dispatch_table)[OP_LDN] = &&op_ldn;
+        ((void**)dispatch_table)[OP_LDB] = &&op_ldb;
+        ((void**)dispatch_table)[OP_LDI] = &&op_ldi;
+        ((void**)dispatch_table)[OP_LDI_F] = &&op_ldi_f;
+        ((void**)dispatch_table)[OP_MOV] = &&op_mov;
+        ((void**)dispatch_table)[OP_ADD] = &&op_add;
+        ((void**)dispatch_table)[OP_SUB] = &&op_sub;
+        ((void**)dispatch_table)[OP_MUL] = &&op_mul;
+        ((void**)dispatch_table)[OP_DIV] = &&op_div;
+        ((void**)dispatch_table)[OP_MAD] = &&op_mad;
+        ((void**)dispatch_table)[OP_NEG] = &&op_neg;
+        ((void**)dispatch_table)[OP_ABS] = &&op_abs;
+        ((void**)dispatch_table)[OP_SQRT] = &&op_sqrt;
+        ((void**)dispatch_table)[OP_MIN] = &&op_min;
+        ((void**)dispatch_table)[OP_MAX] = &&op_max;
+        ((void**)dispatch_table)[OP_RELU] = &&op_relu;
+        ((void**)dispatch_table)[OP_CLAMP] = &&op_clamp;
+        ((void**)dispatch_table)[OP_CMP] = &&op_cmp;
+        ((void**)dispatch_table)[OP_PROP_NEW] = &&op_prop_new;
+        ((void**)dispatch_table)[OP_PROP_SCORE] = &&op_prop_score;
+        ((void**)dispatch_table)[OP_CHOOSE] = &&op_choose;
+        ((void**)dispatch_table)[OP_COMMIT] = &&op_commit;
+        ((void**)dispatch_table)[OP_WITNESS] = &&op_witness;
+        ((void**)dispatch_table)[OP_STN] = &&op_stn;
+        ((void**)dispatch_table)[OP_STB] = &&op_stb;
+        ((void**)dispatch_table)[OP_IN] = &&op_in;
+        ((void**)dispatch_table)[OP_OUT] = &&op_out;
+        ((void**)dispatch_table)[OP_RAND] = &&op_rand;
+        ((void**)dispatch_table)[OP_TIME] = &&op_time;
+        ((void**)dispatch_table)[OP_LANE] = &&op_lane;
+        table_initialized = true;
+    }
+
+    float a, b;
+    union { uint32_t u; float f; } conv;
+    const SubstrateInstr* instr;
+
+    #define DISPATCH_NEXT() do { \
+        if (++steps >= max_steps || pc >= prog->count || vm->state != SUB_STATE_RUNNING) { \
+            goto done; \
+        } \
+        instr = &prog->instrs[pc++]; \
+        goto *dispatch_table[instr->opcode]; \
+    } while(0)
+
+    /* Start dispatch */
+    if (pc >= prog->count) goto done;
+    instr = &prog->instrs[pc++];
+    goto *dispatch_table[instr->opcode];
+
+    /* ----- Handlers ----- */
+
+op_nop:
+    DISPATCH_NEXT();
+
+op_halt:
+    vm->state = SUB_STATE_HALTED;
+    goto done;
+
+op_yield:
+    vm->state = SUB_STATE_YIELDED;
+    goto done;
+
+op_tick:
+    vm->tick++;
+    vm->prop_buf.count = 0;
+    vm->prop_buf.chosen = 0xFFFFFFFF;
+    reset_lane_seed(vm);
+    DISPATCH_NEXT();
+
+op_phase_r:
+    vm->phase = PHASE_READ;
+    DISPATCH_NEXT();
+
+op_phase_p:
+    vm->phase = PHASE_PROPOSE;
+    DISPATCH_NEXT();
+
+op_phase_c:
+    vm->phase = PHASE_CHOOSE;
+    DISPATCH_NEXT();
+
+op_phase_x:
+    vm->phase = PHASE_COMMIT;
+    DISPATCH_NEXT();
+
+op_ldn:
+    if (vm->phase != PHASE_READ) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t ref = regs->refs[instr->src0 & 0x7];
+        uint32_t node_id = REF_ID(ref);
+        regs->scalars[instr->dst & 0xF] = substrate_node_get_f(vm, node_id, (NodeFieldId)instr->src1);
+    }
+    DISPATCH_NEXT();
+
+op_ldb:
+    if (vm->phase != PHASE_READ) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t ref = regs->refs[instr->src0 & 0x7];
+        uint32_t bond_id = REF_ID(ref);
+        regs->scalars[instr->dst & 0xF] = substrate_bond_get_f(vm, bond_id, (BondFieldId)instr->src1);
+    }
+    DISPATCH_NEXT();
+
+op_ldi:
+    regs->scalars[instr->dst & 0xF] = (float)instr->imm;
+    DISPATCH_NEXT();
+
+op_ldi_f:
+    conv.u = instr->ext;
+    regs->scalars[instr->dst & 0xF] = conv.f;
+    DISPATCH_NEXT();
+
+op_mov:
+    regs->scalars[instr->dst & 0xF] = regs->scalars[instr->src0 & 0xF];
+    DISPATCH_NEXT();
+
+op_add:
+    regs->scalars[instr->dst & 0xF] = regs->scalars[instr->src0 & 0xF] + regs->scalars[instr->src1 & 0xF];
+    DISPATCH_NEXT();
+
+op_sub:
+    regs->scalars[instr->dst & 0xF] = regs->scalars[instr->src0 & 0xF] - regs->scalars[instr->src1 & 0xF];
+    DISPATCH_NEXT();
+
+op_mul:
+    regs->scalars[instr->dst & 0xF] = regs->scalars[instr->src0 & 0xF] * regs->scalars[instr->src1 & 0xF];
+    DISPATCH_NEXT();
+
+op_div:
+    b = regs->scalars[instr->src1 & 0xF];
+    regs->scalars[instr->dst & 0xF] = (b != 0.0f) ? (regs->scalars[instr->src0 & 0xF] / b) : 0.0f;
+    DISPATCH_NEXT();
+
+op_mad:
+    a = regs->scalars[instr->src0 & 0xF];
+    b = regs->scalars[instr->src1 & 0xF];
+    regs->scalars[instr->dst & 0xF] += a * b;
+    DISPATCH_NEXT();
+
+op_neg:
+    regs->scalars[instr->dst & 0xF] = -regs->scalars[instr->src0 & 0xF];
+    DISPATCH_NEXT();
+
+op_abs:
+    regs->scalars[instr->dst & 0xF] = fabsf(regs->scalars[instr->src0 & 0xF]);
+    DISPATCH_NEXT();
+
+op_sqrt:
+    regs->scalars[instr->dst & 0xF] = sqrtf(fmaxf(0.0f, regs->scalars[instr->src0 & 0xF]));
+    DISPATCH_NEXT();
+
+op_min:
+    regs->scalars[instr->dst & 0xF] = fminf(regs->scalars[instr->src0 & 0xF], regs->scalars[instr->src1 & 0xF]);
+    DISPATCH_NEXT();
+
+op_max:
+    regs->scalars[instr->dst & 0xF] = fmaxf(regs->scalars[instr->src0 & 0xF], regs->scalars[instr->src1 & 0xF]);
+    DISPATCH_NEXT();
+
+op_relu:
+    regs->scalars[instr->dst & 0xF] = fmaxf(0.0f, regs->scalars[instr->src0 & 0xF]);
+    DISPATCH_NEXT();
+
+op_clamp:
+    regs->scalars[instr->dst & 0xF] = fmaxf(0.0f, fminf(1.0f, regs->scalars[instr->src0 & 0xF]));
+    DISPATCH_NEXT();
+
+op_cmp:
+    a = regs->scalars[instr->src0 & 0xF];
+    b = regs->scalars[instr->src1 & 0xF];
+    regs->tokens[instr->dst & 0x7] = (a < b) ? TOK_LT : ((a > b) ? TOK_GT : TOK_EQ);
+    DISPATCH_NEXT();
+
+op_prop_new:
+    if (vm->phase != PHASE_PROPOSE) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t idx = substrate_prop_new(vm);
+        regs->refs[instr->dst & 0x7] = REF_MAKE(REF_TYPE_PROP, idx);
+    }
+    DISPATCH_NEXT();
+
+op_prop_score:
+    if (vm->phase != PHASE_PROPOSE) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t ref = regs->refs[instr->dst & 0x7];
+        uint32_t idx = REF_ID(ref);
+        substrate_prop_score(vm, idx, regs->scalars[instr->src0 & 0xF]);
+    }
+    DISPATCH_NEXT();
+
+op_choose:
+    if (vm->phase != PHASE_CHOOSE) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        float decisiveness = regs->scalars[instr->src0 & 0xF];
+        uint32_t choice = substrate_choose(vm, decisiveness);
+        regs->refs[instr->dst & 0x7] = REF_MAKE(REF_TYPE_CHOICE, choice);
+    }
+    DISPATCH_NEXT();
+
+op_commit:
+    if (vm->phase != PHASE_COMMIT) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t result = substrate_commit(vm);
+        regs->tokens[instr->dst & 0x7] = result;
+    }
+    DISPATCH_NEXT();
+
+op_witness:
+    if (vm->phase != PHASE_COMMIT) { vm->state = SUB_STATE_ERROR; goto done; }
+    regs->tokens[instr->dst & 0x7] = (uint32_t)instr->imm;
+    DISPATCH_NEXT();
+
+op_stn:
+    if (vm->phase != PHASE_COMMIT) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t ref = regs->refs[instr->dst & 0x7];
+        uint32_t node_id = REF_ID(ref);
+        substrate_node_set_f(vm, node_id, (NodeFieldId)instr->src0, regs->scalars[instr->src1 & 0xF]);
+    }
+    DISPATCH_NEXT();
+
+op_stb:
+    if (vm->phase != PHASE_COMMIT) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint32_t ref = regs->refs[instr->dst & 0x7];
+        uint32_t bond_id = REF_ID(ref);
+        substrate_bond_set_f(vm, bond_id, (BondFieldId)instr->src0, regs->scalars[instr->src1 & 0xF]);
+    }
+    DISPATCH_NEXT();
+
+op_in:
+    if (vm->phase != PHASE_READ) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint8_t ch = instr->imm & 0xF;
+        if (vm->io[ch].read_fn) {
+            regs->scalars[instr->dst & 0xF] = vm->io[ch].read_fn(vm->io[ch].user_ctx);
+        } else {
+            regs->scalars[instr->dst & 0xF] = vm->io[ch].value;
+        }
+    }
+    DISPATCH_NEXT();
+
+op_out:
+    if (vm->phase != PHASE_COMMIT) { vm->state = SUB_STATE_ERROR; goto done; }
+    {
+        uint8_t ch = instr->imm & 0xF;
+        a = regs->scalars[instr->src0 & 0xF];
+        vm->io[ch].value = a;
+        if (vm->io[ch].write_fn) {
+            vm->io[ch].write_fn(vm->io[ch].user_ctx, a);
+        }
+    }
+    DISPATCH_NEXT();
+
+op_rand:
+    regs->scalars[instr->dst & 0xF] = random_float(vm);
+    DISPATCH_NEXT();
+
+op_time:
+    regs->scalars[instr->dst & 0xF] = (float)vm->tick;
+    DISPATCH_NEXT();
+
+op_lane:
+    regs->scalars[instr->dst & 0xF] = (float)vm->lane_id;
+    DISPATCH_NEXT();
+
+op_invalid:
+    vm->state = SUB_STATE_ERROR;
+    goto done;
+
+done:
+    vm->pc = pc - 1;  /* Adjust for pre-increment */
+    vm->instructions += steps;
+
+    #undef DISPATCH_NEXT
+    return vm->state;
+}
+
+#else /* !__GNUC__ && !__clang__ */
+
+/* Fallback for non-GCC/Clang compilers */
+SubstrateState substrate_run_fast(SubstrateVM* vm, uint32_t max_steps) {
+    return substrate_run(vm, max_steps);
+}
+
+#endif /* __GNUC__ || __clang__ */
 
 SubstrateState substrate_resume(SubstrateVM* vm, uint32_t max_steps) {
     if (vm->state == SUB_STATE_YIELDED) {
@@ -1173,7 +1923,11 @@ const char* substrate_token_name(uint32_t token) {
         case TOK_FAIL: return "FAIL";
         case TOK_REFUSE: return "REFUSE";
         case TOK_XFER_OK: return "XFER_OK";
+        case TOK_XFER_PARTIAL: return "XFER_PARTIAL";
         case TOK_DIFFUSE_OK: return "DIFFUSE_OK";
+        case TOK_GRACE_OK: return "GRACE_OK";
+        case TOK_GRACE_NONE: return "GRACE_NONE";
+        case TOK_PHASE_VIOLATION: return "PHASE_VIOLATION";
         case TOK_ERR: return "ERR";
         default: return "???";
     }
@@ -1218,6 +1972,9 @@ void substrate_get_stats(const SubstrateVM* vm, uint64_t* tick, uint64_t* instru
 
 SubstrateState substrate_tick(SubstrateVM* vm) {
     if (!vm) return SUB_STATE_ERROR;
+
+    /* Reset seed for trace-derived randomness */
+    reset_lane_seed(vm);
 
     /* Execute all four phases in sequence */
 

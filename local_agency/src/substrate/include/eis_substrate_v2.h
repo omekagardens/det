@@ -117,11 +117,16 @@ typedef struct SubstrateVM {
     uint32_t lane_id;           /* Current lane ID */
     SubstratePhase phase;       /* Current execution phase */
     uint64_t seed;              /* Random seed for this lane */
+    LaneOwnershipMode lane_mode; /* Effect deduplication mode */
 
     /* ----- Program ----- */
     const uint8_t* program;
     uint32_t program_size;
-    uint32_t pc;                /* Program counter */
+    uint32_t pc;                /* Program counter (byte offset for raw, instr index for predecoded) */
+
+    /* ----- Predecoded Program (optional, faster execution) ----- */
+    PredecodedProgram* predecoded;
+    bool use_predecoded;        /* True to use predecoded path */
 
     /* ----- Trace Memory (Shared) ----- */
     NodeArrays* nodes;
@@ -194,6 +199,9 @@ bool substrate_load_program(SubstrateVM* vm, const uint8_t* program, uint32_t si
 /** Set current lane ID */
 void substrate_set_lane(SubstrateVM* vm, uint32_t lane_id);
 
+/** Set lane ownership mode for effect deduplication */
+void substrate_set_lane_mode(SubstrateVM* vm, LaneOwnershipMode mode);
+
 /** Execute one instruction */
 SubstrateState substrate_step(SubstrateVM* vm);
 
@@ -202,6 +210,9 @@ SubstrateState substrate_run(SubstrateVM* vm, uint32_t max_steps);
 
 /** Resume execution after yield */
 SubstrateState substrate_resume(SubstrateVM* vm, uint32_t max_steps);
+
+/** Fast execution using threaded dispatch (GCC/Clang computed goto) */
+SubstrateState substrate_run_fast(SubstrateVM* vm, uint32_t max_steps);
 
 /** Execute a complete tick (all phases) */
 SubstrateState substrate_tick(SubstrateVM* vm);
@@ -277,7 +288,20 @@ uint32_t substrate_boundary_read(const SubstrateVM* vm, uint32_t buf_id,
 /* ----- Instruction Encode/Decode ----- */
 
 SubstrateInstr substrate_decode(const uint8_t* data, uint32_t offset, uint32_t* consumed);
+SubstrateInstr substrate_decode_le(const uint8_t* data, uint32_t offset, uint32_t* consumed);
 uint32_t substrate_encode(const SubstrateInstr* instr, uint8_t* out);
+uint32_t substrate_encode_le(const SubstrateInstr* instr, uint8_t* out);
+
+/* ----- Predecoding ----- */
+
+/** Predecode program into instruction array for fast dispatch */
+bool substrate_predecode(SubstrateVM* vm);
+
+/** Free predecoded program */
+void substrate_free_predecoded(SubstrateVM* vm);
+
+/** Enable/disable predecoded execution path */
+void substrate_use_predecoded(SubstrateVM* vm, bool enable);
 
 /* ----- Debug/Utility ----- */
 

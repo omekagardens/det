@@ -7,6 +7,7 @@
  */
 
 #include "../include/eis_substrate_v2.h"
+#include "../include/effect_table.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -537,17 +538,23 @@ TEST(io_callbacks) {
     float read_value = 123.0f;
     substrate_io_configure(vm, 0, test_read_fn, test_write_fn, &read_value);
 
-    /* Program: R0 = IN(0), R0 = R0 * 2, OUT(0) = R0, HALT */
+    /* Program with proper phases:
+     * READ: IN(0) -> R0
+     * PROPOSE: compute (arithmetic allowed anywhere)
+     * COMMIT: OUT(0) = R0
+     */
     SubstrateInstr instrs[] = {
-        { .opcode = OP_IN, .dst = 0, .imm = 0 },
-        { .opcode = OP_LDI, .dst = 1, .imm = 2 },
-        { .opcode = OP_MUL, .dst = 0, .src0 = 0, .src1 = 1 },
-        { .opcode = OP_OUT, .src0 = 0, .imm = 0 },
+        { .opcode = OP_PHASE_R },                        /* Enter READ phase */
+        { .opcode = OP_IN, .dst = 0, .imm = 0 },         /* R0 = io[0] = 123 */
+        { .opcode = OP_LDI, .dst = 1, .imm = 2 },        /* R1 = 2 */
+        { .opcode = OP_MUL, .dst = 0, .src0 = 0, .src1 = 1 },  /* R0 = 123 * 2 = 246 */
+        { .opcode = OP_PHASE_X },                        /* Enter COMMIT phase */
+        { .opcode = OP_OUT, .src0 = 0, .imm = 0 },       /* io[0] = R0 */
         { .opcode = OP_HALT },
     };
 
     uint32_t size;
-    uint8_t* program = build_program(instrs, 5, &size);
+    uint8_t* program = build_program(instrs, 7, &size);
 
     substrate_load_program(vm, program, size);
     substrate_run(vm, 100);
@@ -694,6 +701,309 @@ TEST(load_node_via_instruction) {
 }
 
 /* ==========================================================================
+ * TEST: Phase Legality Enforcement
+ * ========================================================================== */
+
+TEST(phase_violation_load_in_commit) {
+    /* LDN should fail in COMMIT phase */
+    SubstrateVM* vm = substrate_create();
+    substrate_alloc_nodes(vm, 2);
+
+    vm->regs.refs[0] = REF_MAKE(REF_TYPE_NODE, 0);
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_PHASE_X },  /* Enter COMMIT phase */
+        { .opcode = OP_LDN, .dst = 0, .src0 = 0, .src1 = NODE_FIELD_F },  /* Should fail */
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 3, &size);
+
+    substrate_load_program(vm, program, size);
+    substrate_run(vm, 100);
+
+    /* Should be in error state due to phase violation */
+    ASSERT_EQ(vm->state, SUB_STATE_ERROR);
+    ASSERT_EQ(substrate_get_token(vm, 0), TOK_PHASE_VIOLATION);
+
+    free(program);
+    substrate_destroy(vm);
+}
+
+TEST(phase_violation_store_in_read) {
+    /* STN should fail in READ phase */
+    SubstrateVM* vm = substrate_create();
+    substrate_alloc_nodes(vm, 2);
+
+    vm->regs.refs[0] = REF_MAKE(REF_TYPE_NODE, 0);
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_PHASE_R },  /* Enter READ phase (default, but explicit) */
+        { .opcode = OP_STN, .dst = 0, .src0 = NODE_FIELD_F, .src1 = 1 },  /* Should fail */
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 3, &size);
+
+    substrate_load_program(vm, program, size);
+    substrate_run(vm, 100);
+
+    ASSERT_EQ(vm->state, SUB_STATE_ERROR);
+
+    free(program);
+    substrate_destroy(vm);
+}
+
+TEST(phase_violation_proposal_in_read) {
+    /* PROP_NEW should fail in READ phase */
+    SubstrateVM* vm = substrate_create();
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_PHASE_R },
+        { .opcode = OP_PROP_NEW, .dst = 0 },  /* Should fail - only in PROPOSE */
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 3, &size);
+
+    substrate_load_program(vm, program, size);
+    substrate_run(vm, 100);
+
+    ASSERT_EQ(vm->state, SUB_STATE_ERROR);
+
+    free(program);
+    substrate_destroy(vm);
+}
+
+/* ==========================================================================
+ * TEST: Deterministic RNG from Trace
+ * ========================================================================== */
+
+TEST(deterministic_rng_reproducibility) {
+    /* Same trace state should produce same random sequence */
+    SubstrateVM* vm1 = substrate_create();
+    SubstrateVM* vm2 = substrate_create();
+
+    substrate_alloc_nodes(vm1, 4);
+    substrate_alloc_nodes(vm2, 4);
+
+    /* Set identical trace state */
+    vm1->nodes->r[0] = 12345;
+    vm1->nodes->k[0] = 100;
+    vm2->nodes->r[0] = 12345;
+    vm2->nodes->k[0] = 100;
+
+    substrate_set_lane(vm1, 0);
+    substrate_set_lane(vm2, 0);
+
+    /* Program: Generate 3 random numbers */
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_TICK },       /* Reset seed from trace */
+        { .opcode = OP_RAND, .dst = 0 },
+        { .opcode = OP_RAND, .dst = 1 },
+        { .opcode = OP_RAND, .dst = 2 },
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 5, &size);
+
+    substrate_load_program(vm1, program, size);
+    substrate_load_program(vm2, program, size);
+
+    substrate_run(vm1, 100);
+    substrate_run(vm2, 100);
+
+    /* Both VMs should produce identical random sequence */
+    ASSERT_NEAR(substrate_get_scalar(vm1, 0), substrate_get_scalar(vm2, 0), 0.0001f);
+    ASSERT_NEAR(substrate_get_scalar(vm1, 1), substrate_get_scalar(vm2, 1), 0.0001f);
+    ASSERT_NEAR(substrate_get_scalar(vm1, 2), substrate_get_scalar(vm2, 2), 0.0001f);
+
+    free(program);
+    substrate_destroy(vm1);
+    substrate_destroy(vm2);
+}
+
+TEST(different_lanes_different_rng) {
+    /* Different lanes should produce different sequences */
+    SubstrateVM* vm1 = substrate_create();
+    SubstrateVM* vm2 = substrate_create();
+
+    substrate_alloc_nodes(vm1, 4);
+    substrate_alloc_nodes(vm2, 4);
+
+    /* Same trace but different lane IDs */
+    vm1->nodes->r[0] = vm1->nodes->r[1] = 12345;
+    vm2->nodes->r[0] = vm2->nodes->r[1] = 12345;
+
+    substrate_set_lane(vm1, 0);
+    substrate_set_lane(vm2, 1);  /* Different lane */
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_TICK },
+        { .opcode = OP_RAND, .dst = 0 },
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 3, &size);
+
+    substrate_load_program(vm1, program, size);
+    substrate_load_program(vm2, program, size);
+
+    substrate_run(vm1, 100);
+    substrate_run(vm2, 100);
+
+    /* Different lanes should produce different values */
+    float r1 = substrate_get_scalar(vm1, 0);
+    float r2 = substrate_get_scalar(vm2, 0);
+    ASSERT(fabsf(r1 - r2) > 0.001f);  /* Should be different */
+
+    free(program);
+    substrate_destroy(vm1);
+    substrate_destroy(vm2);
+}
+
+/* ==========================================================================
+ * TEST: Bond Ownership (Deduplication)
+ * ========================================================================== */
+
+TEST(bond_ownership_node_mode) {
+    /* In NODE_LANE mode, only min(src, dst) lane should apply XFER_F */
+    SubstrateVM* vm = substrate_create();
+    substrate_alloc_nodes(vm, 4);
+
+    /* Give node 0 some resource */
+    vm->nodes->F[0] = 100.0f;
+
+    /* Set to node-lane ownership mode */
+    substrate_set_lane_mode(vm, LANE_OWNER_NODE);
+    substrate_set_lane(vm, 1);  /* NOT the owner for transfer 0->2 (min=0) */
+
+    /* Try to apply XFER_F effect directly */
+    uint32_t args[3] = { 0, 2, effect_pack_float(10.0f) };  /* src=0, dst=2, amount=10 */
+    uint32_t result = effect_apply(vm, EFFECT_XFER_F, args);
+
+    /* Should be silently skipped (returns OK but no change) */
+    ASSERT_EQ(result, TOK_OK);
+    ASSERT_NEAR(vm->nodes->F[0], 100.0f, 0.001f);  /* Unchanged */
+
+    /* Now try from correct owner (lane 0) */
+    substrate_set_lane(vm, 0);
+    result = effect_apply(vm, EFFECT_XFER_F, args);
+
+    ASSERT_EQ(result, TOK_XFER_OK);
+    ASSERT_NEAR(vm->nodes->F[0], 90.0f, 0.001f);  /* Reduced */
+    ASSERT_NEAR(vm->nodes->F[2], 10.0f, 0.001f);  /* Increased */
+
+    substrate_destroy(vm);
+}
+
+/* ==========================================================================
+ * TEST: Predecoding
+ * ========================================================================== */
+
+TEST(predecode_program) {
+    SubstrateVM* vm = substrate_create();
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_LDI, .dst = 0, .imm = 10 },
+        { .opcode = OP_LDI, .dst = 1, .imm = 20 },
+        { .opcode = OP_ADD, .dst = 2, .src0 = 0, .src1 = 1 },
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 4, &size);
+
+    substrate_load_program(vm, program, size);
+
+    /* Predecode the program */
+    bool success = substrate_predecode(vm);
+    ASSERT(success);
+    ASSERT(vm->predecoded != NULL);
+    ASSERT_EQ(vm->predecoded->count, 4);
+
+    /* Run using predecoded path */
+    substrate_run(vm, 100);
+
+    ASSERT_NEAR(substrate_get_scalar(vm, 2), 30.0f, 0.001f);
+
+    free(program);
+    substrate_destroy(vm);
+}
+
+TEST(predecode_vs_raw_equivalence) {
+    /* Predecoded and raw execution should produce same result */
+    SubstrateVM* vm1 = substrate_create();
+    SubstrateVM* vm2 = substrate_create();
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_LDI, .dst = 0, .imm = 42 },
+        { .opcode = OP_LDI, .dst = 1, .imm = 8 },
+        { .opcode = OP_MUL, .dst = 2, .src0 = 0, .src1 = 1 },
+        { .opcode = OP_LDI, .dst = 3, .imm = 6 },
+        { .opcode = OP_ADD, .dst = 4, .src0 = 2, .src1 = 3 },
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 6, &size);
+
+    substrate_load_program(vm1, program, size);
+    substrate_load_program(vm2, program, size);
+
+    /* vm1: raw execution */
+    substrate_use_predecoded(vm1, false);
+    substrate_run(vm1, 100);
+
+    /* vm2: predecoded execution */
+    substrate_predecode(vm2);
+    substrate_run(vm2, 100);
+
+    /* Both should produce same result: 42*8+6 = 342 */
+    ASSERT_NEAR(substrate_get_scalar(vm1, 4), 342.0f, 0.001f);
+    ASSERT_NEAR(substrate_get_scalar(vm2, 4), 342.0f, 0.001f);
+
+    free(program);
+    substrate_destroy(vm1);
+    substrate_destroy(vm2);
+}
+
+/* ==========================================================================
+ * TEST: Threaded Dispatch (substrate_run_fast)
+ * ========================================================================== */
+
+TEST(threaded_dispatch_basic) {
+    SubstrateVM* vm = substrate_create();
+
+    SubstrateInstr instrs[] = {
+        { .opcode = OP_LDI, .dst = 0, .imm = 100 },
+        { .opcode = OP_LDI, .dst = 1, .imm = 23 },
+        { .opcode = OP_SUB, .dst = 2, .src0 = 0, .src1 = 1 },
+        { .opcode = OP_HALT },
+    };
+
+    uint32_t size;
+    uint8_t* program = build_program(instrs, 4, &size);
+
+    substrate_load_program(vm, program, size);
+    substrate_predecode(vm);
+
+    /* Use fast threaded dispatch */
+    SubstrateState state = substrate_run_fast(vm, 100);
+
+    ASSERT_EQ(state, SUB_STATE_HALTED);
+    ASSERT_NEAR(substrate_get_scalar(vm, 2), 77.0f, 0.001f);
+
+    free(program);
+    substrate_destroy(vm);
+}
+
+/* ==========================================================================
  * MAIN
  * ========================================================================== */
 
@@ -755,6 +1065,25 @@ int main(void) {
 
     printf("\nLoad Operations:\n");
     run_test_load_node_via_instruction();
+
+    printf("\nPhase Legality:\n");
+    run_test_phase_violation_load_in_commit();
+    run_test_phase_violation_store_in_read();
+    run_test_phase_violation_proposal_in_read();
+
+    printf("\nDeterministic RNG:\n");
+    run_test_deterministic_rng_reproducibility();
+    run_test_different_lanes_different_rng();
+
+    printf("\nBond Ownership:\n");
+    run_test_bond_ownership_node_mode();
+
+    printf("\nPredecoding:\n");
+    run_test_predecode_program();
+    run_test_predecode_vs_raw_equivalence();
+
+    printf("\nThreaded Dispatch:\n");
+    run_test_threaded_dispatch_basic();
 
     printf("\n==============================\n");
     printf("Tests: %d/%d passed\n", tests_passed, tests_run);

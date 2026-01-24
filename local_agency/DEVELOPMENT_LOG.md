@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 10 - Substrate v2 & Physics Layer (Complete)
+**Current Phase**: Phase 11 - Substrate v2 DET-Honesty Improvements (Complete)
 
 ---
 
@@ -621,11 +621,58 @@
 
 ---
 
+## Phase 11: Substrate v2 DET-Honesty Improvements (Complete)
+
+### 11.1 Phase Legality Enforcement ✅
+- **Status**: Complete
+- **Change**: Instructions now validated against current phase
+  - Loads (LDN, LDB, LDNB) only in READ phase
+  - Proposals (PROP_NEW, PROP_SCORE) only in PROPOSE phase
+  - Stores (STN, STB) only in COMMIT phase
+  - CHOOSE only in CHOOSE phase
+- **Benefit**: Prevents "present" leaking via same-tick writes + reads
+
+### 11.2 Deterministic RNG from Trace ✅
+- **Status**: Complete
+- **Change**: Random seed derived from trace state, not global RNG
+  - `seed = hash(r, k, tick, lane_id)` for node lanes
+  - Uses MurmurHash3 finalizer for fast mixing
+- **Benefit**: Reproducibility and parallel safety
+
+### 11.3 Bond Ownership (Effect Deduplication) ✅
+- **Status**: Complete
+- **Change**: Added `LaneOwnershipMode` (NONE, NODE, BOND)
+  - NODE mode: Only lane with `lane_id == min(src, dst)` can emit XFER_F
+  - BOND mode: Only lane with `lane_id == bond_id` can emit bond effects
+- **Benefit**: Prevents double-counting in parallel execution
+
+### 11.4 Native-Endian Bytecode & Predecoding ✅
+- **Status**: Complete
+- **Change**:
+  - Added `substrate_decode_le` / `substrate_encode_le` for little-endian
+  - Added `substrate_predecode()` to pre-parse entire program
+  - PC is instruction index in predecoded mode (faster lookup)
+- **Benefit**: Eliminates decode overhead from hot loop
+
+### 11.5 Threaded Dispatch (Computed Goto) ✅
+- **Status**: Complete
+- **Change**: Added `substrate_run_fast()` using GCC/Clang computed goto
+  - Dispatch table with labels for each opcode
+  - `DISPATCH_NEXT()` macro jumps directly to next handler
+  - Fallback to `substrate_run()` for non-GCC compilers
+- **Benefit**: 2-3x faster dispatch vs switch statement
+
+### Phase 11 Test Summary
+- **New Tests**: 9 additional tests
+- **Total**: 40/40 passing for substrate v2
+
+---
+
 ## Current Test Summary
 
 | Component | Tests | Status |
 |-----------|-------|--------|
-| Substrate v2 | 31/31 | ✅ |
+| Substrate v2 | 40/40 | ✅ |
 | Substrate v1 | 56/56 | ✅ |
 | DET Core | 37/37 | ✅ |
 | Phase 7 (Lang) | 36/36 | ✅ |
@@ -637,17 +684,17 @@
 
 ## Next Steps
 
-1. **Phase 11: Full Existence-Lang Compilation**:
+1. **Phase 12: Full Existence-Lang Compilation**:
    - [ ] Complete EIS compiler for all Existence-Lang constructs
    - [ ] Compile physics.ex and kernel.ex to EIS bytecode
    - [ ] Run compiled kernel on substrate v2
 
-2. **Phase 12: GPU Backend**:
+2. **Phase 13: GPU Backend**:
    - [ ] Metal compute shaders for macOS
    - [ ] CUDA backend for NVIDIA
    - [ ] Parallel proposal evaluation
 
-3. **Phase 13: DET-Native Hardware**:
+3. **Phase 14: DET-Native Hardware**:
    - [ ] FPGA prototype design
    - [ ] Custom silicon specification
    - [ ] Direct substrate execution
@@ -708,4 +755,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-23 (Phase 10 Substrate v2 & Physics Layer Complete)*
+*Last Updated: 2026-01-23 (Phase 11 Substrate v2 DET-Honesty Improvements Complete)*
