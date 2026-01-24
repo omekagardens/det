@@ -94,6 +94,21 @@ class DETEmotion(IntEnum):
     PEACE = 7
 
 
+class DETGateType(IntEnum):
+    """Logic gate types implemented via q-patterns."""
+    BUFFER = 0   # Identity: out = in
+    NOT = 1      # Inverter: out = ~in
+    AND = 2      # Conjunction: out = in1 & in2
+    OR = 3       # Disjunction: out = in1 | in2
+    XOR = 4      # Exclusive or: out = in1 ^ in2
+    NAND = 5     # Negated and: out = ~(in1 & in2)
+    NOR = 6      # Negated or: out = ~(in1 | in2)
+
+
+# Constants
+DET_GATE_MAX_NODES = 16
+
+
 # C structure definitions
 class DETParams(Structure):
     """DET physics parameters."""
@@ -115,6 +130,13 @@ class DETParams(Structure):
         ("alpha_pi", c_float),       # Momentum charging gain
         ("lambda_pi", c_float),      # Momentum decay rate
         ("beta_g", c_float),         # Gravity-momentum coupling
+        # v6.4 Structural Debt Couplings
+        ("debt_conductivity_enabled", c_bool),  # q → σ_eff coupling
+        ("xi_conductivity", c_float),           # debt-conductivity strength (2.0)
+        ("debt_temporal_enabled", c_bool),      # q → P coupling
+        ("zeta_temporal", c_float),             # debt-temporal strength (0.5)
+        ("debt_decoherence_enabled", c_bool),   # q → C_decay coupling
+        ("theta_decoherence", c_float),         # debt-decoherence strength (1.0)
         # Layer-specific bond parameters
         ("alpha_AA", c_float),
         ("lambda_AA", c_float),
@@ -177,6 +199,7 @@ class DETNode(Structure):
         ("sigma", c_float),
         ("P", c_float),
         ("tau", c_float),
+        ("tau_accumulated", c_float),  # v6.4: Total proper time experienced
         # Phase 4: Extended dynamics
         ("L", c_float),           # Angular momentum
         ("dtheta_dt", c_float),   # Phase velocity
@@ -268,6 +291,24 @@ class DETDomain(Structure):
     ]
 
 
+class DETGate(Structure):
+    """Logic gate - topology encoded in q-pattern."""
+    _fields_ = [
+        ("type", c_uint32),      # DETGateType enum
+        ("input1", c_uint16),
+        ("input2", c_uint16),
+        ("output", c_uint16),
+        ("nodes", c_uint16 * DET_GATE_MAX_NODES),
+        ("num_nodes", c_uint32),
+        ("threshold", c_float),
+        ("active", c_bool),
+    ]
+
+
+# Maximum gates constant
+DET_MAX_GATES = 256
+
+
 class DETSelf(Structure):
     """Self-cluster identification result."""
     _fields_ = [
@@ -296,6 +337,8 @@ class DETCoreStruct(Structure):
         ("num_domains", c_uint32),
         ("somatic", SomaticNode * DET_MAX_SOMATIC),
         ("num_somatic", c_uint32),
+        ("gates", DETGate * DET_MAX_GATES),
+        ("num_gates", c_uint32),
         ("self", DETSelf),
         ("self_nodes_storage", c_uint16 * DET_MAX_NODES),
         ("aggregate_presence", c_float),
@@ -597,6 +640,89 @@ class DETCore:
 
         lib.det_somatic_is_actuator.restype = c_bool
         lib.det_somatic_is_actuator.argtypes = [c_uint32]
+
+        # Phase 4: Patterned q Encoding
+        lib.det_core_drain_resource.restype = c_float
+        lib.det_core_drain_resource.argtypes = [POINTER(DETCoreStruct), c_uint16, c_float]
+
+        lib.det_core_write_q_pattern.restype = c_uint32
+        lib.det_core_write_q_pattern.argtypes = [
+            POINTER(DETCoreStruct),
+            POINTER(c_uint16),  # node_ids
+            POINTER(c_float),   # q_targets
+            c_uint32            # num_nodes
+        ]
+
+        lib.det_core_create_barrier.restype = None
+        lib.det_core_create_barrier.argtypes = [
+            POINTER(DETCoreStruct),
+            POINTER(c_uint16),  # barrier_nodes
+            c_uint32,           # num_barrier
+            c_float             # q_target
+        ]
+
+        lib.det_core_create_channel.restype = None
+        lib.det_core_create_channel.argtypes = [
+            POINTER(DETCoreStruct),
+            POINTER(c_uint16),  # channel_nodes
+            c_uint32,           # num_channel
+            c_float             # q_max
+        ]
+
+        lib.det_core_create_well.restype = None
+        lib.det_core_create_well.argtypes = [POINTER(DETCoreStruct), c_uint16, c_float]
+
+        lib.det_core_get_effective_conductivity.restype = c_float
+        lib.det_core_get_effective_conductivity.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_read_q_pattern.restype = None
+        lib.det_core_read_q_pattern.argtypes = [
+            POINTER(DETCoreStruct),
+            POINTER(c_uint16),  # node_ids
+            POINTER(c_float),   # q_values (output)
+            c_uint32            # num_nodes
+        ]
+
+        lib.det_core_get_q_gradient.restype = c_float
+        lib.det_core_get_q_gradient.argtypes = [POINTER(DETCoreStruct), c_uint16]
+
+        # Phase 5: Computational Substrate (Logic Gates)
+        lib.det_core_create_gate.restype = c_int32
+        lib.det_core_create_gate.argtypes = [POINTER(DETCoreStruct), c_uint32]  # gate_type
+
+        lib.det_core_connect_gates.restype = c_bool
+        lib.det_core_connect_gates.argtypes = [
+            POINTER(DETCoreStruct),
+            c_uint32,  # from_gate
+            c_uint32,  # to_gate
+            c_uint8    # to_input (0 or 1)
+        ]
+
+        lib.det_core_set_gate_input.restype = None
+        lib.det_core_set_gate_input.argtypes = [
+            POINTER(DETCoreStruct),
+            c_uint32,  # gate_idx
+            c_uint8,   # input_num (0 or 1)
+            c_float    # value
+        ]
+
+        lib.det_core_get_gate_output.restype = c_bool
+        lib.det_core_get_gate_output.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_get_gate_output_raw.restype = c_float
+        lib.det_core_get_gate_output_raw.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_propagate_signals.restype = None
+        lib.det_core_propagate_signals.argtypes = [POINTER(DETCoreStruct), c_uint32]  # steps
+
+        lib.det_core_get_gate.restype = POINTER(DETGate)
+        lib.det_core_get_gate.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_remove_gate.restype = c_bool
+        lib.det_core_remove_gate.argtypes = [POINTER(DETCoreStruct), c_uint32]
+
+        lib.det_core_num_gates.restype = c_uint32
+        lib.det_core_num_gates.argtypes = [POINTER(DETCoreStruct)]
 
     def __del__(self):
         """Clean up the core on deletion."""
@@ -1327,6 +1453,279 @@ class DETCore:
                     "channel": node.channel,
                 })
         return result
+
+    # Phase 4: Patterned q Encoding Methods
+
+    def drain_resource(self, node_id: int, amount: float) -> float:
+        """Drain resource from a node, accumulating structural debt.
+
+        This is the basic q-writing operation. Resource loss (F decrease)
+        causes debt accumulation (q increase) at rate α_q = 0.012.
+
+        Args:
+            node_id: Target node index.
+            amount: How much resource to drain (clamped to available F).
+
+        Returns:
+            Actual amount drained.
+        """
+        return self._lib.det_core_drain_resource(
+            self._core, c_uint16(node_id), c_float(amount)
+        )
+
+    def write_q_pattern(self, node_ids: List[int], q_targets: List[float]) -> int:
+        """Write a q pattern across multiple nodes via controlled drain.
+
+        Uses controlled resource drain to reach target q values.
+
+        Args:
+            node_ids: List of node indices.
+            q_targets: Target q values for each node (0.0 to 1.0).
+
+        Returns:
+            Number of nodes that reached or exceeded target.
+        """
+        if len(node_ids) != len(q_targets):
+            raise ValueError("node_ids and q_targets must have same length")
+
+        ids_array = (c_uint16 * len(node_ids))(*node_ids)
+        targets_array = (c_float * len(q_targets))(*q_targets)
+        return self._lib.det_core_write_q_pattern(
+            self._core,
+            ids_array,
+            targets_array,
+            c_uint32(len(node_ids))
+        )
+
+    def create_barrier(self, barrier_nodes: List[int], q_target: float = 0.8):
+        """Create a q-barrier (high-q wall that blocks flow).
+
+        A barrier is a group of nodes with elevated q that:
+        - Blocks resource flow (high q → low conductivity)
+        - Creates insulating regions in the substrate
+
+        Args:
+            barrier_nodes: List of node indices to form the barrier.
+            q_target: Target q for barrier nodes (typically 0.7-0.9).
+        """
+        nodes_array = (c_uint16 * len(barrier_nodes))(*barrier_nodes)
+        self._lib.det_core_create_barrier(
+            self._core,
+            nodes_array,
+            c_uint32(len(barrier_nodes)),
+            c_float(q_target)
+        )
+
+    def create_channel(self, channel_nodes: List[int], q_max: float = 0.1):
+        """Create a q-channel (low-q path for flow).
+
+        A channel is a protected low-q path that:
+        - Allows resource flow (low q → high conductivity)
+        - Uses grace injection to maintain low debt
+
+        Args:
+            channel_nodes: List of node indices to form the channel.
+            q_max: Maximum q allowed for channel nodes (typically 0.1-0.2).
+        """
+        nodes_array = (c_uint16 * len(channel_nodes))(*channel_nodes)
+        self._lib.det_core_create_channel(
+            self._core,
+            nodes_array,
+            c_uint32(len(channel_nodes)),
+            c_float(q_max)
+        )
+
+    def create_well(self, center_node: int, q_center: float = 0.9):
+        """Create a q-well (gravitational attractor).
+
+        A well is a high-q center that creates inward gravity via ∇²Φ = κρ.
+        Resource flows toward wells naturally.
+
+        Args:
+            center_node: Node index to be the well center.
+            q_center: Target q for the center (typically 0.8-1.0).
+        """
+        self._lib.det_core_create_well(
+            self._core,
+            c_uint16(center_node),
+            c_float(q_center)
+        )
+
+    def get_effective_conductivity(self, bond_idx: int) -> float:
+        """Get effective conductivity for a bond (includes q-gate).
+
+        Returns σ_eff = σ × g_q where g_q = 1/(1 + ξ(q_i + q_j)).
+        High-q bonds have lower effective conductivity.
+
+        Args:
+            bond_idx: Bond index.
+
+        Returns:
+            Effective conductivity value.
+        """
+        return self._lib.det_core_get_effective_conductivity(
+            self._core, c_uint32(bond_idx)
+        )
+
+    def read_q_pattern(self, node_ids: List[int]) -> List[float]:
+        """Read q pattern from nodes.
+
+        Args:
+            node_ids: List of node indices to read.
+
+        Returns:
+            List of q values for each node.
+        """
+        ids_array = (c_uint16 * len(node_ids))(*node_ids)
+        values_array = (c_float * len(node_ids))()
+        self._lib.det_core_read_q_pattern(
+            self._core,
+            ids_array,
+            values_array,
+            c_uint32(len(node_ids))
+        )
+        return list(values_array)
+
+    def get_q_gradient(self, node_id: int) -> float:
+        """Measure q gradient magnitude at a node.
+
+        Computed from bonded neighbors: |∇q| ≈ max_j |q_i - q_j|
+        High gradient indicates boundary between high and low q regions.
+
+        Args:
+            node_id: Node to measure gradient at.
+
+        Returns:
+            Gradient magnitude.
+        """
+        return self._lib.det_core_get_q_gradient(self._core, c_uint16(node_id))
+
+    # ==================== Phase 5: Computational Substrate ====================
+
+    def create_gate(self, gate_type: DETGateType) -> int:
+        """Create a logic gate implemented via q-patterns.
+
+        Gates are created from dormant C-layer nodes, configured with
+        appropriate q-patterns to implement the specified logic function.
+
+        Available gate types:
+            - BUFFER: out = in (identity)
+            - NOT: out = ~in (inverter)
+            - AND: out = in1 & in2
+            - OR: out = in1 | in2
+            - XOR: out = in1 ^ in2
+            - NAND: out = ~(in1 & in2)
+            - NOR: out = ~(in1 | in2)
+
+        Args:
+            gate_type: Type of gate to create (DETGateType enum).
+
+        Returns:
+            Gate index (>= 0) on success, -1 if creation failed.
+        """
+        return self._lib.det_core_create_gate(self._core, c_uint32(int(gate_type)))
+
+    def connect_gates(self, from_gate: int, to_gate: int, to_input: int = 0) -> bool:
+        """Connect one gate's output to another gate's input.
+
+        Creates a resource flow channel (low-q path) between the output
+        node of from_gate and the specified input node of to_gate.
+
+        Args:
+            from_gate: Index of source gate.
+            to_gate: Index of destination gate.
+            to_input: Which input of destination (0 or 1, default 0).
+
+        Returns:
+            True if connection successful, False otherwise.
+        """
+        return self._lib.det_core_connect_gates(
+            self._core,
+            c_uint32(from_gate),
+            c_uint32(to_gate),
+            c_uint8(to_input)
+        )
+
+    def set_gate_input(self, gate_idx: int, input_num: int, value: float):
+        """Set a gate's input signal value.
+
+        Injects resource at the input node to represent a signal.
+        High resource (> threshold) = logic 1, low = logic 0.
+
+        Args:
+            gate_idx: Index of the gate.
+            input_num: Which input (0 or 1).
+            value: Signal strength (typically 0.0 or 1.0).
+        """
+        self._lib.det_core_set_gate_input(
+            self._core,
+            c_uint32(gate_idx),
+            c_uint8(input_num),
+            c_float(value)
+        )
+
+    def get_gate_output(self, gate_idx: int) -> bool:
+        """Get a gate's digital output (thresholded).
+
+        Args:
+            gate_idx: Index of the gate.
+
+        Returns:
+            True if output resource exceeds threshold, False otherwise.
+        """
+        return self._lib.det_core_get_gate_output(self._core, c_uint32(gate_idx))
+
+    def get_gate_output_raw(self, gate_idx: int) -> float:
+        """Get a gate's raw analog output value.
+
+        Args:
+            gate_idx: Index of the gate.
+
+        Returns:
+            Resource level at output node.
+        """
+        return self._lib.det_core_get_gate_output_raw(self._core, c_uint32(gate_idx))
+
+    def propagate_signals(self, steps: int = 10):
+        """Propagate signals through the gate network.
+
+        Runs simulation steps to let resource flow through low-q channels
+        and accumulate at output nodes according to gate topology.
+
+        Args:
+            steps: Number of simulation steps to run (default 10).
+        """
+        self._lib.det_core_propagate_signals(self._core, c_uint32(steps))
+
+    def get_gate(self, gate_idx: int) -> Optional[DETGate]:
+        """Get a gate structure by index.
+
+        Args:
+            gate_idx: Index of the gate.
+
+        Returns:
+            DETGate structure if valid, None otherwise.
+        """
+        gate_ptr = self._lib.det_core_get_gate(self._core, c_uint32(gate_idx))
+        if gate_ptr:
+            return gate_ptr.contents
+        return None
+
+    def remove_gate(self, gate_idx: int) -> bool:
+        """Remove a gate from the computational substrate.
+
+        Args:
+            gate_idx: Index of the gate to remove.
+
+        Returns:
+            True if removal successful, False otherwise.
+        """
+        return self._lib.det_core_remove_gate(self._core, c_uint32(gate_idx))
+
+    @property
+    def num_gates(self) -> int:
+        """Number of active gates in the computational substrate."""
+        return self._lib.det_core_num_gates(self._core)
 
     def __repr__(self):
         return (

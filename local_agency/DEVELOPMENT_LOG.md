@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 6 - Development Tools (Complete)
+**Current Phase**: Phase 10 - Substrate v2 & Physics Layer (Complete)
 
 ---
 
@@ -496,16 +496,161 @@
 
 ---
 
+## Phase 7: Existence-Lang (Complete)
+
+### 7.1 Language Core ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/lang/tokens.py` - Lexer with ~60 token types
+  - `src/python/det/lang/ast_nodes.py` - AST node definitions
+  - `src/python/det/lang/parser.py` - Recursive descent parser
+  - `src/python/det/lang/semantic.py` - Semantic analysis
+  - `src/python/det/lang/transpiler.py` - Python transpiler
+  - `src/python/det/lang/runtime.py` - Runtime support
+  - `src/python/det/lang/errors.py` - Error handling
+  - `src/python/det/lang/repl.py` - Interactive REPL
+- **Features**:
+  - Four equalities: `:=` (alias), `==` (measure), `=` (reconcile), `≡` (covenant)
+  - Temporal semantics: `if_past`, `repeat_past`, `forecast`
+  - Creature/kernel/presence structure
+  - Phase blocks: READ, PROPOSE, CHOOSE, COMMIT
+  - Witness binding with `::=`
+
+### 7.2 Standard Library ✅
+- **Files Created**:
+  - `src/python/det/lang/stdlib/primitives.py` - Transfer, Diffuse, Distinct, Compare
+  - `src/python/det/lang/stdlib/arithmetic.py` - AddSigned, SubSigned, MulByPastToken
+  - `src/python/det/lang/stdlib/grace.py` - GraceOffer, GraceFlow
+- **Tests**: 36/36 passing (`test_phase7.py`)
+
+---
+
+## Phase 8: EIS VM (Complete)
+
+### 8.1 Existence Instruction Set ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/eis/vm.py` - Virtual machine (~80 opcodes)
+  - `src/python/det/eis/assembler.py` - Assembly language
+  - `src/python/det/eis/encoding.py` - Value encoding
+  - `src/python/det/eis/memory.py` - Memory management
+  - `src/python/det/eis/phases.py` - Execution phases
+  - `src/python/det/eis/registers.py` - Register definitions
+  - `src/python/det/eis/types.py` - Type system
+
+### 8.2 Compiler ✅
+- **Files Created**:
+  - `src/python/det/lang/eis_compiler.py` - Existence-Lang → EIS bytecode
+  - `src/python/det/lang/eis_native.py` - Native code generation
+
+### 8.3 Native Compiler ✅
+- **Features**:
+  - ARM64 code generation
+  - x86_64 code generation
+  - IR optimization passes
+  - JIT compilation support
+- **Tests**: 50/50 passing (`test_phase8.py`)
+
+---
+
+## Phase 9: DET-OS (Complete)
+
+### 9.1 Kernel Core ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/os/kernel.py` - Kernel core
+  - `src/python/det/os/scheduler.py` - Presence-based scheduling
+  - `src/python/det/os/allocator.py` - F-conserving memory
+  - `src/python/det/os/gatekeeper.py` - Agency-based access control
+  - `src/python/det/os/ipc.py` - Bond-based IPC
+  - `src/python/det/os/creature.py` - Creature model
+
+### 9.2 Existence Kernel ✅
+- **Files Created**:
+  - `src/python/det/os/existence/kernel.ex` - Kernel in Existence-Lang
+  - `src/python/det/os/existence/bootstrap.py` - Boot sequence
+  - `src/python/det/os/existence/runtime.py` - Runtime execution
+- **Tests**: All passing (`test_phase9.py`, `test_phase9_5.py`)
+
+---
+
+## Phase 10: Substrate v2 & Physics Layer (Complete)
+
+### 10.1 DET-Aware Substrate ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/include/eis_substrate_v2.h` - ~50 opcodes
+  - `src/substrate/include/substrate_types.h` - Type definitions
+  - `src/substrate/include/effect_table.h` - Effect table
+  - `src/substrate/src/eis_substrate_v2.c` - Implementation (~1300 lines)
+  - `src/substrate/tests/test_substrate_v2.c` - Test suite
+- **Key Features**:
+  - Phase-based execution: READ → PROPOSE → CHOOSE → COMMIT
+  - Proposal system with scoring and effects
+  - Effect table: XFER_F, DIFFUSE, SET_F, ADD_F, etc.
+  - Typed references: NodeRef, BondRef, PropRef, ChoiceRef
+  - SoA memory layout for GPU readiness
+- **Tests**: 31/31 passing
+
+### 10.2 Physics Layer ✅
+- **Files Created**:
+  - `src/python/det/os/existence/physics.ex` - DET physics in Existence-Lang
+  - `src/python/det/os/existence/physics_bridge.py` - Python bridge to substrate
+- **Physics Kernels**:
+  - `Transfer` - Antisymmetric resource movement
+  - `Diffuse` - Symmetric flux exchange
+  - `Compare` - Trace measurement
+  - `Distinct` - Create distinction (ur-choice)
+  - `Reconcile` - Attempted unification
+  - `GraceFlow` - Complete grace protocol
+- **Architecture**:
+  ```
+  physics.ex (fundamental laws)
+      ↓ imported by
+  kernel.ex (OS services)
+      ↓ bridges via
+  physics_bridge.py (Python)
+      ↓ executes on
+  substrate v2 (C)
+  ```
+
+### 10.3 Project Cleanup ✅
+- **Removed**: Empty directories (config, examples, models, visualization, etc.)
+- **Reorganized**: Moved explorations to `docs/explorations/`
+- **Tests**: All passing (87 substrate + 37 det_core + 36 phase7 + 50 phase8 + phase9 + phase9.5)
+
+---
+
+## Current Test Summary
+
+| Component | Tests | Status |
+|-----------|-------|--------|
+| Substrate v2 | 31/31 | ✅ |
+| Substrate v1 | 56/56 | ✅ |
+| DET Core | 37/37 | ✅ |
+| Phase 7 (Lang) | 36/36 | ✅ |
+| Phase 8 (EIS) | 50/50 | ✅ |
+| Phase 9 (OS) | All | ✅ |
+| Phase 9.5 (Kernel) | All | ✅ |
+
+---
+
 ## Next Steps
 
-1. **Phase 5.3+: Network Hardware Integration** (Future):
-   - [ ] Implement SerialTransport with pyserial
-   - [ ] ESP32 firmware development
-   - [ ] Full external node protocol implementation
+1. **Phase 11: Full Existence-Lang Compilation**:
+   - [ ] Complete EIS compiler for all Existence-Lang constructs
+   - [ ] Compile physics.ex and kernel.ex to EIS bytecode
+   - [ ] Run compiled kernel on substrate v2
 
-3. **Phase 6+: Polish**:
-   - [ ] Performance profiling and optimization
-   - [ ] Documentation and API reference
+2. **Phase 12: GPU Backend**:
+   - [ ] Metal compute shaders for macOS
+   - [ ] CUDA backend for NVIDIA
+   - [ ] Parallel proposal evaluation
+
+3. **Phase 13: DET-Native Hardware**:
+   - [ ] FPGA prototype design
+   - [ ] Custom silicon specification
+   - [ ] Direct substrate execution
 
 ---
 
@@ -563,4 +708,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-17 (Phase 6 Development Tools Complete)*
+*Last Updated: 2026-01-23 (Phase 10 Substrate v2 & Physics Layer Complete)*

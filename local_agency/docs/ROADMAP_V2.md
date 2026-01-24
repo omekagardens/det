@@ -49,9 +49,20 @@ This roadmap outlines the migration to **Architecture v2.1**: a DET-aware substr
 
 ---
 
-### Phase 1: Substrate v2 Implementation
+### Phase 1: Substrate v2 Implementation ✓
+
+**Status**: Complete
 
 **Goal**: Rewrite substrate as DET-aware, GPU-ready.
+
+**Completed**:
+- [x] Type definitions (substrate_types.h)
+- [x] Effect table (effect_table.h)
+- [x] Core instruction set (~50 opcodes)
+- [x] VM structure with phase-based execution
+- [x] Proposal system with scoring and effects
+- [x] SoA memory layout for GPU readiness
+- [x] Test suite: 31/31 passing
 
 **Tasks**:
 
@@ -353,9 +364,22 @@ PROP.END H0
 
 ---
 
-### Phase 3: physics.ex Implementation
+### Phase 3: physics.ex Implementation ✓
+
+**Status**: Complete
 
 **Goal**: Implement DET physics in Existence-Lang using v2 substrate.
+
+**Completed**:
+- [x] Transfer kernel (antisymmetric resource movement)
+- [x] Diffuse kernel (symmetric flux exchange)
+- [x] Compare kernel (trace measurement)
+- [x] Distinct kernel (create distinction)
+- [x] Reconcile kernel (attempted unification)
+- [x] GraceOffer/GraceAccept/GraceFlow kernels
+- [x] ComputePresence kernel (P = F · C · a)
+- [x] CoherenceDecay/Strengthen kernels
+- [x] Physics bridge to substrate v2 (physics_bridge.py)
 
 **Tasks**:
 

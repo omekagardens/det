@@ -20,12 +20,6 @@ try:
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
-    # Stubs for type hints when fastapi not installed
-    FastAPI = None
-    WebSocket = None
-    WebSocketDisconnect = None
-    Request = None
-    HTMLResponse = None
 
 from ..core import DETCore
 from ..harness import HarnessController, HarnessEvent, create_harness
@@ -37,13 +31,13 @@ class ConnectionManager:
     """Manages WebSocket connections for broadcasting state updates."""
 
     def __init__(self):
-        self.active_connections: List["WebSocket"] = []
+        self.active_connections: List[WebSocket] = []
 
-    async def connect(self, websocket: "WebSocket"):
+    async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
 
-    def disconnect(self, websocket: "WebSocket"):
+    def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
@@ -124,11 +118,11 @@ class DETWebApp:
         # Setup FastAPI app
         self.app = self._create_app()
 
-    def _create_app(self) -> "FastAPI":
+    def _create_app(self) -> FastAPI:
         """Create and configure the FastAPI application."""
 
         @asynccontextmanager
-        async def lifespan(app: "FastAPI"):
+        async def lifespan(app: FastAPI):
             # Startup
             self._running = True
             self._update_task = asyncio.create_task(self._broadcast_loop())
@@ -374,7 +368,7 @@ class DETWebApp:
             return {"success": True}
 
         @app.websocket("/ws")
-        async def websocket_endpoint(websocket: "WebSocket"):
+        async def websocket_endpoint(websocket: WebSocket):
             """WebSocket endpoint for real-time updates."""
             await self.connection_manager.connect(websocket)
 
@@ -428,7 +422,7 @@ class DETWebApp:
 
         return app
 
-    async def _handle_ws_message_safe(self, websocket: "WebSocket", data: Dict[str, Any]):
+    async def _handle_ws_message_safe(self, websocket: WebSocket, data: Dict[str, Any]):
         """Safely handle WebSocket messages with error catching."""
         try:
             await self._handle_ws_message(websocket, data)
@@ -444,7 +438,7 @@ class DETWebApp:
             except Exception:
                 pass  # Connection may be closed
 
-    async def _handle_ws_message(self, websocket: "WebSocket", data: Dict[str, Any]):
+    async def _handle_ws_message(self, websocket: WebSocket, data: Dict[str, Any]):
         """Handle incoming WebSocket messages."""
         msg_type = data.get("type", "")
 
@@ -486,7 +480,7 @@ class DETWebApp:
             if message:
                 await self._handle_chat(websocket, message)
 
-    async def _handle_chat(self, websocket: "WebSocket", message: str):
+    async def _handle_chat(self, websocket: WebSocket, message: str):
         """Handle a chat message from the client."""
         try:
             # Initialize LLM interface if needed
@@ -826,7 +820,7 @@ def create_app(
     core: Optional[DETCore] = None,
     harness: Optional[HarnessController] = None,
     update_interval: float = 0.1,
-) -> "FastAPI":
+) -> FastAPI:
     """
     Create a DET web application.
 

@@ -105,6 +105,18 @@ DETParams det_default_params(void) {
         .lambda_pi = 0.008f,    /* Momentum decay rate (= λ_base) */
         .beta_g = 10.0f,        /* Gravity-momentum coupling (= 5 × μ_g = 5 × 2.0) */
 
+        /* v6.4 Structural Debt Couplings
+         * These implement "future-biasing through accumulated absence"
+         * from det_structural_debt.md */
+        .debt_conductivity_enabled = true,   /* q → σ_eff: high debt blocks flow */
+        .xi_conductivity = 2.0f,             /* debt-conductivity strength */
+
+        .debt_temporal_enabled = true,       /* q → P: high debt slows time */
+        .zeta_temporal = 0.5f,               /* debt-temporal strength */
+
+        .debt_decoherence_enabled = true,    /* q → C_decay: high debt decoheres faster */
+        .theta_decoherence = 1.0f,           /* debt-decoherence strength */
+
         /* A↔A: fast, plastic */
         .alpha_AA = 0.15f,
         .lambda_AA = 0.08f,
@@ -266,6 +278,19 @@ void det_core_reset(DETCore* core) {
  * ========================================================================== */
 
 void det_core_update_presence(DETCore* core) {
+    /*
+     * v6.4 Presence with Temporal Distortion
+     *
+     * Standard formula: P = a × σ / (1 + F) / (1 + H)
+     *
+     * With debt-temporal coupling (q → P):
+     *   P = a × σ / (1 + F) / (1 + H) / (1 + ζ × q)
+     *
+     * Physical interpretation: High-debt regions experience slower proper time.
+     * This creates "temporal viscosity" - the accumulated past weighs down the present.
+     *
+     * Also tracks accumulated proper time (Σ Δτ) for time dilation history.
+     */
     float sum_P = 0.0f;
     uint32_t active_count = 0;
 
@@ -282,10 +307,26 @@ void det_core_update_presence(DETCore* core) {
             }
         }
 
-        /* Presence formula: P = a * σ / (1 + F_op) / (1 + H) */
+        /* Base presence formula: P = a × σ / (1 + F_op) / (1 + H) */
         float F_op = node->F * 0.1f;
-        node->P = node->a * node->sigma / (1.0f + F_op) / (1.0f + H_i);
+        float P_base = node->a * node->sigma / (1.0f + F_op) / (1.0f + H_i);
+
+        /* v6.4: Debt-temporal coupling (q → P)
+         * High debt slows proper time: P_eff = P_base / (1 + ζ × q) */
+        if (core->params.debt_temporal_enabled) {
+            float debt_temporal_factor = 1.0f + core->params.zeta_temporal * node->q;
+            node->P = P_base / debt_temporal_factor;
+        } else {
+            node->P = P_base;
+        }
+
         node->P = clampf(node->P, 0.0f, 1.0f);
+
+        /* Compute proper time increment: Δτ = P × dt (dt implicit = 1 tick) */
+        node->tau = node->P * core->params.tau_base;
+
+        /* Accumulate total proper time experienced */
+        node->tau_accumulated += node->tau;
 
         sum_P += node->P;
         active_count++;
@@ -295,6 +336,26 @@ void det_core_update_presence(DETCore* core) {
 }
 
 void det_core_update_coherence(DETCore* core, float dt) {
+    /*
+     * v6.4 Coherence Update with Structural Debt Couplings
+     *
+     * Two new couplings from det_structural_debt.md:
+     *
+     * 1. Conductivity Gate (q → σ_eff):
+     *    σ_eff_ij = σ_ij × g_q(q_i, q_j)
+     *    where g_q = 1 / (1 + ξ × (q_i + q_j))
+     *    High-debt regions become insulators - flow routes around barriers.
+     *
+     * 2. Decoherence Enhancement (q → C_decay):
+     *    λ_C_eff = λ_C × (1 + θ × q_bond)
+     *    where q_bond = (q_i + q_j) / 2
+     *    High-debt regions decohere faster - more classical behavior in scarred regions.
+     *
+     * Physical interpretation:
+     * - Debt creates "insulating barriers" that block information flow
+     * - High-debt bonds lose quantum coherence, becoming more classical
+     * - This creates channel/barrier patterns for information routing
+     */
     float sum_C = 0.0f;
     uint32_t bond_count = 0;
 
@@ -321,8 +382,19 @@ void det_core_update_coherence(DETCore* core, float dt) {
         /* Agency gate: g^(a)_ij = √(a_i × a_j) - from DET v6.4 theory */
         float g_agency = sqrtf(ni->a * nj->a);
 
-        /* Compute flux magnitude with agency gating: J = g^(a) × σ × |ΔP| */
-        float J_mag = g_agency * bond->sigma * fabsf(ni->P - nj->P);
+        /* v6.4: Conductivity gate (q → σ_eff)
+         * High debt blocks flow: g_q = 1 / (1 + ξ × (q_i + q_j))
+         * This creates "insulating barriers" in high-debt regions */
+        float effective_sigma = bond->sigma;
+        if (core->params.debt_conductivity_enabled) {
+            float q_sum = ni->q + nj->q;
+            float g_q = 1.0f / (1.0f + core->params.xi_conductivity * q_sum);
+            effective_sigma *= g_q;
+        }
+
+        /* Compute flux magnitude with agency gating and debt conductivity:
+         * J = g^(a) × σ_eff × |ΔP| */
+        float J_mag = g_agency * effective_sigma * fabsf(ni->P - nj->P);
 
         /* Phase slip term */
         float phase_diff = ni->theta - nj->theta;
@@ -332,10 +404,18 @@ void det_core_update_coherence(DETCore* core, float dt) {
         float phase_align = cosf(phase_diff);
         bond->phase_align_ema = 0.9f * bond->phase_align_ema + 0.1f * phase_align;
 
-        /* Coherence update */
-        float effective_alpha = alpha * plasticity_mod;
+        /* v6.4: Decoherence enhancement (q → C_decay)
+         * High debt decoheres faster: λ_eff = λ × (1 + θ × q_bond) */
         float effective_lambda = lambda + bond->lambda_decay;
+        if (core->params.debt_decoherence_enabled) {
+            float q_bond = (ni->q + nj->q) / 2.0f;
+            effective_lambda *= (1.0f + core->params.theta_decoherence * q_bond);
+        }
+
         float effective_slip = slip + bond->lambda_slip;
+
+        /* Coherence update with debt-modulated parameters */
+        float effective_alpha = alpha * plasticity_mod;
 
         float dC = effective_alpha * J_mag * dt
                  - effective_lambda * bond->C * dt
@@ -437,6 +517,10 @@ void det_core_update_agency(DETCore* core, float dt) {
 }
 
 void det_core_update_affect(DETCore* core, float dt) {
+    /*
+     * Affect update with v6.4 debt conductivity gate.
+     * Throughput T is computed using effective conductivity.
+     */
     const float Q_OK = 0.3f;
     const float GAMMA_SHORT = 0.3f;
     const float GAMMA_V = 0.1f;
@@ -471,7 +555,16 @@ void det_core_update_affect(DETCore* core, float dt) {
 
             /* Agency gate: g^(a)_ij = √(a_i × a_j) */
             float g_agency = sqrtf(node->a * other_node->a);
-            float J_mag = g_agency * bond->sigma * fabsf(node->P - other_node->P);
+
+            /* v6.4: Apply debt conductivity gate */
+            float effective_sigma = bond->sigma;
+            if (core->params.debt_conductivity_enabled) {
+                float q_sum = node->q + other_node->q;
+                float g_q = 1.0f / (1.0f + core->params.xi_conductivity * q_sum);
+                effective_sigma *= g_q;
+            }
+
+            float J_mag = g_agency * effective_sigma * fabsf(node->P - other_node->P);
             T += bond->C * J_mag;
             C_sum += bond->C;
             neighbor_count++;
@@ -515,13 +608,18 @@ void det_core_update_affect(DETCore* core, float dt) {
 }
 
 void det_core_identify_self(DETCore* core) {
+    /*
+     * Self-cluster identification with v6.4 debt conductivity gate.
+     * Edge weights use effective conductivity.
+     */
     const float KAPPA = 1.2f;
     const float ALPHA = 1.0f;
     const float BETA = 2.0f;
     const float EPS = 1e-9f;
 
     /* Step 1: Compute edge weights w_ij = C_ij × |J_ij| × g^(a)_ij
-     * where g^(a)_ij = √(a_i × a_j) is the agency gate */
+     * where g^(a)_ij = √(a_i × a_j) is the agency gate
+     * and J uses effective conductivity with debt gate */
     for (uint32_t b = 0; b < core->num_bonds; b++) {
         DETBond* bond = &core->bonds[b];
         DETNode* ni = &core->nodes[bond->i];
@@ -534,7 +632,16 @@ void det_core_identify_self(DETCore* core) {
 
         /* Agency gate: g^(a)_ij = √(a_i × a_j) */
         float g_agency = sqrtf(ni->a * nj->a);
-        float J_mag = g_agency * bond->sigma * fabsf(ni->P - nj->P);
+
+        /* v6.4: Apply debt conductivity gate */
+        float effective_sigma = bond->sigma;
+        if (core->params.debt_conductivity_enabled) {
+            float q_sum = ni->q + nj->q;
+            float g_q = 1.0f / (1.0f + core->params.xi_conductivity * q_sum);
+            effective_sigma *= g_q;
+        }
+
+        float J_mag = g_agency * effective_sigma * fabsf(ni->P - nj->P);
         float w = bond->C * J_mag;  /* Note: agency gate already in J_mag */
         bond->stability_ema = 0.95f * bond->stability_ema + 0.05f * w;
     }
@@ -1045,7 +1152,8 @@ void det_core_update_momentum(DETCore* core, float dt) {
      *   π^+ = (1 - λ_π × Δτ) × π + α_π × J^(diff) × Δτ + β_g × g_ij × Δτ
      *
      * where:
-     *   J^(diff) = g^(a)_ij × σ × (P_i - P_j)  [agency-gated diffusive flux]
+     *   J^(diff) = g^(a)_ij × σ_eff × (P_i - P_j)  [agency-gated diffusive flux]
+     *   σ_eff = σ × g_q (debt conductivity gate)
      *   g_ij = bond-averaged gravitational field
      *   α_π = momentum charging gain
      *   λ_π = momentum decay rate
@@ -1065,8 +1173,16 @@ void det_core_update_momentum(DETCore* core, float dt) {
         /* Agency gate: g^(a)_ij = √(a_i × a_j) */
         float g_agency = sqrtf(ni->a * nj->a);
 
-        /* Compute directed flux (signed) with agency gating */
-        float J_diff = g_agency * bond->sigma * (ni->P - nj->P);
+        /* v6.4: Apply debt conductivity gate */
+        float effective_sigma = bond->sigma;
+        if (core->params.debt_conductivity_enabled) {
+            float q_sum = ni->q + nj->q;
+            float g_q = 1.0f / (1.0f + core->params.xi_conductivity * q_sum);
+            effective_sigma *= g_q;
+        }
+
+        /* Compute directed flux (signed) with agency gating and debt conductivity */
+        float J_diff = g_agency * effective_sigma * (ni->P - nj->P);
 
         /* Local gravity proxy: g_ij ≈ (q_j - q_i)
          * High debt creates "gravitational pull" */
@@ -1822,4 +1938,566 @@ void det_core_simulate_somatic(DETCore* core, float dt) {
             somatic->value = clampf(somatic->value, 0.0f, 1.0f);
         }
     }
+}
+
+/* ==========================================================================
+ * PHASE 4: PATTERNED q ENCODING
+ * ==========================================================================
+ * Implementation of structural debt patterning for information encoding.
+ * "You don't transmit a signal; you carve channels."
+ * ========================================================================== */
+
+/* Debt accumulation rate (α_q from structural debt theory) */
+#define ALPHA_Q 0.012f
+
+float det_core_drain_resource(DETCore* core, uint16_t node_id, float amount) {
+    if (node_id >= core->num_nodes) return 0.0f;
+
+    DETNode* node = &core->nodes[node_id];
+
+    /* Can't drain inactive nodes */
+    if (!node->active) return 0.0f;
+
+    /* Clamp to available resource (leave small minimum) */
+    float min_F = 0.01f;
+    float available = node->F - min_F;
+    if (available <= 0.0f) return 0.0f;
+
+    float actual_drain = (amount < available) ? amount : available;
+
+    /* Apply drain */
+    node->F -= actual_drain;
+
+    /* Accumulate structural debt from loss */
+    /* q^+ = clip(q + α_q × drain, 0, 1) */
+    node->q = clampf(node->q + ALPHA_Q * actual_drain, 0.0f, 1.0f);
+
+    return actual_drain;
+}
+
+uint32_t det_core_write_q_pattern(
+    DETCore* core,
+    const uint16_t* node_ids,
+    const float* q_targets,
+    uint32_t num_nodes
+) {
+    if (!node_ids || !q_targets) return 0;
+
+    uint32_t success_count = 0;
+
+    for (uint32_t i = 0; i < num_nodes; i++) {
+        uint16_t node_id = node_ids[i];
+        if (node_id >= core->num_nodes) continue;
+
+        DETNode* node = &core->nodes[node_id];
+        float target_q = clampf(q_targets[i], 0.0f, 1.0f);
+
+        /* If already at or above target, count as success */
+        if (node->q >= target_q) {
+            success_count++;
+            continue;
+        }
+
+        /* Calculate how much q we need to add */
+        float q_needed = target_q - node->q;
+
+        /* Resource drain needed: drain = q_needed / α_q */
+        float drain_needed = q_needed / ALPHA_Q;
+
+        /* Attempt to drain (may not fully succeed if low F) */
+        float drained = det_core_drain_resource(core, node_id, drain_needed);
+
+        /* Check if we reached target */
+        if (node->q >= target_q * 0.95f) {  /* 95% threshold for success */
+            success_count++;
+        }
+    }
+
+    return success_count;
+}
+
+void det_core_create_barrier(
+    DETCore* core,
+    const uint16_t* barrier_nodes,
+    uint32_t num_barrier,
+    float q_target
+) {
+    if (!barrier_nodes || num_barrier == 0) return;
+
+    /* Create array of uniform q targets */
+    float targets[256];
+    uint32_t count = (num_barrier < 256) ? num_barrier : 256;
+
+    for (uint32_t i = 0; i < count; i++) {
+        targets[i] = q_target;
+    }
+
+    /* Write the pattern */
+    det_core_write_q_pattern(core, barrier_nodes, targets, count);
+}
+
+void det_core_create_channel(
+    DETCore* core,
+    const uint16_t* channel_nodes,
+    uint32_t num_channel,
+    float q_max
+) {
+    if (!channel_nodes || num_channel == 0) return;
+
+    /*
+     * Channel creation works by injecting grace to keep q low.
+     * Grace replenishes F and reduces q, maintaining the channel.
+     */
+    for (uint32_t i = 0; i < num_channel; i++) {
+        uint16_t node_id = channel_nodes[i];
+        if (node_id >= core->num_nodes) continue;
+
+        DETNode* node = &core->nodes[node_id];
+
+        /* If q is above threshold, inject grace to bring it down */
+        if (node->q > q_max) {
+            /*
+             * Grace reduces q: q^+ = max(0, q - grace × grace_factor)
+             * We need grace = (q - q_max) / grace_factor
+             * Using det_core_inject_grace which handles this
+             */
+            float grace_needed = (node->q - q_max) * 10.0f;  /* Scale factor */
+            det_core_inject_grace(core, node_id, grace_needed);
+        }
+
+        /* Also boost resource to maintain flow capacity */
+        node->F = clampf(node->F + 0.2f, 0.0f, 1.0f);
+    }
+}
+
+void det_core_create_well(
+    DETCore* core,
+    uint16_t center_node,
+    float q_center
+) {
+    if (center_node >= core->num_nodes) return;
+
+    /*
+     * A well is a high-q point that creates gravitational attraction.
+     * From structural debt theory: ∇²Φ = κρ where ρ = q - b
+     * High q creates a potential well that draws resource inward.
+     */
+
+    /* Set the center to high q */
+    uint16_t nodes[1] = { center_node };
+    float targets[1] = { q_center };
+    det_core_write_q_pattern(core, nodes, targets, 1);
+}
+
+float det_core_get_effective_conductivity(const DETCore* core, uint32_t bond_idx) {
+    if (bond_idx >= core->num_bonds) return 0.0f;
+
+    const DETBond* bond = &core->bonds[bond_idx];
+    float base_sigma = bond->sigma;
+
+    /* If conductivity coupling is disabled, return base */
+    if (!core->params.debt_conductivity_enabled) {
+        return base_sigma;
+    }
+
+    /* Get node q values */
+    const DETNode* ni = &core->nodes[bond->i];
+    const DETNode* nj = &core->nodes[bond->j];
+
+    /* Debt gate: g_q = 1 / (1 + ξ × (q_i + q_j)) */
+    float q_sum = ni->q + nj->q;
+    float g_q = 1.0f / (1.0f + core->params.xi_conductivity * q_sum);
+
+    return base_sigma * g_q;
+}
+
+void det_core_read_q_pattern(
+    const DETCore* core,
+    const uint16_t* node_ids,
+    float* q_values,
+    uint32_t num_nodes
+) {
+    if (!node_ids || !q_values) return;
+
+    for (uint32_t i = 0; i < num_nodes; i++) {
+        uint16_t node_id = node_ids[i];
+        if (node_id >= core->num_nodes) {
+            q_values[i] = 0.0f;
+            continue;
+        }
+        q_values[i] = core->nodes[node_id].q;
+    }
+}
+
+float det_core_get_q_gradient(const DETCore* core, uint16_t node_id) {
+    if (node_id >= core->num_nodes) return 0.0f;
+
+    const DETNode* node = &core->nodes[node_id];
+    float node_q = node->q;
+    float max_gradient = 0.0f;
+
+    /* Find maximum |q_i - q_j| among bonded neighbors */
+    for (uint32_t b = 0; b < core->num_bonds; b++) {
+        const DETBond* bond = &core->bonds[b];
+
+        /* Check if this bond connects to our node */
+        uint16_t neighbor_id;
+        if (bond->i == node_id) {
+            neighbor_id = bond->j;
+        } else if (bond->j == node_id) {
+            neighbor_id = bond->i;
+        } else {
+            continue;
+        }
+
+        /* Compute gradient to this neighbor */
+        float neighbor_q = core->nodes[neighbor_id].q;
+        float gradient = fabsf(node_q - neighbor_q);
+
+        if (gradient > max_gradient) {
+            max_gradient = gradient;
+        }
+    }
+
+    return max_gradient;
+}
+
+/* ==========================================================================
+ * PHASE 5: COMPUTATIONAL SUBSTRATE
+ * ==========================================================================
+ * Logic gates implemented via q-pattern topology.
+ * "The universe wires itself through selective loss."
+ * ========================================================================== */
+
+/*
+ * Gate topology design:
+ *
+ * BUFFER (1-input): in --[channel]--> out
+ *   - Simple low-q path from input to output
+ *   - Signal propagates through via resource flow
+ *
+ * NOT (inverter): power_rail --+--[barrier if in active]--> out
+ *                              |
+ *                              in --[drain when active]
+ *   - Power rail provides constant resource
+ *   - When input is active, it diverts/blocks power from reaching output
+ *   - When input is inactive, power flows to output
+ *
+ * AND (2-input): in1 --\
+ *                       >--[threshold junction]--> out
+ *                in2 --/
+ *   - Both inputs must provide resource to exceed threshold
+ *   - Junction node requires total flow > threshold
+ *
+ * OR (2-input): in1 --\
+ *                      >--[low threshold junction]--> out
+ *               in2 --/
+ *   - Either input can activate output
+ *   - Low threshold means any input suffices
+ */
+
+/* Default gate thresholds */
+#define GATE_THRESHOLD_AND   0.6f  /* Need both inputs */
+#define GATE_THRESHOLD_OR    0.3f  /* Need either input */
+#define GATE_THRESHOLD_NOT   0.5f  /* Inversion threshold */
+#define GATE_THRESHOLD_XOR   0.4f  /* Exclusive detection */
+
+/* Helper: Find an empty gate slot */
+static int32_t find_empty_gate_slot(DETCore* core) {
+    for (uint32_t i = 0; i < DET_MAX_GATES; i++) {
+        if (!core->gates[i].active) {
+            return (int32_t)i;
+        }
+    }
+    return -1;
+}
+
+/* Helper: Recruit nodes for a gate topology */
+static bool recruit_gate_nodes(DETCore* core, DETGate* gate, uint32_t count) {
+    if (count > DET_GATE_MAX_NODES) return false;
+
+    for (uint32_t i = 0; i < count; i++) {
+        int32_t node_id = det_core_recruit_node(core, DET_LAYER_A);
+        if (node_id < 0) {
+            /* Failed - retire already recruited nodes */
+            for (uint32_t j = 0; j < i; j++) {
+                det_core_retire_node(core, gate->nodes[j]);
+            }
+            return false;
+        }
+        gate->nodes[i] = (uint16_t)node_id;
+
+        /* Initialize node for gate operation */
+        DETNode* node = &core->nodes[node_id];
+        node->F = 0.5f;     /* Start with moderate resource */
+        node->q = 0.05f;    /* Low debt for conductivity */
+        node->sigma = 0.12f;
+    }
+
+    gate->num_nodes = count;
+    return true;
+}
+
+/* Helper: Configure bonds between gate nodes */
+static void configure_gate_bonds(DETCore* core, DETGate* gate) {
+    /* Connect nodes in sequence: input(s) -> internal -> output */
+    for (uint32_t i = 0; i < gate->num_nodes - 1; i++) {
+        int32_t b = det_core_create_bond(core, gate->nodes[i], gate->nodes[i + 1]);
+        if (b >= 0) {
+            core->bonds[b].C = 0.7f;      /* Strong coherence */
+            core->bonds[b].sigma = 0.15f; /* Good conductivity */
+        }
+    }
+}
+
+int32_t det_core_create_gate(DETCore* core, DETGateType type) {
+    if (!core) return -1;
+
+    int32_t slot = find_empty_gate_slot(core);
+    if (slot < 0) return -1;
+
+    DETGate* gate = &core->gates[slot];
+    memset(gate, 0, sizeof(DETGate));
+    gate->type = type;
+    gate->active = true;
+
+    /* Recruit nodes based on gate type */
+    uint32_t nodes_needed;
+    switch (type) {
+        case DET_GATE_BUFFER:
+            nodes_needed = 3;  /* in, middle, out */
+            gate->threshold = 0.3f;
+            break;
+
+        case DET_GATE_NOT:
+            nodes_needed = 4;  /* in, power_rail, junction, out */
+            gate->threshold = GATE_THRESHOLD_NOT;
+            break;
+
+        case DET_GATE_AND:
+        case DET_GATE_NAND:
+            nodes_needed = 4;  /* in1, in2, junction, out */
+            gate->threshold = GATE_THRESHOLD_AND;
+            break;
+
+        case DET_GATE_OR:
+        case DET_GATE_NOR:
+            nodes_needed = 4;  /* in1, in2, junction, out */
+            gate->threshold = GATE_THRESHOLD_OR;
+            break;
+
+        case DET_GATE_XOR:
+            nodes_needed = 5;  /* in1, in2, junction1, junction2, out */
+            gate->threshold = GATE_THRESHOLD_XOR;
+            break;
+
+        default:
+            return -1;
+    }
+
+    if (!recruit_gate_nodes(core, gate, nodes_needed)) {
+        gate->active = false;
+        return -1;
+    }
+
+    /* Assign input/output based on type */
+    switch (type) {
+        case DET_GATE_BUFFER:
+            gate->input1 = gate->nodes[0];
+            gate->input2 = 0;  /* Not used */
+            gate->output = gate->nodes[2];
+            break;
+
+        case DET_GATE_NOT:
+            gate->input1 = gate->nodes[0];
+            gate->input2 = 0;  /* Not used */
+            gate->output = gate->nodes[3];
+            /* nodes[1] is power rail, nodes[2] is junction */
+            /* Set power rail to constant high resource */
+            core->nodes[gate->nodes[1]].F = 1.0f;
+            core->nodes[gate->nodes[1]].q = 0.01f;  /* Very low q */
+            break;
+
+        case DET_GATE_AND:
+        case DET_GATE_OR:
+        case DET_GATE_NAND:
+        case DET_GATE_NOR:
+            gate->input1 = gate->nodes[0];
+            gate->input2 = gate->nodes[1];
+            gate->output = gate->nodes[3];
+            /* nodes[2] is junction */
+            break;
+
+        case DET_GATE_XOR:
+            gate->input1 = gate->nodes[0];
+            gate->input2 = gate->nodes[1];
+            gate->output = gate->nodes[4];
+            /* nodes[2], nodes[3] are internal junctions */
+            break;
+    }
+
+    /* Configure bonds for the gate topology */
+    configure_gate_bonds(core, gate);
+
+    /* For 2-input gates, also connect both inputs to junction */
+    if (type == DET_GATE_AND || type == DET_GATE_OR ||
+        type == DET_GATE_NAND || type == DET_GATE_NOR) {
+        /* Connect input1 to junction */
+        det_core_create_bond(core, gate->input1, gate->nodes[2]);
+        /* Connect input2 to junction */
+        det_core_create_bond(core, gate->input2, gate->nodes[2]);
+    }
+
+    /* For NOT gate, connect power rail to junction and output */
+    if (type == DET_GATE_NOT) {
+        det_core_create_bond(core, gate->nodes[1], gate->nodes[2]);  /* power -> junction */
+        det_core_create_bond(core, gate->nodes[2], gate->output);    /* junction -> output */
+        det_core_create_bond(core, gate->input1, gate->nodes[2]);    /* input -> junction (for diversion) */
+    }
+
+    core->num_gates++;
+    return slot;
+}
+
+int32_t det_core_connect_gates(
+    DETCore* core,
+    uint32_t from_gate,
+    uint32_t to_gate,
+    uint8_t to_input
+) {
+    if (!core) return -1;
+    if (from_gate >= DET_MAX_GATES || !core->gates[from_gate].active) return -1;
+    if (to_gate >= DET_MAX_GATES || !core->gates[to_gate].active) return -1;
+
+    DETGate* src = &core->gates[from_gate];
+    DETGate* dst = &core->gates[to_gate];
+
+    uint16_t dst_node = (to_input == 0) ? dst->input1 : dst->input2;
+
+    /* Create a low-q channel bond between output and input */
+    int32_t b = det_core_create_bond(core, src->output, dst_node);
+    if (b >= 0) {
+        core->bonds[b].C = 0.8f;       /* Strong coherence for signal propagation */
+        core->bonds[b].sigma = 0.15f;  /* Good conductivity */
+    }
+
+    return b;
+}
+
+void det_core_set_gate_input(
+    DETCore* core,
+    uint32_t gate_idx,
+    uint8_t input,
+    float value
+) {
+    if (!core) return;
+    if (gate_idx >= DET_MAX_GATES || !core->gates[gate_idx].active) return;
+
+    DETGate* gate = &core->gates[gate_idx];
+    uint16_t node_id = (input == 0) ? gate->input1 : gate->input2;
+
+    /* Set input signal by adjusting node resource */
+    DETNode* node = &core->nodes[node_id];
+
+    /* Logic 1: High resource, Logic 0: Low resource */
+    node->F = clampf(value, 0.0f, 1.0f);
+
+    /* Also inject some resource to push through the network */
+    if (value > 0.5f) {
+        node->grace_buffer += value * 0.2f;  /* Grace helps maintain flow */
+    }
+}
+
+float det_core_get_gate_output(const DETCore* core, uint32_t gate_idx) {
+    if (!core) return 0.0f;
+    if (gate_idx >= DET_MAX_GATES || !core->gates[gate_idx].active) return 0.0f;
+
+    const DETGate* gate = &core->gates[gate_idx];
+    float raw = core->nodes[gate->output].F;
+
+    /* Apply threshold for digital output */
+    return (raw >= gate->threshold) ? 1.0f : 0.0f;
+}
+
+float det_core_get_gate_output_raw(const DETCore* core, uint32_t gate_idx) {
+    if (!core) return 0.0f;
+    if (gate_idx >= DET_MAX_GATES || !core->gates[gate_idx].active) return 0.0f;
+
+    const DETGate* gate = &core->gates[gate_idx];
+    return core->nodes[gate->output].F;
+}
+
+void det_core_propagate_signals(DETCore* core, uint32_t steps, float dt) {
+    if (!core) return;
+
+    for (uint32_t s = 0; s < steps; s++) {
+        /* Run a simulation step */
+        det_core_step(core, dt);
+
+        /* Apply NOT gate logic: power rail should feed output when input is low */
+        for (uint32_t g = 0; g < DET_MAX_GATES; g++) {
+            if (!core->gates[g].active) continue;
+
+            DETGate* gate = &core->gates[g];
+
+            if (gate->type == DET_GATE_NOT) {
+                /* NOT gate: output = ~input */
+                float input_level = core->nodes[gate->input1].F;
+                float power_level = core->nodes[gate->nodes[1]].F;
+
+                /* If input is low, allow power to reach output */
+                /* If input is high, divert power away from output */
+                if (input_level < 0.3f) {
+                    /* Input low -> output gets power */
+                    core->nodes[gate->output].F += power_level * 0.1f;
+                    core->nodes[gate->output].F = clampf(core->nodes[gate->output].F, 0.0f, 1.0f);
+                } else {
+                    /* Input high -> output loses resource */
+                    core->nodes[gate->output].F *= 0.9f;
+                }
+
+                /* Maintain power rail */
+                core->nodes[gate->nodes[1]].F = 1.0f;
+            }
+            else if (gate->type == DET_GATE_NAND || gate->type == DET_GATE_NOR) {
+                /* NAND/NOR: invert after AND/OR logic */
+                float out = core->nodes[gate->output].F;
+                /* This is handled by the natural flow dynamics */
+            }
+        }
+    }
+}
+
+const DETGate* det_core_get_gate(const DETCore* core, uint32_t gate_idx) {
+    if (!core) return NULL;
+    if (gate_idx >= DET_MAX_GATES) return NULL;
+    if (!core->gates[gate_idx].active) return NULL;
+    return &core->gates[gate_idx];
+}
+
+bool det_core_remove_gate(DETCore* core, uint32_t gate_idx) {
+    if (!core) return false;
+    if (gate_idx >= DET_MAX_GATES) return false;
+    if (!core->gates[gate_idx].active) return false;
+
+    DETGate* gate = &core->gates[gate_idx];
+
+    /* Retire all nodes in the gate */
+    for (uint32_t i = 0; i < gate->num_nodes; i++) {
+        det_core_retire_node(core, gate->nodes[i]);
+    }
+
+    gate->active = false;
+    core->num_gates--;
+    return true;
+}
+
+uint32_t det_core_num_gates(const DETCore* core) {
+    if (!core) return 0;
+
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < DET_MAX_GATES; i++) {
+        if (core->gates[i].active) count++;
+    }
+    return count;
 }

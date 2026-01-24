@@ -1,8 +1,38 @@
 # DET Local Agency: Feasibility Study & Architectural Plan
 
-**Version**: 0.2.0-planning
-**Date**: 2026-01-17
-**Status**: Architecture Finalized, Pre-implementation
+**Version**: 0.3.0-existence-first
+**Date**: 2026-01-23
+**Status**: Architecture Redesign
+
+---
+
+> **IMPORTANT: Architecture Update**
+>
+> This document describes the conceptual architecture. For the **implementation architecture**,
+> see the following documents which supersede the C-centric approach described here:
+>
+> - **[ARCHITECTURE_V2.md](docs/ARCHITECTURE_V2.md)** - Existence-Lang First architecture
+> - **[ROADMAP_V2.md](docs/ROADMAP_V2.md)** - Migration roadmap
+>
+> **Key Change**: DET physics are now implemented in Existence-Lang, not C.
+> The only C code is a minimal execution substrate. Python is used only for
+> external bridges (LLM, Web API), not core execution.
+>
+> ```
+> Correct Layer Stack:
+> ┌─────────────────────────────────────────────┐
+> │     Applications (Existence-Lang)           │
+> ├─────────────────────────────────────────────┤
+> │     DET-OS Kernel (Existence-Lang)          │  kernel.ex
+> ├─────────────────────────────────────────────┤
+> │     DET Physics (Existence-Lang)            │  physics.ex
+> ├─────────────────────────────────────────────┤
+> │     EIS Substrate (Minimal C)               │  eis_substrate.c
+> │     OR C-compiled Existence-Lang            │  physics.c (generated)
+> ├─────────────────────────────────────────────┤
+> │     Host OS / DET-Native Hardware           │
+> └─────────────────────────────────────────────┘
+> ```
 
 ---
 
@@ -1241,195 +1271,9 @@ Deliverable: Continuous throughout development
 - Visual understanding of emergent behavior
 ```
 
-### Phase 7: DET-OS Foundation
-
-**Objective**: Build the foundation for DET as an operating system
-
-See `explorations/09_det_os_feasibility.md` and `explorations/10_existence_lang_v1_1.md` for full analysis.
-
-**Core Principle**: Agency is the First Principle. DET physics IS the kernel, not an application.
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 7.1 Existence-Lang Parser & Type System                             │
-│     - ANTLR4 or hand-written recursive descent parser               │
-│     - Temporal type system: Past (trace), Present (commit), Future  │
-│     - Creature, Bond, Kernel, Presence constructs                   │
-│     - Four equality types: := (alias), == (measure), ≡ (covenant),  │
-│       = (reconciliation)                                            │
-│     - Witness token types for all operations                        │
-├─────────────────────────────────────────────────────────────────────┤
-│ 7.2 Existence-Lang to C Transpiler                                  │
-│     - Lower Existence-Lang to C code using existing DET kernel      │
-│     - Kernel → C function with explicit state passing               │
-│     - Creature → struct + update function                           │
-│     - Bond → coherence-tracked channel struct                       │
-│     - Validate language design before EIS implementation            │
-├─────────────────────────────────────────────────────────────────────┤
-│ 7.3 Kernel Library (Standard Library)                               │
-│     - AddSigned, MulByPastToken, Reconcile kernels                  │
-│     - Operator lowering: +, -, *, / as macros over kernels          │
-│     - Grace kernels for resource flow                               │
-│     - Somatic kernels for I/O                                       │
-└─────────────────────────────────────────────────────────────────────┘
-
-Deliverable: existence-lang v0.1.0
-- Parser + type checker
-- C transpiler
-- Standard kernel library
-- Example programs (thermostat, counter, etc.)
-```
-
-### Phase 8: Existence Instruction Set (EIS)
-
-**Objective**: Native bytecode for DET execution
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 8.1 EIS Specification                                               │
-│     - Instruction encoding (32-byte fixed width)                    │
-│     - Register model: trace registers, token registers, bonds       │
-│     - Temporal semantics: no same-tick token reads                  │
-│     - Agency-gated execution model                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│ 8.2 Tier-0 Primitives                                               │
-│     - DISTINCT: Create differentiation                              │
-│     - TRANSFER: Antisymmetric resource move                         │
-│     - DIFFUSE: Bond-local flux exchange                             │
-│     - CHOOSE: Select from proposal set                              │
-│     - COMMIT: Write to trace                                        │
-│     - CMP: Measure past traces → token                              │
-│     - REPEAT_PAST: Bounded iteration from past token                │
-├─────────────────────────────────────────────────────────────────────┤
-│ 8.3 EIS Virtual Machine                                             │
-│     - Stack-less execution (all state in registers)                 │
-│     - Tick-based scheduling                                         │
-│     - Witness token management                                      │
-│     - Integration with existing DET C kernel                        │
-├─────────────────────────────────────────────────────────────────────┤
-│ 8.4 Existence-Lang → EIS Compiler                                   │
-│     - Direct EIS emission from AST                                  │
-│     - Kernel inlining and optimization                              │
-│     - Dead code elimination (unreachable proposals)                 │
-└─────────────────────────────────────────────────────────────────────┘
-
-Deliverable: eis v0.1.0
-- EIS specification document
-- EIS assembler/disassembler
-- EIS VM (C implementation)
-- Existence-Lang → EIS compiler backend
-```
-
-### Phase 9: DET-OS Kernel
-
-**Objective**: Operating system primitives using DET physics
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 9.1 Creature Manager (Process Subsystem)                            │
-│     - Creature = coherent node cluster                              │
-│     - Spawn via recruitment from dormant pool                       │
-│     - Termination via cluster dissolution                           │
-│     - Creature table and lifecycle management                       │
-├─────────────────────────────────────────────────────────────────────┤
-│ 9.2 Presence Scheduler                                              │
-│     - No explicit priorities - presence emerges from DET physics    │
-│     - P = a × σ / (1 + F_op) / (1 + H)                              │
-│     - High-P creatures execute; low-P creatures yield               │
-│     - Grace injection for starved creatures                         │
-├─────────────────────────────────────────────────────────────────────┤
-│ 9.3 Resource Allocator (Memory Subsystem)                           │
-│     - Memory = resource (F) pools                                   │
-│     - Allocation = claim_F with witness                             │
-│     - Deallocation = resource return to pool                        │
-│     - OOM = creature dissolution (not crash)                        │
-├─────────────────────────────────────────────────────────────────────┤
-│ 9.4 Bond IPC (Communication)                                        │
-│     - IPC via bond creation and coherence                           │
-│     - Message passing = flux with witness                           │
-│     - Channels = persistent high-C bonds                            │
-│     - Synchronization via phase alignment                           │
-├─────────────────────────────────────────────────────────────────────┤
-│ 9.5 Gatekeeper (Syscall Layer)                                      │
-│     - All syscalls are agency-gated                                 │
-│     - PROCEED/RETRY/STOP/ESCALATE outcomes                          │
-│     - Capability = agency ceiling from structure                    │
-│     - No separate permission system needed                          │
-└─────────────────────────────────────────────────────────────────────┘
-
-Deliverable: det_os v0.1.0
-- Creature manager
-- Presence scheduler
-- Resource allocator
-- Bond IPC
-- Gatekeeper syscalls
-```
-
-### Phase 10: Hardware Targets
-
-**Objective**: Run DET-OS on multiple platforms
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 10.1 Virtualized (macOS/Linux Host)                                 │
-│     - DET-OS as user-space process                                  │
-│     - Somatic layer maps to host syscalls                           │
-│     - LLM integration via Ollama                                    │
-│     - Development and testing platform                              │
-├─────────────────────────────────────────────────────────────────────┤
-│ 10.2 Embedded (ESP32)                                               │
-│     - Minimal DET kernel (4-8 P-nodes, 16-32 A-nodes)               │
-│     - EIS subset for resource-constrained execution                 │
-│     - Somatic direct to GPIO/ADC/PWM                                │
-│     - Serial bond to host for LLM access                            │
-├─────────────────────────────────────────────────────────────────────┤
-│ 10.3 Native DET Hardware (Future)                                   │
-│     - DET Processing Unit (DPU) architecture spec                   │
-│     - Parallel node processing array                                │
-│     - Hardware bond crossbar                                        │
-│     - Native agency gating                                          │
-│     - FPGA prototype → ASIC                                         │
-└─────────────────────────────────────────────────────────────────────┘
-
-Deliverable: Multi-platform DET-OS
-- Virtualized reference implementation
-- ESP32 firmware
-- DPU specification (future)
-```
-
-### Phase 11: LLM Native Integration
-
-**Objective**: LLMs as first-class memory layer in DET-OS
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 11.1 LLM as Creature                                                │
-│     - creature_llm construct in Existence-Lang                      │
-│     - Port membrane for stimulus injection                          │
-│     - Query = reconciliation attempt with witness                   │
-│     - Response = flux from LLM creature to caller                   │
-├─────────────────────────────────────────────────────────────────────┤
-│ 11.2 Memory Hierarchy                                               │
-│     - Hot: DET nodes (working memory)                               │
-│     - Warm: LLM context (session memory)                            │
-│     - Cold: LLM weights (long-term memory)                          │
-│     - Consolidation = MLX fine-tuning during low-presence           │
-├─────────────────────────────────────────────────────────────────────┤
-│ 11.3 Multi-Model Routing                                            │
-│     - Domain-specialized LLMs as memory creatures                   │
-│     - Routing via bond coherence                                    │
-│     - Fallback/escalation via gatekeeper                            │
-└─────────────────────────────────────────────────────────────────────┘
-
-Deliverable: LLM-native DET-OS
-- creature_llm implementation
-- Memory hierarchy integration
-- Multi-model routing in Existence-Lang
-```
-
 ---
 
-## Part 8: Technical Feasibility Analysis
+## Part 7: Technical Feasibility Analysis
 
 ### 7.1 Feasibility: HIGH
 
@@ -1644,8 +1488,6 @@ This document serves as the foundation for implementation. The next step is to b
 11. Cross-Layer Dynamics: `explorations/06_cross_layer_dynamics.md`
 12. Temporal Dynamics: `explorations/07_temporal_dynamics.md`
 13. Emotional Feedback: `explorations/08_emotional_feedback.md`
-14. DET-OS Feasibility: `explorations/09_det_os_feasibility.md`
-15. Existence-Lang v1.1 (Agency-First): `explorations/10_existence_lang_v1_1.md`
 
 ### External Tools & Frameworks
 14. Orla Project: https://github.com/dorcha-inc/orla

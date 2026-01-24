@@ -11,12 +11,11 @@ Provides:
 - Integration with CLI harness for control
 """
 
-from .server import create_app, run_server, FASTAPI_AVAILABLE
+from .server import create_app, run_server
 from .api import DETStateAPI
 
 __all__ = [
     "create_app",
     "run_server",
     "DETStateAPI",
-    "FASTAPI_AVAILABLE",
 ]

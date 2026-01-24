@@ -125,6 +125,18 @@ typedef struct {
     float lambda_pi;        /* 0.008 - Momentum decay rate */
     float beta_g;           /* 10.0 - Gravity-momentum coupling (= 5 × μ_g) */
 
+    /* v6.4 Structural Debt Couplings
+     * q reshapes conductivity, temporal flow, and coherence decay.
+     * These implement "future-biasing through accumulated absence" */
+    bool debt_conductivity_enabled;   /* q → σ_eff coupling */
+    float xi_conductivity;            /* 2.0 - debt-conductivity strength */
+
+    bool debt_temporal_enabled;       /* q → P coupling */
+    float zeta_temporal;              /* 0.5 - debt-temporal strength */
+
+    bool debt_decoherence_enabled;    /* q → C_decay coupling */
+    float theta_decoherence;          /* 1.0 - debt-decoherence strength */
+
     /* Layer-specific bond parameters */
     float alpha_AA, lambda_AA, slip_AA;   /* A↔A: fast, plastic */
     float alpha_PP, lambda_PP, slip_PP;   /* P↔P: slow, stable */
@@ -167,12 +179,13 @@ typedef struct {
 typedef struct {
     /* Core DET physics */
     float F;                /* Resource */
-    float q;                /* Structural debt */
+    float q;                /* Structural debt (total) */
     float a;                /* Agency (inviolable intrinsic) */
     float theta;            /* Phase */
     float sigma;            /* Processing rate */
     float P;                /* Presence (computed) */
-    float tau;              /* Proper time (accumulated) */
+    float tau;              /* Proper time increment (Δτ this step) */
+    float tau_accumulated;  /* v6.4: Total proper time experienced */
 
     /* Phase 4: Extended dynamics */
     float L;                /* Angular momentum (spin) */
@@ -258,6 +271,35 @@ typedef struct {
     float response_time;    /* Actuator response lag */
 } SomaticNode;
 
+/** Logic gate types implemented via q-patterns */
+typedef enum {
+    DET_GATE_BUFFER = 0,    /* Identity: out = in */
+    DET_GATE_NOT = 1,       /* Inverter: out = ~in */
+    DET_GATE_AND = 2,       /* Conjunction: out = in1 & in2 */
+    DET_GATE_OR = 3,        /* Disjunction: out = in1 | in2 */
+    DET_GATE_XOR = 4,       /* Exclusive or: out = in1 ^ in2 */
+    DET_GATE_NAND = 5,      /* Negated and: out = ~(in1 & in2) */
+    DET_GATE_NOR = 6        /* Negated or: out = ~(in1 | in2) */
+} DETGateType;
+
+/** Maximum nodes per gate topology */
+#define DET_GATE_MAX_NODES 16
+
+/** Maximum gates in computational substrate */
+#define DET_MAX_GATES 256
+
+/** Logic gate structure - topology encoded in q-pattern */
+typedef struct {
+    DETGateType type;
+    uint16_t input1;        /* First input node */
+    uint16_t input2;        /* Second input (for 2-input gates, 0 otherwise) */
+    uint16_t output;        /* Output node */
+    uint16_t nodes[DET_GATE_MAX_NODES];  /* All nodes in gate topology */
+    uint32_t num_nodes;     /* Number of nodes in topology */
+    float threshold;        /* Activation threshold for output */
+    bool active;            /* Is this gate slot in use? */
+} DETGate;
+
 /** Memory domain linkage */
 typedef struct {
     char name[32];          /* "math", "language", etc. */
@@ -303,6 +345,10 @@ typedef struct {
     /* Somatic nodes (physical I/O) */
     SomaticNode somatic[DET_MAX_SOMATIC];
     uint32_t num_somatic;
+
+    /* Computational substrate (logic gates) */
+    DETGate gates[DET_MAX_GATES];
+    uint32_t num_gates;
 
     /* Self-cluster (current) */
     DETSelf self;
@@ -551,6 +597,182 @@ bool det_somatic_is_sensor(SomaticType type);
 
 /** Check if somatic type is an actuator (efferent) */
 bool det_somatic_is_actuator(SomaticType type);
+
+/* ----- Phase 4: Patterned q Encoding ----- */
+
+/** Drain resource from a node, accumulating structural debt.
+ *  This is the basic q-writing operation.
+ *  @param core The DET core
+ *  @param node_id Target node
+ *  @param amount How much resource to drain (clamped to available F)
+ *  @return Actual amount drained (q accumulated = alpha_q * drained)
+ */
+float det_core_drain_resource(DETCore* core, uint16_t node_id, float amount);
+
+/** Write a q pattern across multiple nodes via controlled drain.
+ *  Drains resource to reach target q values.
+ *  @param core The DET core
+ *  @param node_ids Array of node indices
+ *  @param q_targets Target q values for each node
+ *  @param num_nodes Number of nodes
+ *  @return Number of nodes that reached or exceeded target
+ */
+uint32_t det_core_write_q_pattern(
+    DETCore* core,
+    const uint16_t* node_ids,
+    const float* q_targets,
+    uint32_t num_nodes
+);
+
+/** Create a q-barrier (high-q wall that blocks flow).
+ *  @param core The DET core
+ *  @param barrier_nodes Nodes to elevate q
+ *  @param num_barrier Number of barrier nodes
+ *  @param q_target Target q for barrier (typically 0.7-0.9)
+ */
+void det_core_create_barrier(
+    DETCore* core,
+    const uint16_t* barrier_nodes,
+    uint32_t num_barrier,
+    float q_target
+);
+
+/** Create a q-channel (low-q path for flow).
+ *  Protects these nodes from q accumulation via grace injection.
+ *  @param core The DET core
+ *  @param channel_nodes Nodes to keep low-q
+ *  @param num_channel Number of channel nodes
+ *  @param q_max Maximum q allowed for channel (typically 0.1-0.2)
+ */
+void det_core_create_channel(
+    DETCore* core,
+    const uint16_t* channel_nodes,
+    uint32_t num_channel,
+    float q_max
+);
+
+/** Create a q-well (gravitational attractor).
+ *  High-q center creates inward gravity via ∇²Φ = κρ.
+ *  @param core The DET core
+ *  @param center_node Node to make the well center
+ *  @param q_center Target q for center (typically 0.8-1.0)
+ */
+void det_core_create_well(
+    DETCore* core,
+    uint16_t center_node,
+    float q_center
+);
+
+/** Get effective conductivity for a bond (includes q-gate).
+ *  @param core The DET core
+ *  @param bond_idx Bond index
+ *  @return σ_eff = σ × g_q where g_q = 1/(1 + ξ(q_i + q_j))
+ */
+float det_core_get_effective_conductivity(const DETCore* core, uint32_t bond_idx);
+
+/** Read q pattern from nodes.
+ *  @param core The DET core
+ *  @param node_ids Array of node indices to read
+ *  @param q_values Output array for q values
+ *  @param num_nodes Number of nodes
+ */
+void det_core_read_q_pattern(
+    const DETCore* core,
+    const uint16_t* node_ids,
+    float* q_values,
+    uint32_t num_nodes
+);
+
+/** Measure q gradient magnitude at a node.
+ *  Computed from bonded neighbors: |∇q| ≈ max_j |q_i - q_j|
+ *  @param core The DET core
+ *  @param node_id Node to measure gradient at
+ *  @return Gradient magnitude
+ */
+float det_core_get_q_gradient(const DETCore* core, uint16_t node_id);
+
+/* ----- Phase 5: Computational Substrate ----- */
+/* Note: DETGateType, DETGate, DET_GATE_MAX_NODES, DET_MAX_GATES
+ * are defined earlier in the data structures section. */
+
+/** Create a logic gate using q-pattern topology.
+ *  Recruits nodes from dormant pool and configures q-patterns.
+ *  @param core The DET core
+ *  @param type Gate type (AND, OR, NOT, etc.)
+ *  @return Gate index, or -1 on error
+ */
+int32_t det_core_create_gate(DETCore* core, DETGateType type);
+
+/** Connect two gates (output of gate1 to input of gate2).
+ *  Creates a low-q channel between output and input.
+ *  @param core The DET core
+ *  @param from_gate Source gate index
+ *  @param to_gate Destination gate index
+ *  @param to_input Which input (0 = input1, 1 = input2)
+ *  @return Bond index of connection, or -1 on error
+ */
+int32_t det_core_connect_gates(
+    DETCore* core,
+    uint32_t from_gate,
+    uint32_t to_gate,
+    uint8_t to_input
+);
+
+/** Set gate input signal level.
+ *  Injects resource to input node to represent logic 1.
+ *  @param core The DET core
+ *  @param gate_idx Gate index
+ *  @param input Which input (0 = input1, 1 = input2)
+ *  @param value Signal level (0.0 = logic 0, 1.0 = logic 1)
+ */
+void det_core_set_gate_input(
+    DETCore* core,
+    uint32_t gate_idx,
+    uint8_t input,
+    float value
+);
+
+/** Read gate output signal level.
+ *  @param core The DET core
+ *  @param gate_idx Gate index
+ *  @return Output level (thresholded to 0 or 1 based on gate threshold)
+ */
+float det_core_get_gate_output(const DETCore* core, uint32_t gate_idx);
+
+/** Read raw (analog) gate output level.
+ *  @param core The DET core
+ *  @param gate_idx Gate index
+ *  @return Raw output node resource level
+ */
+float det_core_get_gate_output_raw(const DETCore* core, uint32_t gate_idx);
+
+/** Propagate signals through computational substrate.
+ *  Runs simulation steps to allow signals to propagate through gates.
+ *  @param core The DET core
+ *  @param steps Number of simulation steps
+ *  @param dt Time delta per step
+ */
+void det_core_propagate_signals(DETCore* core, uint32_t steps, float dt);
+
+/** Get gate by index.
+ *  @param core The DET core
+ *  @param gate_idx Gate index
+ *  @return Pointer to gate, or NULL if invalid
+ */
+const DETGate* det_core_get_gate(const DETCore* core, uint32_t gate_idx);
+
+/** Remove a gate (return nodes to dormant pool).
+ *  @param core The DET core
+ *  @param gate_idx Gate index
+ *  @return true if removed successfully
+ */
+bool det_core_remove_gate(DETCore* core, uint32_t gate_idx);
+
+/** Get number of active gates.
+ *  @param core The DET core
+ *  @return Number of active gates
+ */
+uint32_t det_core_num_gates(const DETCore* core);
 
 /* ----- Default Parameters ----- */
 
