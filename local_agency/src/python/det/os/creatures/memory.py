@@ -31,17 +31,22 @@ class MemoryEntry:
     def matches(self, query: str) -> float:
         """
         Compute match score for a query.
-        Simple keyword matching for now.
+        Simple keyword matching with punctuation handling.
         """
-        query_words = set(query.lower().split())
-        content_words = set(self.content.lower().split())
+        import re
+        # Strip punctuation and lowercase
+        query_clean = re.sub(r'[^\w\s]', '', query.lower())
+        content_clean = re.sub(r'[^\w\s]', '', self.content.lower())
+
+        query_words = set(query_clean.split())
+        content_words = set(content_clean.split())
 
         if not query_words:
             return 0.0
 
         # Intersection over query size
-        matches = len(query_words & content_words)
-        score = matches / len(query_words)
+        matched = len(query_words & content_words)
+        score = matched / len(query_words)
 
         # Boost by relevance and recency
         age_hours = (time.time() - self.timestamp) / 3600

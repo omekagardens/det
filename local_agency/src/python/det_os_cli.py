@@ -350,8 +350,8 @@ def run_cli(
         while tick_running and bootstrap.state == BootState.RUNNING:
             try:
                 bootstrap.tick()
-                # Process memory messages each tick
-                memory.process_messages()
+                # Note: Don't process memory messages here - let main thread handle it
+                # to avoid race conditions with store/recall commands
                 time.sleep(1.0 / tick_rate)
             except:
                 break
