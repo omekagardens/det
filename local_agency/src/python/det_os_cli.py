@@ -130,10 +130,15 @@ class LLMCreature:
         # Generate response
         start_time = time.time()
         try:
-            response = self.client.chat(
+            result = self.client.chat(
                 messages=self.conversation_history,
                 temperature=self._compute_temperature()
             )
+            # Handle both dict (OllamaClient) and string (SimpleOllamaClient) responses
+            if isinstance(result, dict):
+                response = result.get("message", {}).get("content", str(result))
+            else:
+                response = result
         except Exception as e:
             return f"[Error: {e}]", {"error": str(e)}
 
