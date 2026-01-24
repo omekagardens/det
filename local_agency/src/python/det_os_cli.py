@@ -308,11 +308,11 @@ def run_cli(
     bootstrap.runtime.creatures[llm_cid].state = CreatureState.RUNNING
     llm = LLMCreature(bootstrap.runtime, llm_cid, ollama_url, model)
 
-    # Spawn Memory creature and bond
+    # Spawn Memory creature and bond with perfect coherence (no message loss)
     print("Spawning Memory creature (F=50, a=0.5)...")
     memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0, initial_a=0.5)
-    channel_id = llm.bond_to_memory(memory, coherence=0.9)
-    print(f"  Bond created: LLM <--[ch:{channel_id}, C:0.9]--> Memory")
+    channel_id = llm.bond_to_memory(memory, coherence=1.0)
+    print(f"  Bond created: LLM <--[ch:{channel_id}, C:1.0]--> Memory")
 
     # Check Ollama
     print(f"Connecting to Ollama ({ollama_url})...", end=" ")
@@ -406,36 +406,56 @@ def run_cli(
                         print("Usage: /store <text to store>")
                         continue
 
-                    success = llm.store_memory(args)
+                    # Retry up to 3 times (coherence-based delivery can fail)
+                    success = False
+                    for attempt in range(3):
+                        success = llm.store_memory(args)
+                        if success:
+                            break
+                        time.sleep(0.05)
+
                     if success:
                         print(f"Storing: \"{args[:50]}{'...' if len(args) > 50 else ''}\"")
                         # Wait for ack
                         time.sleep(0.1)
                         memory.process_messages()
                         responses = llm.get_memory_responses()
+                        stored = False
                         for r in responses:
                             if r.get("type") == "store_ack":
                                 if r.get("success"):
                                     print(f"  Stored successfully. Memory count: {len(memory.memories)}")
+                                    stored = True
                                 else:
                                     print("  Storage failed (memory creature low on F?)")
+                        if not stored and not responses:
+                            print("  No acknowledgment received (processing...)")
                     else:
-                        print("Failed to send store request (bond issue or low F)")
+                        print(f"Failed to send store request (LLM F={llm.F:.1f}, bond coherence={llm.get_bond_coherence(memory.cid):.2f})")
 
                 elif cmd == "recall":
                     if not args:
                         print("Usage: /recall <query>")
                         continue
 
-                    success = llm.recall_memories(args, limit=5)
+                    # Retry up to 3 times
+                    success = False
+                    for attempt in range(3):
+                        success = llm.recall_memories(args, limit=5)
+                        if success:
+                            break
+                        time.sleep(0.05)
+
                     if success:
                         print(f"Recalling: \"{args}\"")
                         # Wait for response
                         time.sleep(0.1)
                         memory.process_messages()
                         responses = llm.get_memory_responses()
+                        found_response = False
                         for r in responses:
                             if r.get("type") == "response":
+                                found_response = True
                                 memories = r.get("memories", [])
                                 if memories:
                                     print(f"  Found {len(memories)} memories:")
@@ -445,8 +465,10 @@ def run_cli(
                                         print(f"    {i}. {preview}")
                                 else:
                                     print("  No matching memories found")
+                        if not found_response:
+                            print("  No response received (memory count: {})".format(len(memory.memories)))
                     else:
-                        print("Failed to send recall request")
+                        print(f"Failed to send recall request (coherence={llm.get_bond_coherence(memory.cid):.2f})")
 
                 elif cmd == "tick":
                     n = int(args) if args else 1
