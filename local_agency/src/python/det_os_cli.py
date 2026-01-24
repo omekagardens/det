@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from det.os.existence.bootstrap import DETOSBootstrap, BootConfig, BootState
 from det.os.existence.runtime import CreatureState
 from det.os.creatures.base import CreatureWrapper
-from det.os.creatures.memory import MemoryCreature, spawn_memory_creature
+from det.os.creatures.memory import MemoryCreature, MemoryType, spawn_memory_creature
 
 
 class LLMCreature(CreatureWrapper):
@@ -80,7 +80,8 @@ class LLMCreature(CreatureWrapper):
 
         return channel_id
 
-    def store_memory(self, content: str, metadata: Optional[Dict] = None) -> bool:
+    def store_memory(self, content: str, memory_type: str = "context",
+                     importance: int = 5, metadata: Optional[Dict] = None) -> bool:
         """Store a memory via bond to memory creature."""
         if self.memory_cid is None:
             return False
@@ -88,11 +89,14 @@ class LLMCreature(CreatureWrapper):
         msg = {
             "type": "store",
             "content": content,
+            "memory_type": memory_type,
+            "importance": importance,
             "metadata": metadata or {}
         }
         return self.send_to(self.memory_cid, msg)
 
-    def recall_memories(self, query: str, limit: int = 5) -> bool:
+    def recall_memories(self, query: str, limit: int = 5,
+                        memory_types: Optional[List[str]] = None) -> bool:
         """Request memory recall via bond. Response comes async."""
         if self.memory_cid is None:
             return False
@@ -102,7 +106,15 @@ class LLMCreature(CreatureWrapper):
             "query": query,
             "limit": limit
         }
+        if memory_types:
+            msg["memory_types"] = memory_types
         return self.send_to(self.memory_cid, msg)
+
+    def get_instructions(self) -> bool:
+        """Request standing instructions from memory creature."""
+        if self.memory_cid is None:
+            return False
+        return self.send_to(self.memory_cid, {"type": "get_instructions"})
 
     def get_memory_responses(self) -> List[Dict]:
         """Get any pending responses from memory creature."""
@@ -208,6 +220,84 @@ class LLMCreature(CreatureWrapper):
         base_temp = 0.7
         # Agency modulates temperature: a=1.0 -> temp=1.0, a=0.5 -> temp=0.5
         return base_temp * self.a
+
+    def extract_memories(self, user_input: str, response: str) -> List[Dict]:
+        """
+        Use LLM to extract key facts/preferences/instructions from the exchange.
+        Returns list of {content, memory_type, importance} dicts.
+        """
+        if not self.client or not self.client.is_available():
+            return []
+
+        # Cost check - extraction is a small call
+        if self.F < 1.0:
+            return []
+
+        extraction_prompt = f"""Analyze this exchange and extract any key information worth remembering.
+
+USER: {user_input}
+ASSISTANT: {response}
+
+For each piece of information, classify it as:
+- fact: Factual information (names, dates, technical details)
+- preference: User preferences or likes/dislikes
+- instruction: Something the user wants you to remember doing
+- context: Relevant background context
+
+Output ONLY a JSON array. Each item should have:
+- "content": The information to remember (concise, self-contained)
+- "type": One of fact/preference/instruction/context
+- "importance": 1-10 (10 = critical to remember)
+
+If nothing is worth remembering, output: []
+
+Examples of good extractions:
+- {{"content": "User's name is Sam", "type": "fact", "importance": 9}}
+- {{"content": "User prefers concise responses", "type": "preference", "importance": 7}}
+- {{"content": "Always check code for security issues", "type": "instruction", "importance": 8}}
+
+Output JSON array only, no explanation:"""
+
+        try:
+            result = self.client.chat(
+                messages=[{"role": "user", "content": extraction_prompt}],
+                temperature=0.1  # Low temp for consistent extraction
+            )
+            if isinstance(result, dict):
+                text = result.get("message", {}).get("content", "[]")
+            else:
+                text = result
+
+            # Deduct small cost for extraction
+            self.creature.F -= 0.5
+
+            # Parse JSON
+            import json
+            # Find JSON array in response
+            text = text.strip()
+            if text.startswith("```"):
+                # Remove markdown code blocks
+                lines = text.split("\n")
+                text = "\n".join(l for l in lines if not l.startswith("```"))
+                text = text.strip()
+
+            memories = json.loads(text)
+            if not isinstance(memories, list):
+                return []
+
+            # Validate and normalize
+            valid = []
+            for m in memories:
+                if isinstance(m, dict) and "content" in m:
+                    valid.append({
+                        "content": str(m["content"]),
+                        "memory_type": m.get("type", "context"),
+                        "importance": min(10, max(1, int(m.get("importance", 5))))
+                    })
+            return valid
+
+        except Exception:
+            return []
 
 
 class SimpleOllamaClient:
@@ -328,19 +418,21 @@ def run_cli(
     print(f"Kernel: {format_kernel_state(bootstrap)}")
 
     print("\nCommands:")
-    print("  /state     - Show LLM creature state")
-    print("  /memory    - Show memory creature state")
-    print("  /kernel    - Show kernel state")
-    print("  /store <t> - Store text in memory")
-    print("  /recall <q>- Recall memories matching query")
-    print("  /tick [n]  - Advance kernel by n ticks (default 1)")
-    print("  /inject f  - Inject F resource into LLM creature")
-    print("  /spawn     - Spawn another creature")
-    print("  /list      - List all creatures")
-    print("  /bonds     - Show bonds between creatures")
-    print("  /help      - Show this help")
-    print("  /quit      - Exit")
-    print("\n" + "-" * 60)
+    print("  /state      - Show LLM creature state")
+    print("  /memory     - Show memory creature state")
+    print("  /memories   - List stored memories")
+    print("  /kernel     - Show kernel state")
+    print("  /store <t>  - Store text (use: /store [type:importance] text)")
+    print("  /recall <q> - Recall memories matching query")
+    print("  /instruct   - Store as instruction (high priority)")
+    print("  /tick [n]   - Advance kernel by n ticks")
+    print("  /inject f   - Inject F resource into LLM creature")
+    print("  /list       - List all creatures")
+    print("  /bonds      - Show bonds between creatures")
+    print("  /help       - Show this help")
+    print("  /quit       - Exit")
+    print("\nMemory types: fact, preference, instruction, context, episode")
+    print("-" * 60)
 
     # Background tick thread
     import threading
@@ -403,64 +495,95 @@ def run_cli(
 
                 elif cmd == "store":
                     if not args:
-                        print("Usage: /store <text to store>")
+                        print("Usage: /store [type:importance] <text>")
+                        print("  Types: fact, preference, instruction, context")
+                        print("  Importance: 1-10 (default 5)")
+                        print("  Example: /store fact:9 User's name is Sam")
                         continue
 
-                    if debug:
-                        print(f"  DEBUG: llm.memory_cid={llm.memory_cid}, llm.bonds={llm.bonds}")
-                        print(f"  DEBUG: memory.cid={memory.cid}, memory.bonds={memory.bonds}")
+                    # Parse optional type:importance prefix
+                    mem_type = "context"
+                    importance = 5
+                    text = args
 
-                    # Retry up to 3 times (coherence-based delivery can fail)
-                    success = False
-                    for attempt in range(3):
-                        success = llm.store_memory(args)
-                        if success:
-                            break
-                        time.sleep(0.05)
+                    if " " in args:
+                        first, rest = args.split(" ", 1)
+                        if ":" in first:
+                            parts = first.split(":")
+                            mem_type = parts[0].lower()
+                            if mem_type not in ("fact", "preference", "instruction", "context", "episode"):
+                                mem_type = "context"
+                            if len(parts) > 1 and parts[1].isdigit():
+                                importance = int(parts[1])
+                            text = rest
+
+                    if debug:
+                        print(f"  DEBUG: type={mem_type}, importance={importance}")
+
+                    success = llm.store_memory(text, memory_type=mem_type, importance=importance)
 
                     if success:
-                        print(f"Storing: \"{args[:50]}{'...' if len(args) > 50 else ''}\"")
-                        # Wait for ack
+                        print(f"Storing [{mem_type}:{importance}]: \"{text[:40]}{'...' if len(text) > 40 else ''}\"")
                         time.sleep(0.1)
                         memory.process_messages()
                         responses = llm.get_memory_responses()
-                        if debug:
-                            print(f"  DEBUG: responses={responses}")
-                        stored = False
                         for r in responses:
-                            if r.get("type") == "store_ack":
-                                if r.get("success"):
-                                    print(f"  Stored successfully. Memory count: {len(memory.memories)}")
-                                    stored = True
-                                else:
-                                    print("  Storage failed (memory creature low on F?)")
-                        if not stored and not responses:
-                            print("  No acknowledgment received (processing...)")
-                            if debug:
-                                ch = bootstrap.runtime.channels.get(llm.bonds.get(memory.cid))
-                                if ch:
-                                    print(f"  DEBUG: channel queues a->b={len(ch.queue_a_to_b)}, b->a={len(ch.queue_b_to_a)}")
+                            if r.get("type") == "store_ack" and r.get("success"):
+                                print(f"  Stored. Memories: {len(memory.memories)}")
+                                break
                     else:
-                        print(f"Failed to send store request (LLM F={llm.F:.1f}, bond coherence={llm.get_bond_coherence(memory.cid):.2f})")
-                        if debug:
-                            print(f"  DEBUG: llm.memory_cid={llm.memory_cid}")
+                        print(f"Failed to store (F={llm.F:.1f})")
+
+                elif cmd == "instruct":
+                    # Shortcut for storing instructions with high importance
+                    if not args:
+                        print("Usage: /instruct <instruction text>")
+                        print("  Stores as instruction with importance=9")
+                        continue
+
+                    success = llm.store_memory(args, memory_type="instruction", importance=9)
+                    if success:
+                        print(f"Storing instruction: \"{args[:50]}...\"" if len(args) > 50 else f"Storing instruction: \"{args}\"")
+                        time.sleep(0.1)
+                        memory.process_messages()
+                        llm.get_memory_responses()  # Clear responses
+                        print(f"  Instruction stored. Total memories: {len(memory.memories)}")
+                    else:
+                        print("Failed to store instruction")
+
+                elif cmd == "memories":
+                    # List stored memories
+                    type_filter = None
+                    if args:
+                        try:
+                            type_filter = MemoryType(args.lower())
+                        except ValueError:
+                            print(f"Unknown type: {args}")
+                            print("  Types: fact, preference, instruction, context, episode")
+                            continue
+
+                    mems = memory.list_memories(limit=15, memory_type=type_filter)
+                    if not mems:
+                        print("No memories stored" + (f" of type '{args}'" if args else ""))
+                    else:
+                        print(f"\nMemories ({len(mems)} shown):")
+                        for m in mems:
+                            t = m["memory_type"]
+                            imp = m["importance"]
+                            content = m["content"][:50] + "..." if len(m["content"]) > 50 else m["content"]
+                            print(f"  [{t}:{imp}] {content}")
 
                 elif cmd == "recall":
                     if not args:
                         print("Usage: /recall <query>")
                         continue
 
-                    # Retry up to 3 times
-                    success = False
-                    for attempt in range(3):
-                        success = llm.recall_memories(args, limit=5)
-                        if success:
-                            break
-                        time.sleep(0.05)
+                    # Prioritize facts, preferences, instructions
+                    success = llm.recall_memories(args, limit=5,
+                                                   memory_types=["fact", "preference", "instruction", "context"])
 
                     if success:
                         print(f"Recalling: \"{args}\"")
-                        # Wait for response
                         time.sleep(0.1)
                         memory.process_messages()
                         responses = llm.get_memory_responses()
@@ -472,9 +595,11 @@ def run_cli(
                                 if memories:
                                     print(f"  Found {len(memories)} memories:")
                                     for i, m in enumerate(memories, 1):
+                                        t = m.get("memory_type", "?")
+                                        imp = m.get("importance", 5)
                                         content = m["content"]
-                                        preview = content[:60] + "..." if len(content) > 60 else content
-                                        print(f"    {i}. {preview}")
+                                        preview = content[:55] + "..." if len(content) > 55 else content
+                                        print(f"    {i}. [{t}:{imp}] {preview}")
                                 else:
                                     print("  No matching memories found")
                         if not found_response:
@@ -522,17 +647,20 @@ def run_cli(
 
                 elif cmd == "help":
                     print("\nCommands:")
-                    print("  /state     - Show LLM creature state")
-                    print("  /memory    - Show memory creature state")
-                    print("  /kernel    - Show kernel state")
-                    print("  /store <t> - Store text in memory")
-                    print("  /recall <q>- Recall memories matching query")
-                    print("  /tick [n]  - Advance kernel by n ticks")
-                    print("  /inject f  - Inject F resource into LLM creature")
-                    print("  /spawn     - Spawn another creature")
-                    print("  /list      - List all creatures")
-                    print("  /bonds     - Show bonds between creatures")
-                    print("  /quit      - Exit")
+                    print("  /state      - Show LLM creature state")
+                    print("  /memory     - Show memory creature state")
+                    print("  /memories   - List stored memories (/memories [type])")
+                    print("  /kernel     - Show kernel state")
+                    print("  /store      - Store memory (/store [type:importance] text)")
+                    print("  /instruct   - Store instruction (/instruct text)")
+                    print("  /recall     - Recall memories (/recall query)")
+                    print("  /tick [n]   - Advance kernel by n ticks")
+                    print("  /inject f   - Inject F resource into LLM creature")
+                    print("  /list       - List all creatures")
+                    print("  /bonds      - Show bonds between creatures")
+                    print("  /quit       - Exit")
+                    print("\nMemory types: fact, preference, instruction, context, episode")
+                    print("Importance: 1-10 (higher = more important to remember)")
 
                 else:
                     print(f"Unknown command: /{cmd}")
@@ -544,17 +672,38 @@ def run_cli(
                 print("\033[91mLLM creature has died. Use /inject to revive.\033[0m")
                 continue
 
-            # First, recall relevant memories
+            # First, recall relevant memories (prioritize instructions, facts, preferences)
             context_memories = []
+            memory_info = []
             if llm.memory_cid:
-                llm.recall_memories(user_input, limit=3)
-                time.sleep(0.1)
+                # Get standing instructions first
+                llm.get_instructions()
+                time.sleep(0.05)
+                memory.process_messages()
+                responses = llm.get_memory_responses()
+                instructions = []
+                for r in responses:
+                    if r.get("type") == "instructions":
+                        instructions = r.get("instructions", [])
+
+                # Then recall relevant memories
+                llm.recall_memories(user_input, limit=5,
+                                    memory_types=["fact", "preference", "instruction", "context"])
+                time.sleep(0.05)
                 memory.process_messages()
                 responses = llm.get_memory_responses()
                 for r in responses:
                     if r.get("type") == "response":
                         for m in r.get("memories", []):
-                            context_memories.append(m["content"])
+                            content = m["content"]
+                            mtype = m.get("memory_type", "context")
+                            # Skip instructions we already have
+                            if mtype != "instruction" or content not in instructions:
+                                context_memories.append(content)
+                                memory_info.append(f"[{mtype}] {content[:30]}...")
+
+                # Add instructions to context
+                context_memories = instructions + context_memories
 
             print("\n\033[93mThinking...\033[0m", end=" ", flush=True)
             response, stats = llm.think(user_input, context_memories)
@@ -565,14 +714,30 @@ def run_cli(
                 mem_note = f", memories: {stats['used_memories']}" if stats.get('used_memories') else ""
                 print(f"({stats['total_cost']:.2f} F{mem_note})")
                 print(f"\n\033[92mLLM>\033[0m {response}")
+
+                # Show which memories were used (if any)
+                if memory_info and debug:
+                    print(f"\n\033[90m[Used memories: {', '.join(memory_info[:3])}]\033[0m")
+
                 print(f"\n\033[90m[tokens: {stats['input_tokens']}→{stats['output_tokens']}, "
                       f"cost: {stats['total_cost']:.2f} F, "
                       f"remaining: {stats['F_remaining']:.1f} F, "
                       f"time: {stats['elapsed']:.1f}s]\033[0m")
 
-                # Auto-store the exchange as a memory
-                exchange = f"User asked: {user_input[:100]}. Assistant responded about: {response[:100]}"
-                llm.store_memory(exchange, {"type": "conversation"})
+                # LLM-driven memory extraction
+                # Ask LLM what facts/preferences/instructions should be remembered
+                extracted = llm.extract_memories(user_input, response)
+                if extracted:
+                    for mem in extracted:
+                        llm.store_memory(
+                            mem["content"],
+                            memory_type=mem["memory_type"],
+                            importance=mem["importance"]
+                        )
+                    memory.process_messages()
+                    llm.get_memory_responses()  # Clear acks
+                    if debug:
+                        print(f"\033[90m[Extracted {len(extracted)} memories]\033[0m")
 
         except KeyboardInterrupt:
             print("\n\nInterrupted. Use /quit to exit.")

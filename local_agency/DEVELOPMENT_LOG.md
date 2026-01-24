@@ -941,7 +941,28 @@
 - **Fix**: Perfect bonds (coherence >= 0.99) no longer decay from idleness
   - Imperfect bonds only decay after 30 seconds (not 1 second)
   - Decay rate reduced 10x for stability
-- **Tests**: 13/13 passing including new `test_bond_coherence_stability`
+
+### Enhanced Memory System ✅
+- **Memory Types**:
+  - `fact` - Factual information (names, dates, technical details)
+  - `preference` - User preferences and likes/dislikes
+  - `instruction` - Standing instructions (highest priority)
+  - `context` - Conversation context
+  - `episode` - Episode summaries
+
+- **Features**:
+  - Importance scoring (1-10 scale)
+  - Type-weighted recall (instructions prioritized)
+  - LLM-driven memory extraction (extracts facts/preferences from conversation)
+  - Recency and access-count boosting
+  - Instructions never pruned
+
+- **New Commands**:
+  - `/store [type:importance] text` - Store with type and importance
+  - `/instruct <text>` - Quick store as instruction (importance=9)
+  - `/memories [type]` - List memories, optionally filtered by type
+
+- **Tests**: 16/16 passing (3 new enhanced memory tests)
 
 ---
 

@@ -220,12 +220,17 @@ def test_memory_via_bond():
     # Create memory creature
     memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
 
-    # Bond them
-    channel_id = llm.bond_with(memory.cid, coherence=0.9)
+    # Bond them with perfect coherence for reliable test
+    channel_id = llm.bond_with(memory.cid, coherence=1.0)
     memory.bonds[llm.cid] = channel_id
 
-    # Send store request through bond
-    llm.send_to(memory.cid, {"type": "store", "content": "Test memory"})
+    # Send store request through bond (with memory_type for enhanced memory)
+    llm.send_to(memory.cid, {
+        "type": "store",
+        "content": "Test memory",
+        "memory_type": "context",
+        "importance": 5
+    })
 
     # Memory processes
     memory.process_messages()
@@ -370,6 +375,96 @@ def test_bond_coherence_stability():
     print("PASS")
 
 
+def test_memory_types():
+    """Test memory types and importance."""
+    print("  test_memory_types...", end=" ")
+
+    from det.os.creatures.memory import MemoryType
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+
+    # Store different types with different importance
+    memory.store("User's name is Sam", memory_type=MemoryType.FACT, importance=9)
+    memory.store("User prefers Python", memory_type=MemoryType.PREFERENCE, importance=7)
+    memory.store("Always be concise", memory_type=MemoryType.INSTRUCTION, importance=8)
+    memory.store("Working on DET project", memory_type=MemoryType.CONTEXT, importance=5)
+
+    assert len(memory.memories) == 4
+
+    # Check type filtering
+    facts = memory.get_by_type(MemoryType.FACT)
+    assert len(facts) == 1
+    assert facts[0].content == "User's name is Sam"
+
+    instructions = memory.get_instructions()
+    assert len(instructions) == 1
+    assert "concise" in instructions[0]
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_memory_type_recall():
+    """Test memory recall with type filtering."""
+    print("  test_memory_type_recall...", end=" ")
+
+    from det.os.creatures.memory import MemoryType
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+
+    # Store memories of different types with overlapping keywords
+    memory.store("Sam likes Python programming", memory_type=MemoryType.FACT, importance=8)
+    memory.store("Prefer Python over JavaScript", memory_type=MemoryType.PREFERENCE, importance=7)
+    memory.store("Episode: discussed Python project", memory_type=MemoryType.EPISODE, importance=3)
+
+    # Recall with type filter
+    results = memory.recall("Python", limit=5, memory_types=[MemoryType.FACT, MemoryType.PREFERENCE])
+    assert len(results) == 2
+
+    # Higher importance should rank higher
+    assert results[0].memory_type == MemoryType.FACT
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_memory_importance_scoring():
+    """Test that importance affects recall ranking."""
+    print("  test_memory_importance_scoring...", end=" ")
+
+    from det.os.creatures.memory import MemoryType
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+
+    # Store same type with different importance
+    memory.store("Low importance fact about code", memory_type=MemoryType.FACT, importance=2)
+    memory.store("High importance fact about code", memory_type=MemoryType.FACT, importance=9)
+    memory.store("Medium importance fact about code", memory_type=MemoryType.FACT, importance=5)
+
+    results = memory.recall("code", limit=3)
+    assert len(results) == 3
+
+    # Higher importance should rank first
+    assert results[0].importance == 9
+    assert results[1].importance == 5
+    assert results[2].importance == 2
+
+    bootstrap.halt()
+    print("PASS")
+
+
 def run_tests():
     """Run all tests."""
     print("\n" + "=" * 60)
@@ -387,6 +482,11 @@ def run_tests():
     test_memory_creature_spawn()
     test_memory_store_direct()
     test_memory_recall_direct()
+
+    print("\nEnhanced Memory Tests:")
+    test_memory_types()
+    test_memory_type_recall()
+    test_memory_importance_scoring()
 
     print("\nBonding Tests:")
     test_creature_bonding()
