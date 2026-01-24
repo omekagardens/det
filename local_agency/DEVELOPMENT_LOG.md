@@ -964,6 +964,35 @@
 
 - **Tests**: 16/16 passing (3 new enhanced memory tests)
 
+### Existence-Lang Creature Types ✅
+- **File Created**: `src/existence/creatures.ex` (~900 lines)
+- **Architecture**: Creatures defined in Existence-Lang, Python wrappers for CLI
+
+**MemoryCreature** (creatures.ex + memory.py):
+- Store/recall memories via bond IPC protocol
+- Memory types: fact, preference, instruction, context, episode
+- Type-weighted recall with importance scoring
+
+**ToolCreature** (creatures.ex + tool.py):
+- Execute commands in sandboxed environment
+- Risk analysis: safe/moderate/high/critical
+- Agency thresholds: a >= 0.3 (safe) to a >= 0.9 (critical)
+- Resource cost: base + CPU + memory usage
+
+**ReasonerCreature** (creatures.ex + reasoner.py):
+- Chain-of-thought reasoning generation
+- Agency-based depth: a=0.7 -> max 7 steps
+- Step types: analyze, infer, conclude
+- Optional external reasoning function (LLM)
+
+**PlannerCreature** (creatures.ex + planner.py):
+- Task decomposition with dependencies
+- Action types: think, execute, store, recall, reason
+- Dependency graph generation
+- Constraint-aware planning
+
+- **Tests**: 23/23 passing (7 new creature tests)
+
 ---
 
 ## Next Steps
