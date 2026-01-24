@@ -14,6 +14,7 @@ endif()
 # Source files
 set(DET_CORE_SOURCES
     src/det_core.c
+    src/eis_vm.c
 )
 
 # Include directories
@@ -26,7 +27,7 @@ add_library(det_core SHARED ${DET_CORE_SOURCES})
 set_target_properties(det_core PROPERTIES
     VERSION 0.1.0
     SOVERSION 0
-    PUBLIC_HEADER "include/det_core.h"
+    PUBLIC_HEADER "include/det_core.h;include/eis_vm.h"
 )
 
 # Math library (for sin, cos, etc.)
@@ -44,9 +45,13 @@ option(BUILD_TESTS "Build test executables" ON)
 if(BUILD_TESTS)
     enable_testing()
 
-    # Simple test executable
+    # DET Core test executable
     add_executable(det_core_test tests/test_det_core.c)
     target_link_libraries(det_core_test det_core m)
+    add_test(NAME det_core_test COMMAND det_core_test)
 
-    add_test(NAME basic_test COMMAND det_core_test)
+    # EIS VM test executable
+    add_executable(eis_vm_test tests/test_eis_vm.c)
+    target_link_libraries(eis_vm_test det_core m)
+    add_test(NAME eis_vm_test COMMAND eis_vm_test)
 endif()
