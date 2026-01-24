@@ -73,6 +73,13 @@ from .eis_compiler import (
     CompiledProgram, CompiledCreature, CompiledKernel, RegAlloc
 )
 
+from .eis_native import (
+    EISNativeCompiler, NativeFunction, Target,
+    IRProgram, IRInstr, IROp,
+    ARM64CodeGen, X86_64CodeGen,
+    compile_native, jit_execute, detect_target
+)
+
 from .runtime import (
     # Core classes
     ExistenceRuntime, CreatureBase, KernelBase, BondInstance,
@@ -121,6 +128,12 @@ __all__ = [
     # EIS Compiler
     "EISCompiler", "compile_to_eis", "compile_to_eis_source",
     "CompiledProgram", "CompiledCreature", "CompiledKernel", "RegAlloc",
+
+    # EIS Native Compiler
+    "EISNativeCompiler", "NativeFunction", "Target",
+    "IRProgram", "IRInstr", "IROp",
+    "ARM64CodeGen", "X86_64CodeGen",
+    "compile_native", "jit_execute", "detect_target",
 
     # Runtime
     "ExistenceRuntime", "CreatureBase", "KernelBase", "BondInstance",
