@@ -22,7 +22,7 @@ This roadmap outlines the migration to **Architecture v2.1**: a DET-aware substr
 | EIS VM (v1) | `substrate/` | C | Working | **REWRITE** → v2 DET-aware |
 | Existence-Lang Parser | `python/det/lang/` | Python | Working | Keep (compiler tool) |
 | EIS Compiler | `python/det/lang/eis/` | Python | Working | Extend (new opcodes) |
-| Kernel (Ex-Lang) | `python/det/os/existence/kernel.ex` | Existence | Partial | Complete |
+| Kernel (Ex-Lang) | `src/existence/kernel.ex` | Existence | Partial | Complete |
 | Runtime | `python/det/os/existence/runtime.py` | Python | Working | Refactor → bridge only |
 
 ### What Changes

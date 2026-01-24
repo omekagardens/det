@@ -494,7 +494,8 @@ def test_kernel_source_exists():
     """Test that kernel.ex source file exists."""
     print("  test_kernel_source_exists...", end=" ")
 
-    kernel_path = Path(__file__).parent / "det" / "os" / "existence" / "kernel.ex"
+    # kernel.ex is now in src/existence/ (from src/python/)
+    kernel_path = Path(__file__).parent.parent / "existence" / "kernel.ex"
     assert kernel_path.exists(), f"kernel.ex not found at {kernel_path}"
 
     with open(kernel_path, 'r') as f:

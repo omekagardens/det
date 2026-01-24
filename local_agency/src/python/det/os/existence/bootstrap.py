@@ -200,8 +200,11 @@ class DETOSBootstrap:
         if self.config.kernel_path:
             kernel_path = self.config.kernel_path
         else:
-            # Default: same directory as this file
-            kernel_path = os.path.join(os.path.dirname(__file__), "kernel.ex")
+            # Default: src/existence/kernel.ex (relative to project root)
+            # From src/python/det/os/existence/ go up to src/existence/
+            this_dir = os.path.dirname(__file__)
+            kernel_path = os.path.join(this_dir, "..", "..", "..", "..", "existence", "kernel.ex")
+            kernel_path = os.path.normpath(kernel_path)
 
         if os.path.exists(kernel_path):
             with open(kernel_path, 'r') as f:

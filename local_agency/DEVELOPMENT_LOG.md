@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 12 - Compiler v2 Update (Complete)
+**Current Phase**: Phase 14 - GPU Backend with Metal Compute Shaders (Complete)
 
 ---
 
@@ -567,7 +567,8 @@
 
 ### 9.2 Existence Kernel ✅
 - **Files Created**:
-  - `src/python/det/os/existence/kernel.ex` - Kernel in Existence-Lang
+  - `src/existence/kernel.ex` - Kernel in Existence-Lang
+  - `src/existence/physics.ex` - DET physics layer
   - `src/python/det/os/existence/bootstrap.py` - Boot sequence
   - `src/python/det/os/existence/runtime.py` - Runtime execution
 - **Tests**: All passing (`test_phase9.py`, `test_phase9_5.py`)
@@ -594,7 +595,7 @@
 
 ### 10.2 Physics Layer ✅
 - **Files Created**:
-  - `src/python/det/os/existence/physics.ex` - DET physics in Existence-Lang
+  - `src/existence/physics.ex` - DET physics in Existence-Lang
   - `src/python/det/os/existence/physics_bridge.py` - Python bridge to substrate
 - **Physics Kernels**:
   - `Transfer` - Antisymmetric resource movement
@@ -732,28 +733,185 @@
 | Compiler v2 | 11/11 | ✅ |
 | Substrate v2 | 40/40 | ✅ |
 | Substrate v1 | 56/56 | ✅ |
+| Metal Backend | 9/9 | ✅ |
 | DET Core | 37/37 | ✅ |
 | Phase 7 (Lang) | 36/36 | ✅ |
 | Phase 8 (EIS) | 50/50 | ✅ |
 | Phase 9 (OS) | All | ✅ |
 | Phase 9.5 (Kernel) | All | ✅ |
+| Phase 14 (Metal) | 8/8 | ✅ |
+
+---
+
+## Phase 13: Full Existence-Lang Compilation (Complete)
+
+### 13.1 Parser Enhancements ✅
+- **Status**: Complete
+- **Files Modified**:
+  - `src/python/det/lang/parser.py` - Extended parser
+  - `src/python/det/lang/tokens.py` - New tokens
+  - `src/python/det/lang/ast_nodes.py` - New AST nodes
+- **Features**:
+  - `CONTEXTUAL_KEYWORDS` class constant for keywords usable as identifiers
+  - `_check_name_like()` and `_expect_name()` helpers
+  - `AS` keyword for loop variable binding (`repeat_past(N) as i`)
+  - Array literals (`[a, b, c]`)
+  - Bitwise OR operator (`|`)
+  - Statements inside proposal blocks
+  - Contextual keywords: `KERNEL`, `PRESENCE`, `CREATURES`, `CREATURE`, `INIT`, `CHANNEL`, etc.
+
+### 13.2 physics.ex Parsing ✅
+- **Status**: Complete
+- **Result**: Parses 13 kernels successfully
+  - Transfer, Diffuse, Compare, Distinct, Reconcile
+  - ComputePresence, CoherenceDecay, CoherenceStrengthen
+  - GraceOffer, GraceAccept, GraceFlow
+  - Add, Multiply
+- **Limitation**: Compilation hits register allocation limits
+
+### 13.3 kernel.ex Parsing ✅
+- **Status**: Complete
+- **Result**: Parses 2 declarations successfully
+  - Creature: KernelCreature (with 10 nested kernels)
+  - Presence: DET_OS
+- **Nested Kernels**: Schedule, Allocate, Free, Send, Receive, Gate, Grace, Spawn, Kill, Tick
+
+### 13.4 End-to-End Integration ✅
+- **Status**: Complete
+- **Verified**:
+  - Source → Parser → AST → Compiler → EIS v2 bytecode pipeline works
+  - V2 phase opcodes (V2_PHASE_P, V2_PROP_NEW) appear in bytecode
+  - Substrate v2 tests: 40/40 passing
+  - Compiler v2 tests: 11/11 passing
+  - Phase 7 tests: 36/36 passing
+
+### 13.5 Register Allocation Fix ✅
+- **Issue**: Original allocator had only 16 scalar, 8 ref, 8 token registers
+- **Solution**: Enhanced register allocator with:
+  - Expanded to 32 registers per class (matches instruction encoding 5-bit limit)
+  - Expanded substrate to 64/32/32 registers for future use
+  - Scope-based register lifetime tracking
+  - Automatic register freeing at phase/proposal boundaries
+  - Spill slot infrastructure (for future overflow handling)
+  - Class-local register indices for proper instruction encoding
+- **Result**: physics.ex (13 kernels) and kernel.ex (1 creature) now compile successfully
+
+### Phase 13 Summary
+- Both physics.ex and kernel.ex parse and compile successfully
+- 13 physics kernels: Transfer, Diffuse, Compare, Distinct, Reconcile, etc.
+- Kernel creature: KernelCreature with nested OS kernels
+- Foundation ready for GPU backend and hardware acceleration
+
+---
+
+## Phase 14: GPU Backend with Metal Compute Shaders (Complete)
+
+### 14.1 Metal Shader Core ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/metal/substrate_shaders.metal` - Metal compute kernels (~800 lines)
+- **Kernels**:
+  - `init_lanes` - Initialize lane state and registers
+  - `phase_read` - READ phase execution (load trace values)
+  - `phase_propose` - PROPOSE phase execution (emit proposals)
+  - `phase_choose` - CHOOSE phase execution (deterministic selection)
+  - `phase_commit` - COMMIT phase execution (apply effects)
+  - `compute_presence` - Derived value computation
+- **Features**:
+  - All 40+ opcodes implemented in Metal shading language
+  - Atomic operations for parallel-safe effects
+  - MurmurHash3-based deterministic RNG
+  - SoA buffer layout for coalesced access
+
+### 14.2 Objective-C Bridge ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/metal/metal_backend.m` - Objective-C implementation (~700 lines)
+- **Features**:
+  - `SubstrateMetal` class for GPU resource management
+  - Pipeline state creation for all phase kernels
+  - Buffer allocation with shared storage mode
+  - State upload/download methods
+  - Phase and tick execution
+
+### 14.3 C API Header ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/include/substrate_metal.h` - C API header (~150 lines)
+- **API Functions**:
+  - Lifecycle: `sub_metal_create()`, `sub_metal_destroy()`
+  - State transfer: `sub_metal_upload_nodes()`, `sub_metal_download_nodes()`, etc.
+  - Execution: `sub_metal_execute_phase()`, `sub_metal_execute_tick()`
+  - Configuration: `sub_metal_set_lane_mode()`, `sub_metal_set_seed()`
+  - Query: `sub_metal_device_name()`, `sub_metal_memory_usage()`
+
+### 14.4 C Wrapper ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/src/substrate_metal.c` - Stub for non-Apple platforms
+- **Features**:
+  - Stub implementations return `SUB_METAL_ERR_NO_DEVICE`
+  - Allows cross-platform compilation
+
+### 14.5 Build System ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/metal/CMakeLists.txt` - Metal build rules
+- **Files Modified**:
+  - `src/substrate/CMakeLists.txt` - Added Metal subdirectory
+- **Build Features**:
+  - Shader compilation with `xcrun metal`
+  - Library linking with `xcrun metallib`
+  - ARC-enabled Objective-C compilation
+  - Automatic metallib deployment
+
+### 14.6 Python Bindings ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/python/det/metal.py` - Python ctypes bindings (~500 lines)
+- **Classes**:
+  - `MetalBackend` - High-level GPU interface
+  - `NodeArraysHelper` - Helper for node state management
+  - `BondArraysHelper` - Helper for bond state management
+- **Features**:
+  - Automatic library discovery
+  - Type-safe ctypes signatures
+  - Convenient helper classes for state management
+  - Availability checking
+
+### 14.7 Test Suite ✅
+- **Status**: Complete
+- **Files Created**:
+  - `src/substrate/tests/test_metal.c` - C test suite
+  - `src/python/test_phase14.py` - Python test suite
+- **Tests**:
+  - Availability detection
+  - Context creation/destruction
+  - Node upload/download roundtrip
+  - Bond upload/download roundtrip
+  - Program upload
+  - Single tick execution
+  - Multiple tick execution
+  - Performance benchmarking
+
+### Phase 14 Summary
+- **Architecture**: Metal compute shaders executing EIS substrate on GPU
+- **Phase Mapping**: Each DET phase maps to a GPU kernel dispatch
+- **Memory Layout**: SoA buffers for coalesced GPU memory access
+- **Atomics**: Effect application uses Metal atomics for parallel safety
+- **Performance Target**: ~20x speedup over CPU for large graphs
+- **Version**: 0.14.0
 
 ---
 
 ## Next Steps
 
-1. **Phase 13: Full Existence-Lang Compilation**:
-   - [ ] Parse and compile physics.ex to EIS v2 bytecode
-   - [ ] Parse and compile kernel.ex to EIS v2 bytecode
-   - [ ] Run compiled kernel on substrate v2
-   - [ ] End-to-end integration test
+1. **Phase 15: CUDA Backend**:
+   - [ ] CUDA compute kernels for NVIDIA GPUs
+   - [ ] Unified backend interface
+   - [ ] Performance comparison
 
-2. **Phase 14: GPU Backend**:
-   - [ ] Metal compute shaders for macOS
-   - [ ] CUDA backend for NVIDIA
-   - [ ] Parallel proposal evaluation
-
-3. **Phase 14: DET-Native Hardware**:
+2. **Phase 16: DET-Native Hardware**:
    - [ ] FPGA prototype design
    - [ ] Custom silicon specification
    - [ ] Direct substrate execution
@@ -814,4 +972,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-23 (Phase 12 Compiler v2 Update Complete)*
+*Last Updated: 2026-01-23 (Phase 14 GPU Backend with Metal Compute Shaders Complete)*

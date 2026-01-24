@@ -13,7 +13,7 @@ Compilation Strategy:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Tuple, Any, TYPE_CHECKING
+from typing import Optional, Dict, List, Tuple, Any, Set, TYPE_CHECKING
 from enum import IntEnum
 import sys
 import os
@@ -130,88 +130,244 @@ V2_PHASE_OPCODES = {
 
 
 # ==============================================================================
-# Register Allocator
+# Register Allocator (Enhanced with scoping and spilling)
 # ==============================================================================
+
+# Register file sizes (must match substrate_types.h)
+# Note: Instruction encoding uses 5-bit fields (0-31), so we cap at 32 per class
+# even though the substrate supports more. This is sufficient for most kernels.
+NUM_SCALAR_REGS = 32   # R0-R31 (instruction encoding limit)
+NUM_REF_REGS = 32      # H0-H31
+NUM_TOKEN_REGS = 32    # T0-T31
+
+# Spill memory configuration
+SPILL_BASE_ADDR = 0x1000  # Base address for spill slots
+
 
 class RegClass(IntEnum):
     """Register classes."""
-    SCALAR = 0   # R0-R15
-    REF = 1      # H0-H7
-    TOKEN = 2    # T0-T7
+    SCALAR = 0   # R0-R31
+    REF = 1      # H0-H31
+    TOKEN = 2    # T0-T31
+
+
+@dataclass
+class SpillSlot:
+    """Spill slot for register overflow."""
+    slot_id: int
+    reg_class: RegClass
+    var_name: str
+    addr: int  # Memory address for spilled value
+
+
+@dataclass
+class RegScope:
+    """Scope for register lifetime tracking."""
+    name: str
+    allocated: Dict[str, int] = field(default_factory=dict)  # var -> reg
+    reg_classes: Dict[str, RegClass] = field(default_factory=dict)  # var -> class
 
 
 @dataclass
 class RegAlloc:
-    """Register allocation state."""
-    # Free register pools
-    free_scalars: List[int] = field(default_factory=lambda: list(range(15, -1, -1)))
-    free_refs: List[int] = field(default_factory=lambda: list(range(7, -1, -1)))
-    free_tokens: List[int] = field(default_factory=lambda: list(range(7, -1, -1)))
+    """Enhanced register allocation with scoping and spilling."""
+    # Free register pools (expanded sizes)
+    free_scalars: List[int] = field(default_factory=lambda: list(range(NUM_SCALAR_REGS - 1, -1, -1)))
+    free_refs: List[int] = field(default_factory=lambda: list(range(NUM_REF_REGS - 1, -1, -1)))
+    free_tokens: List[int] = field(default_factory=lambda: list(range(NUM_TOKEN_REGS - 1, -1, -1)))
 
-    # Variable to register mapping
+    # Variable to register mapping (global)
     var_regs: Dict[str, int] = field(default_factory=dict)
+    var_classes: Dict[str, RegClass] = field(default_factory=dict)
 
-    # Spill slots (for when registers run out)
-    spill_count: int = 0
+    # Scope stack for lifetime tracking
+    scopes: List[RegScope] = field(default_factory=list)
 
-    def alloc_scalar(self, name: str = "") -> int:
-        """Allocate a scalar register."""
+    # Spill slots for overflow
+    spill_slots: List[SpillSlot] = field(default_factory=list)
+    next_spill_addr: int = SPILL_BASE_ADDR
+
+    # Temporary register tracking (can be freed immediately after use)
+    temp_regs: Set[int] = field(default_factory=set)
+
+    def push_scope(self, name: str = ""):
+        """Push a new scope for register lifetime tracking."""
+        self.scopes.append(RegScope(name=name))
+
+    def pop_scope(self) -> List[int]:
+        """Pop scope and free all registers allocated in it."""
+        if not self.scopes:
+            return []
+        scope = self.scopes.pop()
+        freed = []
+        for var_name, reg in scope.allocated.items():
+            reg_class = scope.reg_classes.get(var_name, RegClass.SCALAR)
+            self._free_reg(reg, reg_class)
+            if var_name in self.var_regs:
+                del self.var_regs[var_name]
+            if var_name in self.var_classes:
+                del self.var_classes[var_name]
+            freed.append(reg)
+        return freed
+
+    def _free_reg(self, reg: int, reg_class: RegClass):
+        """Return register to appropriate pool (class-local index)."""
+        if reg_class == RegClass.SCALAR:
+            if 0 <= reg < NUM_SCALAR_REGS and reg not in self.free_scalars:
+                self.free_scalars.append(reg)
+        elif reg_class == RegClass.REF:
+            if 0 <= reg < NUM_REF_REGS and reg not in self.free_refs:
+                self.free_refs.append(reg)
+        elif reg_class == RegClass.TOKEN:
+            if 0 <= reg < NUM_TOKEN_REGS and reg not in self.free_tokens:
+                self.free_tokens.append(reg)
+
+    def alloc_scalar(self, name: str = "", is_temp: bool = False) -> int:
+        """Allocate a scalar register (returns class-local index 0-31)."""
         if not self.free_scalars:
-            raise RuntimeError("Out of scalar registers")
+            # Try to spill an existing register
+            return self._spill_and_alloc(RegClass.SCALAR, name)
         reg = self.free_scalars.pop()
         if name:
             self.var_regs[name] = reg
+            self.var_classes[name] = RegClass.SCALAR
+            if self.scopes:
+                self.scopes[-1].allocated[name] = reg
+                self.scopes[-1].reg_classes[name] = RegClass.SCALAR
+        if is_temp:
+            self.temp_regs.add((RegClass.SCALAR, reg))
         return reg
 
-    def alloc_ref(self, name: str = "") -> int:
-        """Allocate a reference register (returns unified address)."""
+    def alloc_ref(self, name: str = "", is_temp: bool = False) -> int:
+        """Allocate a reference register (returns class-local index 0-31)."""
         if not self.free_refs:
-            raise RuntimeError("Out of reference registers")
+            return self._spill_and_alloc(RegClass.REF, name)
         reg = self.free_refs.pop()
-        unified = 16 + reg  # H0-H7 → 16-23
         if name:
-            self.var_regs[name] = unified
-        return unified
+            self.var_regs[name] = reg
+            self.var_classes[name] = RegClass.REF
+            if self.scopes:
+                self.scopes[-1].allocated[name] = reg
+                self.scopes[-1].reg_classes[name] = RegClass.REF
+        if is_temp:
+            self.temp_regs.add((RegClass.REF, reg))
+        return reg
 
-    def alloc_token(self, name: str = "") -> int:
-        """Allocate a token register (returns unified address)."""
+    def alloc_token(self, name: str = "", is_temp: bool = False) -> int:
+        """Allocate a token register (returns class-local index 0-31)."""
         if not self.free_tokens:
-            raise RuntimeError("Out of token registers")
+            return self._spill_and_alloc(RegClass.TOKEN, name)
         reg = self.free_tokens.pop()
-        unified = 24 + reg  # T0-T7 → 24-31
         if name:
-            self.var_regs[name] = unified
-        return unified
+            self.var_regs[name] = reg
+            self.var_classes[name] = RegClass.TOKEN
+            if self.scopes:
+                self.scopes[-1].allocated[name] = reg
+                self.scopes[-1].reg_classes[name] = RegClass.TOKEN
+        if is_temp:
+            self.temp_regs.add((RegClass.TOKEN, reg))
+        return reg
+
+    def _spill_and_alloc(self, reg_class: RegClass, name: str) -> int:
+        """Spill oldest register and allocate new one."""
+        # Find a non-temp register to spill
+        target_vars = [v for v, c in self.var_classes.items()
+                       if c == reg_class and (c, self.var_regs.get(v)) not in self.temp_regs]
+        if not target_vars:
+            raise RuntimeError(f"Out of {reg_class.name} registers (all are temps)")
+
+        # Spill the first (oldest) variable
+        spill_var = target_vars[0]
+        spill_reg = self.var_regs[spill_var]
+
+        # Create spill slot
+        slot = SpillSlot(
+            slot_id=len(self.spill_slots),
+            reg_class=reg_class,
+            var_name=spill_var,
+            addr=self.next_spill_addr
+        )
+        self.spill_slots.append(slot)
+        self.next_spill_addr += 8  # 8 bytes per slot
+
+        # Free the register
+        del self.var_regs[spill_var]
+        del self.var_classes[spill_var]
+        self._free_reg(spill_reg, reg_class)
+
+        # Allocate for new variable
+        if reg_class == RegClass.SCALAR:
+            return self.alloc_scalar(name)
+        elif reg_class == RegClass.REF:
+            return self.alloc_ref(name)
+        else:
+            return self.alloc_token(name)
+
+    def free_temp(self, reg: int, reg_class: RegClass = RegClass.SCALAR):
+        """Free a temporary register."""
+        key = (reg_class, reg)
+        if key in self.temp_regs:
+            self.temp_regs.discard(key)
+            self._free_reg(reg, reg_class)
 
     def free_scalar(self, reg: int):
         """Return scalar register to pool."""
-        if 0 <= reg < 16 and reg not in self.free_scalars:
-            self.free_scalars.append(reg)
+        self._free_reg(reg, RegClass.SCALAR)
 
     def free_ref(self, reg: int):
         """Return ref register to pool."""
-        if 16 <= reg < 24:
-            ref_idx = reg - 16
-            if ref_idx not in self.free_refs:
-                self.free_refs.append(ref_idx)
+        self._free_reg(reg, RegClass.REF)
 
     def free_token(self, reg: int):
         """Return token register to pool."""
-        if 24 <= reg < 32:
-            tok_idx = reg - 24
-            if tok_idx not in self.free_tokens:
-                self.free_tokens.append(tok_idx)
+        self._free_reg(reg, RegClass.TOKEN)
+
+    def free_var(self, name: str):
+        """Free register associated with a variable."""
+        if name in self.var_regs:
+            reg = self.var_regs[name]
+            reg_class = self.var_classes.get(name, RegClass.SCALAR)
+            del self.var_regs[name]
+            if name in self.var_classes:
+                del self.var_classes[name]
+            self._free_reg(reg, reg_class)
 
     def lookup(self, name: str) -> Optional[int]:
-        """Look up variable's register."""
+        """Look up variable's register (class-local index)."""
         return self.var_regs.get(name)
+
+    def lookup_class(self, name: str) -> Optional[RegClass]:
+        """Look up variable's register class."""
+        return self.var_classes.get(name)
+
+    def lookup_both(self, name: str) -> Tuple[Optional[int], Optional[RegClass]]:
+        """Look up variable's register and class."""
+        return self.var_regs.get(name), self.var_classes.get(name)
 
     def reset(self):
         """Reset allocation state."""
-        self.free_scalars = list(range(15, -1, -1))
-        self.free_refs = list(range(7, -1, -1))
-        self.free_tokens = list(range(7, -1, -1))
+        self.free_scalars = list(range(NUM_SCALAR_REGS - 1, -1, -1))
+        self.free_refs = list(range(NUM_REF_REGS - 1, -1, -1))
+        self.free_tokens = list(range(NUM_TOKEN_REGS - 1, -1, -1))
         self.var_regs.clear()
+        self.var_classes.clear()
+        self.scopes.clear()
+        self.spill_slots.clear()
+        self.next_spill_addr = SPILL_BASE_ADDR
+        self.temp_regs.clear()
+
+    def stats(self) -> dict:
+        """Get allocation statistics."""
+        return {
+            'scalars_used': NUM_SCALAR_REGS - len(self.free_scalars),
+            'scalars_free': len(self.free_scalars),
+            'refs_used': NUM_REF_REGS - len(self.free_refs),
+            'refs_free': len(self.free_refs),
+            'tokens_used': NUM_TOKEN_REGS - len(self.free_tokens),
+            'tokens_free': len(self.free_tokens),
+            'spill_slots': len(self.spill_slots),
+            'scope_depth': len(self.scopes),
+        }
 
 
 # ==============================================================================
@@ -324,21 +480,21 @@ class EISCompiler(ASTVisitor):
             compiled.init_code = self._finalize_bytecode()
 
         # Compile agency block
-        if creature.agency_block:
+        if creature.agency:
             self._reset_compilation()
-            self._compile_block(creature.agency_block.body)
+            self._compile_block(creature.agency.body)
             compiled.agency_code = self._finalize_bytecode()
 
         # Compile grace block
-        if creature.grace_block:
+        if creature.grace:
             self._reset_compilation()
-            self._compile_block(creature.grace_block.body)
+            self._compile_block(creature.grace.body)
             compiled.grace_code = self._finalize_bytecode()
 
         # Compile participate block
-        if creature.participate_block:
+        if creature.participate:
             self._reset_compilation()
-            self._compile_block(creature.participate_block.body)
+            self._compile_block(creature.participate.body)
             compiled.participate_code = self._finalize_bytecode()
 
         self.output.creatures[creature.name] = compiled
@@ -352,6 +508,9 @@ class EISCompiler(ASTVisitor):
         """Compile a kernel to bytecode."""
         self.current_kernel = kernel.name
         self._reset_compilation()
+
+        # Push kernel-level scope for ports (preserved across phases)
+        self.regs.push_scope(f"kernel:{kernel.name}")
 
         # Allocate registers for ports
         for port in kernel.ports:
@@ -367,6 +526,9 @@ class EISCompiler(ASTVisitor):
 
         # RET instruction
         self._emit(Instruction(Opcode.RET))
+
+        # Pop kernel scope
+        self.regs.pop_scope()
 
         compiled = CompiledKernel(
             name=kernel.name,
@@ -387,6 +549,9 @@ class EISCompiler(ASTVisitor):
         - V2_PHASE_X before COMMIT
         """
         phase_name = getattr(phase_block, 'phase_name', '').lower()
+
+        # Push phase scope for local variables
+        self.regs.push_scope(f"phase:{phase_name}")
 
         # Emit phase transition opcode in v2 mode
         if self.use_v2 and phase_name in V2_PHASE_OPCODES:
@@ -419,6 +584,9 @@ class EISCompiler(ASTVisitor):
         if hasattr(phase_block, 'body') and phase_block.body:
             self._compile_block(phase_block.body)
 
+        # Pop phase scope - frees local variables
+        self.regs.pop_scope()
+
     def _compile_choice(self, choice):
         """
         Compile choice declaration (CHOOSE phase).
@@ -435,13 +603,13 @@ class EISCompiler(ASTVisitor):
                 # Compile decisiveness if provided
                 if hasattr(choice.choose_expr, 'decisiveness') and choice.choose_expr.decisiveness:
                     dec_reg = self._compile_expression(choice.choose_expr.decisiveness)
-                    self._emit_raw(V2_CHOOSE, choice_ref - 16, dec_reg, 0, 0)
+                    self._emit_raw(V2_CHOOSE, choice_ref, dec_reg, 0, 0)
                     self.regs.free_scalar(dec_reg)
                 else:
                     # Default decisiveness = 1.0 (100% highest score)
-                    self._emit_raw(V2_CHOOSE, choice_ref - 16, 0, 0, 1)
+                    self._emit_raw(V2_CHOOSE, choice_ref, 0, 0, 1)
             else:
-                self._emit_raw(V2_CHOOSE, choice_ref - 16, 0, 0, 1)
+                self._emit_raw(V2_CHOOSE, choice_ref, 0, 0, 1)
         else:
             # V1: Use CHOOSE opcode
             self._emit(Instruction(Opcode.CHOOSE, dst=choice_ref))
@@ -473,7 +641,7 @@ class EISCompiler(ASTVisitor):
 
         # Compile init block
         if presence.init_block:
-            self._compile_block(presence.init_block)
+            self._compile_block(presence.init_block.body)
 
         self._emit(Instruction(Opcode.HALT))
 
@@ -731,9 +899,17 @@ class EISCompiler(ASTVisitor):
         - V2_PROP_ARG: Add effect arguments
         - V2_PROP_END: Finalize proposal
         """
+        # Push scope for proposal-local variables
+        self.regs.push_scope(f"proposal:{proposal.name}")
+
+        # Compile any local statements in proposal (computed values)
+        if hasattr(proposal, 'statements') and proposal.statements:
+            for stmt in proposal.statements:
+                self._compile_statement(stmt)
+
         # Allocate ref register for proposal handle
         prop_ref = self.regs.alloc_ref()
-        prop_idx = prop_ref - 16  # H register index (0-7)
+        prop_idx = prop_ref  # H register index (now class-local)
 
         if self.use_v2:
             # V2: PROP_NEW - H[dst] = new proposal
@@ -744,9 +920,10 @@ class EISCompiler(ASTVisitor):
             self._emit_raw(V2_PROP_SCORE, prop_idx, score_reg, 0, 0)
             self.regs.free_scalar(score_reg)
 
-            # V2: Compile effects - each effect becomes V2_PROP_EFFECT + V2_PROP_ARG
-            for effect in proposal.effects:
-                self._compile_proposal_effect_v2(prop_idx, effect)
+            # V2: Compile effect block - each statement becomes V2_PROP_EFFECT + V2_PROP_ARG
+            if proposal.effect and hasattr(proposal.effect, 'statements'):
+                for stmt in proposal.effect.statements:
+                    self._compile_proposal_effect_v2(prop_idx, stmt)
 
             # V2: PROP_END - finalize proposal
             self._emit_raw(V2_PROP_END, prop_idx, 0, 0, 0)
@@ -759,14 +936,18 @@ class EISCompiler(ASTVisitor):
             self._emit(Instruction(Opcode.PROP_SCORE, dst=prop_ref, src0=score_reg))
             self.regs.free_scalar(score_reg)
 
-            # Compile effects
-            for effect in proposal.effects:
-                self._compile_statement(effect)
+            # Compile effect block
+            if proposal.effect and hasattr(proposal.effect, 'statements'):
+                for stmt in proposal.effect.statements:
+                    self._compile_statement(stmt)
 
             # End proposal
             self._emit(Instruction(Opcode.PROP_END, dst=prop_ref))
 
         self.regs.free_ref(prop_ref)
+
+        # Pop proposal scope - frees local variables
+        self.regs.pop_scope()
 
     def _compile_proposal_effect_v2(self, prop_idx: int, effect: Statement):
         """
@@ -1266,9 +1447,8 @@ def compile_source(source: str, use_v2: bool = False) -> CompiledProgram:
     Lexer = _tokens.Lexer
     Parser = _parser.Parser
 
-    lexer = Lexer(source)
-    tokens = lexer.tokenize()
-    parser = Parser(tokens)
+    # Parser creates its own lexer, so pass source directly
+    parser = Parser(source)
     program = parser.parse()
 
     return compile_to_eis(program, use_v2=use_v2)

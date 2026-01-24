@@ -21,9 +21,9 @@ extern "C" {
  * CONFIGURATION
  * ========================================================================== */
 
-#define SUB_NUM_SCALAR_REGS     16      /* R0-R15 */
-#define SUB_NUM_REF_REGS        8       /* H0-H7 */
-#define SUB_NUM_TOKEN_REGS      8       /* T0-T7 */
+#define SUB_NUM_SCALAR_REGS     64      /* R0-R63: Expanded for complex kernels */
+#define SUB_NUM_REF_REGS        32      /* H0-H31: Expanded for complex kernels */
+#define SUB_NUM_TOKEN_REGS      32      /* T0-T31: Expanded for complex kernels */
 #define SUB_NUM_IO_CHANNELS     16
 #define SUB_MAX_PROPOSALS       8       /* Per lane */
 #define SUB_MAX_EFFECT_ARGS     4

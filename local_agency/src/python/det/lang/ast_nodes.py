@@ -158,6 +158,20 @@ class TupleExpr(Expression):
     elements: list[Expression] = field(default_factory=list)
 
 
+@dataclass
+class ArrayLiteral(Expression):
+    """Array literal: [a, b, c]."""
+    elements: list[Expression] = field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class ConditionalExpr(Expression):
+    """Conditional expression: if_past(cond) then val1 else val2."""
+    condition: Expression
+    then_value: Expression
+    else_value: Expression
+
+
 # ==============================================================================
 # Statements
 # ==============================================================================
@@ -214,9 +228,10 @@ class IfPast(Statement):
 
 @dataclass(kw_only=True)
 class RepeatPast(Statement):
-    """Past-token loop: repeat_past(N) { ... }."""
+    """Past-token loop: repeat_past(N) as i { ... }."""
     count: Expression  # Must be past token
     body: Block
+    loop_var: Optional[str] = None  # Optional loop variable name
 
 
 @dataclass(kw_only=True)
@@ -300,6 +315,7 @@ class ParamDecl(ASTNode):
 class Proposal(ASTNode):
     """Proposal block in kernel."""
     name: str
+    statements: list[Statement] = field(default_factory=list)  # Local computations
     score: Optional[Expression] = None
     effect: Optional[Block] = None
 

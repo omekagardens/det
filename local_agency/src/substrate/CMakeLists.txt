@@ -78,6 +78,19 @@ install(FILES
 )
 
 # =============================================================================
+# Metal GPU Backend (macOS only)
+# =============================================================================
+
+option(ENABLE_METAL "Enable Metal GPU backend (macOS only)" ON)
+
+if(ENABLE_METAL AND APPLE)
+    add_subdirectory(metal)
+    message(STATUS "Metal GPU backend: ENABLED")
+else()
+    message(STATUS "Metal GPU backend: DISABLED")
+endif()
+
+# =============================================================================
 # Output info
 # =============================================================================
 

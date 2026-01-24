@@ -67,10 +67,12 @@ class TokenType(Enum):
 
     # Keywords - Control flow
     IF_PAST = auto()        # if_past
+    THEN = auto()           # then (for conditional expressions)
     ELSE_PAST = auto()      # else_past
     ELSE = auto()           # else
     REPEAT_PAST = auto()    # repeat_past
     WHILE_PAST = auto()     # while_past
+    AS = auto()             # as (for loop variable binding)
     FORECAST = auto()       # forecast
     SIMULATE = auto()       # simulate
     PROPOSE = auto()        # propose
@@ -98,6 +100,12 @@ class TokenType(Enum):
     # Keywords - Grace
     INJECT_F = auto()       # inject_F
     REQUEST_GRACE = auto()  # request_grace
+
+    # Keywords - Constants
+    CONST = auto()          # const
+
+    # Keywords - Module
+    IMPORT = auto()         # import
 
     # Four equalities
     ALIAS_EQ = auto()       # := (alias equality)
@@ -222,10 +230,12 @@ KEYWORDS = {
 
     # Control flow
     "if_past": TokenType.IF_PAST,
+    "then": TokenType.THEN,
     "else_past": TokenType.ELSE_PAST,
     "else": TokenType.ELSE,
     "repeat_past": TokenType.REPEAT_PAST,
     "while_past": TokenType.WHILE_PAST,
+    "as": TokenType.AS,
     "forecast": TokenType.FORECAST,
     "simulate": TokenType.SIMULATE,
     "propose": TokenType.PROPOSE,
@@ -254,6 +264,12 @@ KEYWORDS = {
     # Grace
     "inject_F": TokenType.INJECT_F,
     "request_grace": TokenType.REQUEST_GRACE,
+
+    # Constants
+    "const": TokenType.CONST,
+
+    # Module
+    "import": TokenType.IMPORT,
 }
 
 
@@ -360,10 +376,27 @@ class Lexer:
         chars = []
         has_dot = False
         has_exp = False
+        is_hex = False
 
         # Handle negative sign
         if self.peek() == '-':
             chars.append(self.advance())
+
+        # Check for hex prefix 0x
+        if self.peek() == '0' and self.peek(1) in 'xX':
+            chars.append(self.advance())  # 0
+            chars.append(self.advance())  # x
+            is_hex = True
+            while True:
+                ch = self.peek()
+                if ch.isdigit() or ch in 'abcdefABCDEF':
+                    chars.append(self.advance())
+                elif ch == '_':
+                    self.advance()  # Skip underscores
+                else:
+                    break
+            value = ''.join(chars)
+            return Token(TokenType.INTEGER, value, start_line, start_col)
 
         while True:
             ch = self.peek()

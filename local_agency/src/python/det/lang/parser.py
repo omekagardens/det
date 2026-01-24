@@ -14,8 +14,8 @@ from .ast_nodes import (
     ExpressionStmt, IfPast, RepeatPast, WhilePast, Return, KernelCall,
     SomaRead, SomaWrite, InjectF, RequestGrace,
     Literal, Identifier, BinaryOp, UnaryOp, Call, FieldAccess, IndexAccess,
-    Distinct, WitnessToken, This, Compare, Choose, TupleExpr,
-    TypeAnnotation, TypeKind, PortDecl, PortDirection, ParamDecl,
+    Distinct, WitnessToken, This, Compare, Choose, TupleExpr, ConditionalExpr,
+    ArrayLiteral, TypeAnnotation, TypeKind, PortDecl, PortDirection, ParamDecl,
     Proposal, PhaseBlock, ChoiceDecl,
     SensorDecl, ActuatorDecl, ParticipateBlock, AgencyBlock, GraceBlock,
     ParamsBlock, CreaturesBlock, BondsBlock, InitBlock, TickBlock, Law
@@ -75,6 +75,27 @@ class Parser:
         tok = self.current()
         return self.reporter.parse_error(message, tok.line, tok.column)
 
+    # Contextual keywords that can be used as identifiers
+    CONTEXTUAL_KEYWORDS = {
+        TokenType.BOND, TokenType.CHOICE, TokenType.SCORE, TokenType.EFFECT,
+        TokenType.PHASE, TokenType.COMMIT, TokenType.GRACE, TokenType.TRANSFER,
+        TokenType.DIFFUSE, TokenType.CMP, TokenType.WITNESS_BIND,
+        TokenType.CREATURES, TokenType.CREATURE, TokenType.PRESENCE,
+        TokenType.INIT, TokenType.CHANNEL, TokenType.KERNEL,
+    }
+
+    def _check_name_like(self) -> bool:
+        """Check if current token can be used as a name."""
+        tok = self.current()
+        return tok.type == TokenType.IDENTIFIER or tok.type in self.CONTEXTUAL_KEYWORDS
+
+    def _expect_name(self) -> Token:
+        """Expect an identifier or keyword that can be used as a name."""
+        tok = self.current()
+        if tok.type == TokenType.IDENTIFIER or tok.type in self.CONTEXTUAL_KEYWORDS:
+            return self.advance()
+        raise self.error(f"Expected name, got {tok.type.name}")
+
     # ==========================================================================
     # Program
     # ==========================================================================
@@ -102,6 +123,31 @@ class Parser:
             return self.parse_presence()
         elif self.check(TokenType.BOUNDARY):
             return self.parse_boundary()
+        elif self.check(TokenType.CONST):
+            # Skip const declarations (not compiled, just documentation)
+            self.advance()  # const
+            self._expect_name()  # name
+            self.expect(TokenType.RECONCILE_EQ)  # =
+            self.parse_expression()  # value
+            self.match(TokenType.SEMICOLON)
+            return None  # Skip this declaration
+        elif self.check(TokenType.IMPORT):
+            # Skip import declarations (not compiled, used for type checking)
+            self.advance()  # import
+            self._expect_name()  # module name
+            if self.match(TokenType.DOT):
+                # import module.{...} or import module.name
+                if self.match(TokenType.LBRACE):
+                    # import module.{name1, name2, ...}
+                    while not self.check(TokenType.RBRACE, TokenType.EOF):
+                        self._expect_name()
+                        if not self.match(TokenType.COMMA):
+                            break
+                    self.expect(TokenType.RBRACE)
+                else:
+                    self._expect_name()
+            self.match(TokenType.SEMICOLON)
+            return None  # Skip this declaration
         else:
             raise self.error(f"Expected declaration, got {tok.type.name}")
 
@@ -134,6 +180,11 @@ class Parser:
                 creature.agency = self.parse_agency_block()
             elif self.check(TokenType.GRACE):
                 creature.grace = self.parse_grace_block()
+            elif self.check(TokenType.KERNEL):
+                # Nested kernels inside creatures
+                if not hasattr(creature, 'nested_kernels'):
+                    creature.nested_kernels = []
+                creature.nested_kernels.append(self.parse_kernel())
             else:
                 raise self.error(f"Unexpected token in creature body: {self.current().type.name}")
 
@@ -271,7 +322,8 @@ class Parser:
         else:
             raise self.error("Expected port direction (in/out/inout)")
 
-        name_tok = self.expect(TokenType.IDENTIFIER)
+        # Allow keywords like 'bond' as port names
+        name_tok = self._expect_name()
         self.expect(TokenType.COLON)
         type_ann = self.parse_type_annotation()
         self.match(TokenType.SEMICOLON)
@@ -315,7 +367,8 @@ class Parser:
                 phase.choice = self.parse_choice_decl()
             elif self.check(TokenType.COMMIT):
                 self.advance()
-                if self.check(TokenType.IDENTIFIER):
+                # "commit choice;" - CHOICE is a keyword, but can be used as name here
+                if self.check(TokenType.IDENTIFIER, TokenType.CHOICE):
                     phase.commit = self.advance().value
                 self.match(TokenType.SEMICOLON)
             else:
@@ -326,7 +379,7 @@ class Parser:
         return phase
 
     def parse_proposal(self) -> Proposal:
-        """Parse proposal block."""
+        """Parse proposal block with optional local statements."""
         tok = self.expect(TokenType.PROPOSAL)
         name_tok = self.expect(TokenType.IDENTIFIER)
         self.expect(TokenType.LBRACE)
@@ -343,16 +396,27 @@ class Parser:
                 self.advance()
                 proposal.effect = self.parse_block()
             else:
-                raise self.error(f"Unexpected in proposal: {self.current().type.name}")
+                # Parse as a regular statement (local computation in proposal)
+                proposal.statements.append(self.parse_statement())
 
         self.expect(TokenType.RBRACE)
         return proposal
 
     def parse_choice_decl(self) -> ChoiceDecl:
-        """Parse choice declaration."""
+        """Parse choice declaration: choice := choose({...}) or choice name = choose({...})."""
         tok = self.expect(TokenType.CHOICE)
-        name_tok = self.expect(TokenType.IDENTIFIER)
-        self.expect(TokenType.RECONCILE_EQ)
+
+        # Handle both "choice := choose(...)" and "choice name = choose(...)"
+        if self.check(TokenType.ALIAS_EQ, TokenType.RECONCILE_EQ):
+            # "choice := choose(...)" - use default name
+            name = "_choice"
+            self.advance()  # consume := or =
+        else:
+            # "choice name = choose(...)"
+            name_tok = self.expect(TokenType.IDENTIFIER)
+            name = name_tok.value
+            self.expect(TokenType.RECONCILE_EQ)
+
         self.expect(TokenType.CHOOSE)
         self.expect(TokenType.LPAREN)
 
@@ -381,7 +445,7 @@ class Parser:
         self.match(TokenType.SEMICOLON)
 
         choose = Choose(proposals=proposals, decisiveness=decisiveness, seed=seed)
-        return ChoiceDecl(name=name_tok.value, choose_expr=choose, line=tok.line, column=tok.column)
+        return ChoiceDecl(name=name, choose_expr=choose, line=tok.line, column=tok.column)
 
     # ==========================================================================
     # Bond
@@ -457,9 +521,9 @@ class Parser:
 
         creatures = {}
         while not self.check(TokenType.RBRACE, TokenType.EOF):
-            name_tok = self.expect(TokenType.IDENTIFIER)
+            name_tok = self._expect_name()  # name can be contextual keyword
             self.expect(TokenType.COLON)
-            type_tok = self.expect(TokenType.IDENTIFIER)
+            type_tok = self._expect_name()  # type can be contextual keyword
             self.match(TokenType.SEMICOLON)
             creatures[name_tok.value] = type_tok.value
 
@@ -511,7 +575,7 @@ class Parser:
     # ==========================================================================
 
     def parse_type_annotation(self) -> TypeAnnotation:
-        """Parse type annotation."""
+        """Parse type annotation (with optional array syntax)."""
         tok = self.current()
 
         type_map = {
@@ -527,12 +591,23 @@ class Parser:
 
         if tok.type in type_map:
             self.advance()
-            return TypeAnnotation(kind=type_map[tok.type], line=tok.line, column=tok.column)
+            type_ann = TypeAnnotation(kind=type_map[tok.type], line=tok.line, column=tok.column)
         elif tok.type == TokenType.IDENTIFIER:
             self.advance()
-            return TypeAnnotation(kind=TypeKind.CUSTOM, name=tok.value, line=tok.line, column=tok.column)
+            type_ann = TypeAnnotation(kind=TypeKind.CUSTOM, name=tok.value, line=tok.line, column=tok.column)
         else:
             raise self.error(f"Expected type, got {tok.type.name}")
+
+        # Handle array syntax: Type[size]
+        if self.match(TokenType.LBRACKET):
+            # Parse array size (optional)
+            if not self.check(TokenType.RBRACKET):
+                self.parse_expression()  # Skip size expression
+            self.expect(TokenType.RBRACKET)
+            # Mark as array type (we extend the name)
+            type_ann.name = f"{type_ann.name or type_ann.kind.name}[]"
+
+        return type_ann
 
     # ==========================================================================
     # Statements
@@ -555,8 +630,8 @@ class Parser:
         if self.check(TokenType.VAR):
             return self.parse_var_decl()
 
-        # Witness binding: x ::= expr
-        if self.check(TokenType.IDENTIFIER) and self.peek(1).type == TokenType.WITNESS_BIND:
+        # Witness binding: x ::= expr (name can be identifier or contextual keyword)
+        if self._check_name_like() and self.peek(1).type == TokenType.WITNESS_BIND:
             return self.parse_witness_decl()
 
         # Control flow
@@ -585,7 +660,7 @@ class Parser:
     def parse_witness_decl(self) -> WitnessDecl:
         """Parse witness binding: x ::= expr."""
         tok = self.current()
-        name_tok = self.expect(TokenType.IDENTIFIER)
+        name_tok = self._expect_name()  # Can be identifier or contextual keyword
         self.expect(TokenType.WITNESS_BIND)
         expr = self.parse_expression()
         self.match(TokenType.SEMICOLON)
@@ -613,13 +688,17 @@ class Parser:
                       line=tok.line, column=tok.column)
 
     def parse_repeat_past(self) -> RepeatPast:
-        """Parse repeat_past loop."""
+        """Parse repeat_past loop: repeat_past(N) as i { ... }."""
         tok = self.expect(TokenType.REPEAT_PAST)
         self.expect(TokenType.LPAREN)
         count = self.parse_expression()
         self.expect(TokenType.RPAREN)
+        # Optional loop variable: as identifier
+        loop_var = None
+        if self.match(TokenType.AS):
+            loop_var = self._expect_name().value
         body = self.parse_block()
-        return RepeatPast(count=count, body=body, line=tok.line, column=tok.column)
+        return RepeatPast(count=count, body=body, loop_var=loop_var, line=tok.line, column=tok.column)
 
     def parse_while_past(self) -> WhilePast:
         """Parse while_past loop."""
@@ -683,9 +762,9 @@ class Parser:
         tok = self.current()
         expr = self.parse_expression()
 
-        # Check for assignment
-        if self.check(TokenType.RECONCILE_EQ, TokenType.PLUS_EQ, TokenType.MINUS_EQ,
-                      TokenType.STAR_EQ, TokenType.SLASH_EQ):
+        # Check for assignment (including := alias assignment)
+        if self.check(TokenType.RECONCILE_EQ, TokenType.ALIAS_EQ, TokenType.PLUS_EQ,
+                      TokenType.MINUS_EQ, TokenType.STAR_EQ, TokenType.SLASH_EQ):
             op = self.advance().value
             value = self.parse_expression()
             self.match(TokenType.SEMICOLON)
@@ -712,10 +791,18 @@ class Parser:
 
     def parse_and(self) -> Expression:
         """Parse && expression."""
-        left = self.parse_equality()
+        left = self.parse_bitwise_or()
         while self.match(TokenType.AND):
-            right = self.parse_equality()
+            right = self.parse_bitwise_or()
             left = BinaryOp(left=left, operator="&&", right=right)
+        return left
+
+    def parse_bitwise_or(self) -> Expression:
+        """Parse | expression (bitwise OR)."""
+        left = self.parse_equality()
+        while self.match(TokenType.PIPE_OP):
+            right = self.parse_equality()
+            left = BinaryOp(left=left, operator="|", right=right)
         return left
 
     def parse_equality(self) -> Expression:
@@ -798,7 +885,8 @@ class Parser:
 
         # Literals
         if self.match(TokenType.INTEGER):
-            return Literal(value=int(tok.value), type_hint=TypeKind.INT, line=tok.line, column=tok.column)
+            # Handle hex (0x...), octal (0o...), binary (0b...) prefixes
+            return Literal(value=int(tok.value, 0), type_hint=TypeKind.INT, line=tok.line, column=tok.column)
         if self.match(TokenType.FLOAT):
             return Literal(value=float(tok.value), type_hint=TypeKind.FLOAT, line=tok.line, column=tok.column)
         if self.match(TokenType.STRING):
@@ -830,8 +918,50 @@ class Parser:
             self.expect(TokenType.RPAREN)
             return Compare(left=left, right=right, epsilon=epsilon, line=tok.line, column=tok.column)
 
-        # Primitive functions (transfer, diffuse, choose) - treat as identifiers when used as function calls
-        if self.check(TokenType.TRANSFER, TokenType.DIFFUSE, TokenType.CHOOSE):
+        # Conditional expression: if_past(cond) then val else val
+        if self.match(TokenType.IF_PAST):
+            self.expect(TokenType.LPAREN)
+            condition = self.parse_expression()
+            self.expect(TokenType.RPAREN)
+            self.expect(TokenType.THEN)
+            then_value = self.parse_expression()
+            self.expect(TokenType.ELSE)
+            else_value = self.parse_expression()
+            return ConditionalExpr(
+                condition=condition,
+                then_value=then_value,
+                else_value=else_value,
+                line=tok.line,
+                column=tok.column
+            )
+
+        # Choose expression: choose({PROPOSAL1, PROPOSAL2, ...})
+        if self.match(TokenType.CHOOSE):
+            self.expect(TokenType.LPAREN)
+            self.expect(TokenType.LBRACE)
+            proposals = []
+            while not self.check(TokenType.RBRACE):
+                proposals.append(self.expect(TokenType.IDENTIFIER).value)
+                if not self.match(TokenType.COMMA):
+                    break
+            self.expect(TokenType.RBRACE)
+            # Optional parameters
+            decisiveness = None
+            seed = None
+            while self.match(TokenType.COMMA):
+                param_name = self.expect(TokenType.IDENTIFIER).value
+                self.expect(TokenType.RECONCILE_EQ)
+                value = self.parse_expression()
+                if param_name == "decisiveness":
+                    decisiveness = value
+                elif param_name == "seed":
+                    seed = value
+            self.expect(TokenType.RPAREN)
+            return Choose(proposals=proposals, decisiveness=decisiveness, seed=seed,
+                         line=tok.line, column=tok.column)
+
+        # Primitive functions (transfer, diffuse) - treat as identifiers when used as function calls
+        if self.check(TokenType.TRANSFER, TokenType.DIFFUSE):
             func_tok = self.advance()
             return Identifier(name=func_tok.value, line=func_tok.line, column=func_tok.column)
 
@@ -867,8 +997,22 @@ class Parser:
             self.expect(TokenType.RPAREN)
             return expr
 
-        # Identifier
-        if self.match(TokenType.IDENTIFIER):
+        # Array literal: [a, b, c]
+        if self.match(TokenType.LBRACKET):
+            elements = []
+            if not self.check(TokenType.RBRACKET):
+                elements.append(self.parse_expression())
+                while self.match(TokenType.COMMA):
+                    if self.check(TokenType.RBRACKET):  # Allow trailing comma
+                        break
+                    elements.append(self.parse_expression())
+            self.expect(TokenType.RBRACKET)
+            return ArrayLiteral(elements=elements, line=tok.line, column=tok.column)
+
+        # Identifier or contextual keyword used as identifier
+        if self.match(TokenType.IDENTIFIER) or tok.type in self.CONTEXTUAL_KEYWORDS:
+            if tok.type in self.CONTEXTUAL_KEYWORDS:
+                self.advance()
             return Identifier(name=tok.value, line=tok.line, column=tok.column)
 
         raise self.error(f"Unexpected token in expression: {tok.type.name}")

@@ -200,7 +200,33 @@ except ImportError:
     DETOS_AVAILABLE = False
     det_os = None
 
-__version__ = "0.9.0"
+# Phase 14: Metal GPU Backend (optional - macOS only)
+try:
+    from .metal import (
+        MetalBackend, NodeArraysHelper, BondArraysHelper,
+        NodeArrays, BondArrays, PredecodedProgram, SubstrateInstr,
+        PHASE_READ, PHASE_PROPOSE, PHASE_CHOOSE, PHASE_COMMIT,
+        LANE_OWNER_NONE, LANE_OWNER_NODE, LANE_OWNER_BOND
+    )
+    METAL_AVAILABLE = MetalBackend.is_available()
+except ImportError:
+    METAL_AVAILABLE = False
+    MetalBackend = None
+    NodeArraysHelper = None
+    BondArraysHelper = None
+    NodeArrays = None
+    BondArrays = None
+    PredecodedProgram = None
+    SubstrateInstr = None
+    PHASE_READ = None
+    PHASE_PROPOSE = None
+    PHASE_CHOOSE = None
+    PHASE_COMMIT = None
+    LANE_OWNER_NONE = None
+    LANE_OWNER_NODE = None
+    LANE_OWNER_BOND = None
+
+__version__ = "0.14.0"
 __all__ = [
     # Core
     "DETCore", "DETParams", "DETDecision", "DETEmotion", "DETLayer",
@@ -251,6 +277,12 @@ __all__ = [
     "Register", "TokenReg", "parse_existence", "transpile_existence",
     # Phase 9: DET-OS Kernel
     "det_os", "DETOS_AVAILABLE",
+    # Phase 14: Metal GPU Backend
+    "MetalBackend", "NodeArraysHelper", "BondArraysHelper",
+    "NodeArrays", "BondArrays", "PredecodedProgram", "SubstrateInstr",
+    "PHASE_READ", "PHASE_PROPOSE", "PHASE_CHOOSE", "PHASE_COMMIT",
+    "LANE_OWNER_NONE", "LANE_OWNER_NODE", "LANE_OWNER_BOND",
+    "METAL_AVAILABLE",
     # Availability flags
     "LLM_AVAILABLE",
 ]
