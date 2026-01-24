@@ -10,6 +10,8 @@ Architecture:
     User Input
         ↓
     LLMAgent Creature (F, a, bonds)
+        ↓ bond
+    MemoryCreature (stores/recalls)
         ↓
     DET-OS Kernel (kernel.ex)
         ↓
@@ -20,16 +22,18 @@ import sys
 import time
 import argparse
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # Add src/python to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from det.os.existence.bootstrap import DETOSBootstrap, BootConfig, BootState
 from det.os.existence.runtime import CreatureState
+from det.os.creatures.base import CreatureWrapper
+from det.os.creatures.memory import MemoryCreature, spawn_memory_creature
 
 
-class LLMCreature:
+class LLMCreature(CreatureWrapper):
     """
     LLM Agent as a DET-OS creature.
 
@@ -41,8 +45,7 @@ class LLMCreature:
     """
 
     def __init__(self, runtime, cid: int, ollama_url: str, model: str):
-        self.runtime = runtime
-        self.cid = cid
+        super().__init__(runtime, cid)
         self.ollama_url = ollama_url
         self.model = model
         self.client = None
@@ -51,6 +54,9 @@ class LLMCreature:
         # Token costs (F consumed per token)
         self.cost_per_input_token = 0.01
         self.cost_per_output_token = 0.05
+
+        # Memory creature reference (set after bonding)
+        self.memory_cid: Optional[int] = None
 
         # Initialize Ollama client
         self._init_ollama()
@@ -64,42 +70,59 @@ class LLMCreature:
             # Fallback to requests-based client
             self.client = SimpleOllamaClient(self.ollama_url, self.model)
 
-    @property
-    def creature(self):
-        """Get the runtime creature object."""
-        return self.runtime.creatures.get(self.cid)
+    def bond_to_memory(self, memory: MemoryCreature, coherence: float = 0.9) -> int:
+        """Create a high-coherence bond to memory creature."""
+        channel_id = self.bond_with(memory.cid, coherence)
+        self.memory_cid = memory.cid
 
-    @property
-    def F(self) -> float:
-        """Current resource level."""
-        c = self.creature
-        return c.F if c else 0.0
+        # Memory also needs to know about this bond
+        memory.bonds[self.cid] = channel_id
 
-    @property
-    def a(self) -> float:
-        """Current agency level."""
-        c = self.creature
-        return c.a if c else 0.0
+        return channel_id
 
-    @property
-    def presence(self) -> float:
-        """Compute presence: P = F * a."""
-        return self.F * self.a
+    def store_memory(self, content: str, metadata: Optional[Dict] = None) -> bool:
+        """Store a memory via bond to memory creature."""
+        if self.memory_cid is None:
+            return False
 
-    @property
-    def is_alive(self) -> bool:
-        """Check if creature is still alive."""
-        c = self.creature
-        return c is not None and c.is_alive()
+        msg = {
+            "type": "store",
+            "content": content,
+            "metadata": metadata or {}
+        }
+        return self.send_to(self.memory_cid, msg)
+
+    def recall_memories(self, query: str, limit: int = 5) -> bool:
+        """Request memory recall via bond. Response comes async."""
+        if self.memory_cid is None:
+            return False
+
+        msg = {
+            "type": "recall",
+            "query": query,
+            "limit": limit
+        }
+        return self.send_to(self.memory_cid, msg)
+
+    def get_memory_responses(self) -> List[Dict]:
+        """Get any pending responses from memory creature."""
+        if self.memory_cid is None:
+            return []
+
+        return self.receive_all_from(self.memory_cid)
 
     def can_think(self, estimated_tokens: int = 100) -> bool:
         """Check if we have enough F to think."""
         estimated_cost = estimated_tokens * self.cost_per_output_token
         return self.F >= estimated_cost
 
-    def think(self, user_input: str) -> tuple[str, Dict[str, Any]]:
+    def think(self, user_input: str, context_memories: Optional[List[str]] = None) -> tuple:
         """
         Process user input and generate response.
+
+        Args:
+            user_input: The user's message
+            context_memories: Optional list of recalled memories to include in context
 
         Returns (response, stats) where stats includes token costs.
         """
@@ -124,14 +147,21 @@ class LLMCreature:
         # Deduct input cost
         self.creature.F -= input_cost
 
-        # Add to conversation
-        self.conversation_history.append({"role": "user", "content": user_input})
+        # Build messages with optional memory context
+        messages = list(self.conversation_history)
+
+        if context_memories:
+            memory_context = "\n".join(f"- {m}" for m in context_memories)
+            system_msg = f"Relevant context from memory:\n{memory_context}"
+            messages.insert(0, {"role": "system", "content": system_msg})
+
+        messages.append({"role": "user", "content": user_input})
 
         # Generate response
         start_time = time.time()
         try:
             result = self.client.chat(
-                messages=self.conversation_history,
+                messages=messages,
                 temperature=self._compute_temperature()
             )
             # Handle both dict (OllamaClient) and string (SimpleOllamaClient) responses
@@ -151,7 +181,8 @@ class LLMCreature:
         # Deduct output cost
         self.creature.F -= output_cost
 
-        # Add response to history
+        # Update conversation history (without memory context)
+        self.conversation_history.append({"role": "user", "content": user_input})
         self.conversation_history.append({"role": "assistant", "content": response})
 
         # Compile stats
@@ -163,6 +194,7 @@ class LLMCreature:
             "total_cost": input_cost + output_cost,
             "F_remaining": self.F,
             "elapsed": elapsed,
+            "used_memories": len(context_memories) if context_memories else 0,
         }
 
         return response, stats
@@ -176,27 +208,6 @@ class LLMCreature:
         base_temp = 0.7
         # Agency modulates temperature: a=1.0 -> temp=1.0, a=0.5 -> temp=0.5
         return base_temp * self.a
-
-    def inject_resource(self, amount: float):
-        """Inject resource (grace) into the creature."""
-        if self.creature:
-            self.creature.F += amount
-
-    def get_state(self) -> Dict[str, Any]:
-        """Get creature state for display."""
-        c = self.creature
-        if not c:
-            return {"status": "dead"}
-
-        return {
-            "cid": self.cid,
-            "name": c.name,
-            "F": c.F,
-            "a": c.a,
-            "presence": self.presence,
-            "state": c.state.name,
-            "conversation_turns": len(self.conversation_history) // 2,
-        }
 
 
 class SimpleOllamaClient:
@@ -230,9 +241,9 @@ class SimpleOllamaClient:
         return r.json()["message"]["content"]
 
 
-def format_creature_state(creature: LLMCreature) -> str:
+def format_creature_state(creature: CreatureWrapper) -> str:
     """Format creature state for display."""
-    state = creature.get_state()
+    state = creature.get_state_dict()
     if state.get("status") == "dead":
         return "\033[91m[DEAD]\033[0m"
 
@@ -294,12 +305,14 @@ def run_cli(
     # Spawn LLM creature
     print(f"\nSpawning LLM creature (F={initial_f}, a={initial_a})...")
     llm_cid = bootstrap.spawn("llm_agent", initial_f=initial_f, initial_a=initial_a)
-
-    # Activate the creature
     bootstrap.runtime.creatures[llm_cid].state = CreatureState.RUNNING
-
-    # Create LLM creature wrapper
     llm = LLMCreature(bootstrap.runtime, llm_cid, ollama_url, model)
+
+    # Spawn Memory creature and bond
+    print("Spawning Memory creature (F=50, a=0.5)...")
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0, initial_a=0.5)
+    channel_id = llm.bond_to_memory(memory, coherence=0.9)
+    print(f"  Bond created: LLM <--[ch:{channel_id}, C:0.9]--> Memory")
 
     # Check Ollama
     print(f"Connecting to Ollama ({ollama_url})...", end=" ")
@@ -311,17 +324,22 @@ def run_cli(
         print("  Continuing without LLM (state exploration only)")
 
     print(f"\nLLM Creature: {format_creature_state(llm)}")
+    print(f"Memory Creature: {format_creature_state(memory)}")
     print(f"Kernel: {format_kernel_state(bootstrap)}")
 
     print("\nCommands:")
-    print("  /state    - Show LLM creature state")
-    print("  /kernel   - Show kernel state")
-    print("  /tick [n] - Advance kernel by n ticks (default 1)")
-    print("  /inject f - Inject F resource into LLM creature")
-    print("  /spawn    - Spawn another creature")
-    print("  /list     - List all creatures")
-    print("  /help     - Show this help")
-    print("  /quit     - Exit")
+    print("  /state     - Show LLM creature state")
+    print("  /memory    - Show memory creature state")
+    print("  /kernel    - Show kernel state")
+    print("  /store <t> - Store text in memory")
+    print("  /recall <q>- Recall memories matching query")
+    print("  /tick [n]  - Advance kernel by n ticks (default 1)")
+    print("  /inject f  - Inject F resource into LLM creature")
+    print("  /spawn     - Spawn another creature")
+    print("  /list      - List all creatures")
+    print("  /bonds     - Show bonds between creatures")
+    print("  /help      - Show this help")
+    print("  /quit      - Exit")
     print("\n" + "-" * 60)
 
     # Background tick thread
@@ -332,6 +350,8 @@ def run_cli(
         while tick_running and bootstrap.state == BootState.RUNNING:
             try:
                 bootstrap.tick()
+                # Process memory messages each tick
+                memory.process_messages()
                 time.sleep(1.0 / tick_rate)
             except:
                 break
@@ -363,9 +383,15 @@ def run_cli(
                     break
 
                 elif cmd == "state":
-                    state = llm.get_state()
+                    state = llm.get_state_dict()
                     print("\nLLM Creature State:")
                     for k, v in state.items():
+                        print(f"  {k}: {v}")
+
+                elif cmd == "memory":
+                    stats = memory.get_stats()
+                    print("\nMemory Creature State:")
+                    for k, v in stats.items():
                         print(f"  {k}: {v}")
 
                 elif cmd == "kernel":
@@ -375,10 +401,58 @@ def run_cli(
                         if k != "boot_log":
                             print(f"  {k}: {v}")
 
+                elif cmd == "store":
+                    if not args:
+                        print("Usage: /store <text to store>")
+                        continue
+
+                    success = llm.store_memory(args)
+                    if success:
+                        print(f"Storing: \"{args[:50]}{'...' if len(args) > 50 else ''}\"")
+                        # Wait for ack
+                        time.sleep(0.1)
+                        memory.process_messages()
+                        responses = llm.get_memory_responses()
+                        for r in responses:
+                            if r.get("type") == "store_ack":
+                                if r.get("success"):
+                                    print(f"  Stored successfully. Memory count: {len(memory.memories)}")
+                                else:
+                                    print("  Storage failed (memory creature low on F?)")
+                    else:
+                        print("Failed to send store request (bond issue or low F)")
+
+                elif cmd == "recall":
+                    if not args:
+                        print("Usage: /recall <query>")
+                        continue
+
+                    success = llm.recall_memories(args, limit=5)
+                    if success:
+                        print(f"Recalling: \"{args}\"")
+                        # Wait for response
+                        time.sleep(0.1)
+                        memory.process_messages()
+                        responses = llm.get_memory_responses()
+                        for r in responses:
+                            if r.get("type") == "response":
+                                memories = r.get("memories", [])
+                                if memories:
+                                    print(f"  Found {len(memories)} memories:")
+                                    for i, m in enumerate(memories, 1):
+                                        content = m["content"]
+                                        preview = content[:60] + "..." if len(content) > 60 else content
+                                        print(f"    {i}. {preview}")
+                                else:
+                                    print("  No matching memories found")
+                    else:
+                        print("Failed to send recall request")
+
                 elif cmd == "tick":
                     n = int(args) if args else 1
                     for _ in range(n):
                         bootstrap.tick()
+                        memory.process_messages()
                     print(f"Advanced {n} tick(s). {format_kernel_state(bootstrap)}")
 
                 elif cmd == "inject":
@@ -395,18 +469,36 @@ def run_cli(
                 elif cmd == "list":
                     print("\nCreatures:")
                     for cid, c in bootstrap.runtime.creatures.items():
-                        marker = " *" if cid == llm.cid else ""
+                        markers = []
+                        if cid == llm.cid:
+                            markers.append("LLM")
+                        if cid == memory.cid:
+                            markers.append("MEM")
+                        marker = f" [{', '.join(markers)}]" if markers else ""
                         print(f"  [{cid}] {c.name}: F={c.F:.1f} a={c.a:.2f} state={c.state.name}{marker}")
+
+                elif cmd == "bonds":
+                    print("\nBonds:")
+                    for ch_id, ch in bootstrap.runtime.channels.items():
+                        c_a = bootstrap.runtime.creatures.get(ch.creature_a)
+                        c_b = bootstrap.runtime.creatures.get(ch.creature_b)
+                        name_a = c_a.name if c_a else f"#{ch.creature_a}"
+                        name_b = c_b.name if c_b else f"#{ch.creature_b}"
+                        print(f"  [{ch_id}] {name_a} <--[C:{ch.coherence:.2f}]--> {name_b}")
 
                 elif cmd == "help":
                     print("\nCommands:")
-                    print("  /state    - Show LLM creature state")
-                    print("  /kernel   - Show kernel state")
-                    print("  /tick [n] - Advance kernel by n ticks")
-                    print("  /inject f - Inject F resource into LLM creature")
-                    print("  /spawn    - Spawn another creature")
-                    print("  /list     - List all creatures")
-                    print("  /quit     - Exit")
+                    print("  /state     - Show LLM creature state")
+                    print("  /memory    - Show memory creature state")
+                    print("  /kernel    - Show kernel state")
+                    print("  /store <t> - Store text in memory")
+                    print("  /recall <q>- Recall memories matching query")
+                    print("  /tick [n]  - Advance kernel by n ticks")
+                    print("  /inject f  - Inject F resource into LLM creature")
+                    print("  /spawn     - Spawn another creature")
+                    print("  /list      - List all creatures")
+                    print("  /bonds     - Show bonds between creatures")
+                    print("  /quit      - Exit")
 
                 else:
                     print(f"Unknown command: /{cmd}")
@@ -418,18 +510,35 @@ def run_cli(
                 print("\033[91mLLM creature has died. Use /inject to revive.\033[0m")
                 continue
 
+            # First, recall relevant memories
+            context_memories = []
+            if llm.memory_cid:
+                llm.recall_memories(user_input, limit=3)
+                time.sleep(0.1)
+                memory.process_messages()
+                responses = llm.get_memory_responses()
+                for r in responses:
+                    if r.get("type") == "response":
+                        for m in r.get("memories", []):
+                            context_memories.append(m["content"])
+
             print("\n\033[93mThinking...\033[0m", end=" ", flush=True)
-            response, stats = llm.think(user_input)
+            response, stats = llm.think(user_input, context_memories)
 
             if "error" in stats:
                 print(f"\n{response}")
             else:
-                print(f"({stats['total_cost']:.2f} F)")
+                mem_note = f", memories: {stats['used_memories']}" if stats.get('used_memories') else ""
+                print(f"({stats['total_cost']:.2f} F{mem_note})")
                 print(f"\n\033[92mLLM>\033[0m {response}")
                 print(f"\n\033[90m[tokens: {stats['input_tokens']}→{stats['output_tokens']}, "
                       f"cost: {stats['total_cost']:.2f} F, "
                       f"remaining: {stats['F_remaining']:.1f} F, "
                       f"time: {stats['elapsed']:.1f}s]\033[0m")
+
+                # Auto-store the exchange as a memory
+                exchange = f"User asked: {user_input[:100]}. Assistant responded about: {response[:100]}"
+                llm.store_memory(exchange, {"type": "conversation"})
 
         except KeyboardInterrupt:
             print("\n\nInterrupted. Use /quit to exit.")

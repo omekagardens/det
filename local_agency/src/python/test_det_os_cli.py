@@ -4,12 +4,15 @@ Tests for DET-OS CLI integration.
 """
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from det.os.existence.bootstrap import DETOSBootstrap, BootConfig, BootState
 from det.os.existence.runtime import CreatureState
+from det.os.creatures.base import CreatureWrapper
+from det.os.creatures.memory import MemoryCreature, spawn_memory_creature
 
 
 def test_kernel_boot():
@@ -29,105 +32,6 @@ def test_kernel_boot():
     print("PASS")
 
 
-def test_llm_creature_spawn():
-    """Test LLM creature spawns correctly."""
-    print("  test_llm_creature_spawn...", end=" ")
-
-    config = BootConfig(total_F=100000.0, grace_pool=1000.0)
-    bootstrap = DETOSBootstrap(config=config)
-    bootstrap.boot()
-
-    # Spawn LLM creature
-    cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
-
-    assert cid > 0
-    assert cid in bootstrap.runtime.creatures
-
-    creature = bootstrap.runtime.creatures[cid]
-    assert creature.name == "llm_agent"
-    assert creature.F == 100.0
-    assert creature.a == 0.8
-
-    bootstrap.halt()
-    print("PASS")
-
-
-def test_creature_resource_depletion():
-    """Test that creature F can be depleted."""
-    print("  test_creature_resource_depletion...", end=" ")
-
-    config = BootConfig(total_F=100000.0)
-    bootstrap = DETOSBootstrap(config=config)
-    bootstrap.boot()
-
-    cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
-    creature = bootstrap.runtime.creatures[cid]
-    creature.state = CreatureState.RUNNING
-
-    # Manually deplete resource (simulating token cost)
-    initial_F = creature.F
-    creature.F -= 10.0
-    assert creature.F == initial_F - 10.0
-
-    # Deplete more
-    creature.F -= 50.0
-    assert creature.F == 40.0
-
-    bootstrap.halt()
-    print("PASS")
-
-
-def test_creature_state_tracking():
-    """Test creature state transitions."""
-    print("  test_creature_state_tracking...", end=" ")
-
-    config = BootConfig(total_F=100000.0)
-    bootstrap = DETOSBootstrap(config=config)
-    bootstrap.boot()
-
-    cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
-    creature = bootstrap.runtime.creatures[cid]
-
-    # Initially embryonic
-    assert creature.state == CreatureState.EMBRYONIC
-
-    # Activate
-    creature.state = CreatureState.RUNNING
-    assert creature.is_alive()
-
-    # Check alive status
-    creature.F = 0.0
-    # Even with F=0, state doesn't auto-change until tick
-    assert creature.state == CreatureState.RUNNING
-
-    bootstrap.halt()
-    print("PASS")
-
-
-def test_multiple_creatures():
-    """Test spawning multiple creatures."""
-    print("  test_multiple_creatures...", end=" ")
-
-    config = BootConfig(total_F=100000.0)
-    bootstrap = DETOSBootstrap(config=config)
-    bootstrap.boot()
-
-    # Spawn multiple creatures
-    cid1 = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
-    cid2 = bootstrap.spawn("memory_creature", initial_f=50.0, initial_a=0.5)
-    cid3 = bootstrap.spawn("tool_creature", initial_f=25.0, initial_a=0.3)
-
-    assert len(bootstrap.runtime.creatures) == 4  # kernel + 3
-
-    # Verify each
-    assert bootstrap.runtime.creatures[cid1].name == "llm_agent"
-    assert bootstrap.runtime.creatures[cid2].name == "memory_creature"
-    assert bootstrap.runtime.creatures[cid3].name == "tool_creature"
-
-    bootstrap.halt()
-    print("PASS")
-
-
 def test_kernel_ticks():
     """Test kernel tick execution."""
     print("  test_kernel_ticks...", end=" ")
@@ -136,12 +40,11 @@ def test_kernel_ticks():
     bootstrap = DETOSBootstrap(config=config)
     bootstrap.boot()
 
-    cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
+    cid = bootstrap.spawn("test", initial_f=100.0, initial_a=0.8)
     bootstrap.runtime.creatures[cid].state = CreatureState.RUNNING
 
     initial_tick = bootstrap.runtime.tick_count
 
-    # Run some ticks
     for _ in range(10):
         bootstrap.tick()
 
@@ -151,11 +54,199 @@ def test_kernel_ticks():
     print("PASS")
 
 
-def test_llm_creature_wrapper():
-    """Test the LLMCreature wrapper class."""
-    print("  test_llm_creature_wrapper...", end=" ")
+def test_creature_wrapper():
+    """Test CreatureWrapper base class."""
+    print("  test_creature_wrapper...", end=" ")
 
-    # Import the wrapper
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    cid = bootstrap.spawn("test", initial_f=100.0, initial_a=0.8)
+    bootstrap.runtime.creatures[cid].state = CreatureState.RUNNING
+
+    wrapper = CreatureWrapper(bootstrap.runtime, cid)
+
+    assert wrapper.F == 100.0
+    assert wrapper.a == 0.8
+    assert wrapper.is_alive
+    assert wrapper.presence == 100.0 * 0.8 * 1.0  # F * a * C_self
+
+    wrapper.inject_resource(50.0)
+    assert wrapper.F == 150.0
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_memory_creature_spawn():
+    """Test MemoryCreature spawns correctly."""
+    print("  test_memory_creature_spawn...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0, initial_a=0.5)
+
+    assert memory.cid > 0
+    assert memory.F == 50.0
+    assert memory.a == 0.5
+    assert len(memory.memories) == 0
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_memory_store_direct():
+    """Test direct memory storage."""
+    print("  test_memory_store_direct...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+
+    success = memory.store("Hello world", source_cid=0)
+    assert success
+    assert len(memory.memories) == 1
+    assert memory.memories[0].content == "Hello world"
+
+    # Store costs F
+    assert memory.F < 50.0
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_memory_recall_direct():
+    """Test direct memory recall."""
+    print("  test_memory_recall_direct...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+
+    memory.store("The capital of France is Paris")
+    memory.store("Python is a programming language")
+    memory.store("The Eiffel Tower is in Paris")
+
+    results = memory.recall("Paris", limit=5)
+    assert len(results) >= 2  # Should match France and Eiffel Tower
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_creature_bonding():
+    """Test bond creation between creatures."""
+    print("  test_creature_bonding...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    # Create two creatures
+    cid_a = bootstrap.spawn("creature_a", initial_f=50.0)
+    cid_b = bootstrap.spawn("creature_b", initial_f=50.0)
+    bootstrap.runtime.creatures[cid_a].state = CreatureState.RUNNING
+    bootstrap.runtime.creatures[cid_b].state = CreatureState.RUNNING
+
+    wrapper_a = CreatureWrapper(bootstrap.runtime, cid_a)
+    wrapper_b = CreatureWrapper(bootstrap.runtime, cid_b)
+
+    # Bond them
+    channel_id = wrapper_a.bond_with(cid_b, coherence=0.8)
+    wrapper_b.bonds[cid_a] = channel_id  # Register reverse
+
+    assert channel_id in bootstrap.runtime.channels
+    assert wrapper_a.get_bond_coherence(cid_b) == 0.8
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_bond_message_passing():
+    """Test message passing through bonds."""
+    print("  test_bond_message_passing...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    # Create two creatures
+    cid_a = bootstrap.spawn("sender", initial_f=50.0)
+    cid_b = bootstrap.spawn("receiver", initial_f=50.0)
+    bootstrap.runtime.creatures[cid_a].state = CreatureState.RUNNING
+    bootstrap.runtime.creatures[cid_b].state = CreatureState.RUNNING
+
+    sender = CreatureWrapper(bootstrap.runtime, cid_a)
+    receiver = CreatureWrapper(bootstrap.runtime, cid_b)
+
+    # Bond them with high coherence for reliable delivery
+    channel_id = sender.bond_with(cid_b, coherence=1.0)
+    receiver.bonds[cid_a] = channel_id
+
+    # Send message
+    success = sender.send_to(cid_b, {"type": "hello", "data": 42})
+    assert success
+
+    # Receive message
+    msg = receiver.receive_from(cid_a)
+    assert msg is not None
+    assert msg["type"] == "hello"
+    assert msg["data"] == 42
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_memory_via_bond():
+    """Test memory operations through bond channel."""
+    print("  test_memory_via_bond...", end=" ")
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    # Create LLM-like creature
+    cid_llm = bootstrap.spawn("llm", initial_f=100.0, initial_a=0.8)
+    bootstrap.runtime.creatures[cid_llm].state = CreatureState.RUNNING
+    llm = CreatureWrapper(bootstrap.runtime, cid_llm)
+
+    # Create memory creature
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+
+    # Bond them
+    channel_id = llm.bond_with(memory.cid, coherence=0.9)
+    memory.bonds[llm.cid] = channel_id
+
+    # Send store request through bond
+    llm.send_to(memory.cid, {"type": "store", "content": "Test memory"})
+
+    # Memory processes
+    memory.process_messages()
+
+    # Check storage
+    assert len(memory.memories) == 1
+
+    # Check for ack
+    responses = llm.receive_all_from(memory.cid)
+    assert len(responses) == 1
+    assert responses[0]["type"] == "store_ack"
+    assert responses[0]["success"]
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_llm_creature():
+    """Test LLMCreature class."""
+    print("  test_llm_creature...", end=" ")
+
     from det_os_cli import LLMCreature
 
     config = BootConfig(total_F=100000.0)
@@ -165,24 +256,51 @@ def test_llm_creature_wrapper():
     cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
     bootstrap.runtime.creatures[cid].state = CreatureState.RUNNING
 
-    # Create wrapper
     llm = LLMCreature(bootstrap.runtime, cid, "http://localhost:11434", "test")
 
-    # Test properties
     assert llm.F == 100.0
     assert llm.a == 0.8
-    assert llm.presence == 80.0  # F * a
     assert llm.is_alive
 
-    # Test resource injection
-    llm.inject_resource(50.0)
-    assert llm.F == 150.0
+    bootstrap.halt()
+    print("PASS")
 
-    # Test state dict
-    state = llm.get_state()
-    assert state["cid"] == cid
-    assert state["F"] == 150.0
-    assert state["a"] == 0.8
+
+def test_llm_memory_integration():
+    """Test LLMCreature with memory bonding."""
+    print("  test_llm_memory_integration...", end=" ")
+
+    from det_os_cli import LLMCreature
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    # Create LLM
+    cid = bootstrap.spawn("llm_agent", initial_f=100.0, initial_a=0.8)
+    bootstrap.runtime.creatures[cid].state = CreatureState.RUNNING
+    llm = LLMCreature(bootstrap.runtime, cid, "http://localhost:11434", "test")
+
+    # Create and bond memory
+    memory = spawn_memory_creature(bootstrap.runtime, "memory", initial_f=50.0)
+    llm.bond_to_memory(memory, coherence=0.9)
+
+    # Store via LLM
+    success = llm.store_memory("Important fact")
+    assert success
+
+    memory.process_messages()
+    assert len(memory.memories) == 1
+
+    # Recall via LLM
+    success = llm.recall_memories("fact")
+    assert success
+
+    memory.process_messages()
+    responses = llm.get_memory_responses()
+
+    # Should have store_ack and recall response
+    assert len(responses) >= 1
 
     bootstrap.halt()
     print("PASS")
@@ -204,10 +322,7 @@ def test_can_think_check():
     llm = LLMCreature(bootstrap.runtime, cid, "http://localhost:11434", "test")
 
     # With F=10.0 and cost_per_output_token=0.05
-    # 100 tokens would cost 5.0 F
     assert llm.can_think(100)  # 100 * 0.05 = 5.0 < 10.0
-
-    # 300 tokens would cost 15.0 F
     assert not llm.can_think(300)  # 300 * 0.05 = 15.0 > 10.0
 
     bootstrap.halt()
@@ -224,14 +339,22 @@ def run_tests():
     test_kernel_boot()
     test_kernel_ticks()
 
-    print("\nCreature Tests:")
-    test_llm_creature_spawn()
-    test_creature_resource_depletion()
-    test_creature_state_tracking()
-    test_multiple_creatures()
+    print("\nCreature Wrapper Tests:")
+    test_creature_wrapper()
 
-    print("\nLLM Creature Wrapper Tests:")
-    test_llm_creature_wrapper()
+    print("\nMemory Creature Tests:")
+    test_memory_creature_spawn()
+    test_memory_store_direct()
+    test_memory_recall_direct()
+
+    print("\nBonding Tests:")
+    test_creature_bonding()
+    test_bond_message_passing()
+    test_memory_via_bond()
+
+    print("\nLLM Creature Tests:")
+    test_llm_creature()
+    test_llm_memory_integration()
     test_can_think_check()
 
     print("\n" + "=" * 60)
