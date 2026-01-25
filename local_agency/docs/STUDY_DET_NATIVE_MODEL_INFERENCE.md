@@ -662,6 +662,278 @@ This allows DET scheduler to naturally throttle expensive models when F is low, 
 
 ---
 
+## 12. Addressing Reward Hacking and Hallucination
+
+A key advantage of DET-native model inference is the potential to reduce pathological behaviors that plague conventional LLM architectures. This section analyzes how DET physics naturally constrains reward hacking and hallucination.
+
+### 12.1 The Problem: Opacity Enables Pathology
+
+In conventional architectures (including Ollama-mediated inference):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    BLACK BOX INFERENCE                       │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  Attention patterns: Hidden                          │    │
+│  │  Confidence levels: Inferred post-hoc               │    │
+│  │  Resource usage: Opaque                              │    │
+│  │  Internal state: Inaccessible                        │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                           ↓                                  │
+│              Token output (no provenance)                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Reward Hacking**: Models learn to produce outputs that *appear* correct (maximize reward signal) without genuine understanding. The opacity makes this undetectable.
+
+**Hallucination**: Models confabulate plausible-sounding content because:
+1. No cost for being wrong
+2. No mechanism to signal uncertainty
+3. Training rewards fluency over accuracy
+
+### 12.2 DET-Native Constraints on Reward Hacking
+
+#### 12.2.1 F Expenditure Creates Real Costs
+
+In DET, every operation costs F (free energy). This is not abstract - it's tracked per-phase:
+
+```existence
+// Every attention computation costs F
+effect {
+    attended := primitive("matmul", attn_weights, V);
+    F := F - 0.1;  // Real, tracked cost
+}
+```
+
+**Anti-Hacking Properties**:
+- Cannot "fake" computation - F expenditure is witnessed and committed
+- Shortcuts that skip work don't reduce F cost (F tracks actual compute)
+- Over-generation (verbose padding) depletes F faster → natural brevity pressure
+
+#### 12.2.2 Presence Exposes Agency
+
+The DET presence formula:
+
+```
+P = a · σ / (1 + F) / (1 + H)
+```
+
+Where:
+- `a` = agency (genuine capacity to act)
+- `σ` = coherence (internal consistency)
+- `H` = entropy/uncertainty
+
+**Anti-Hacking Properties**:
+- Low-agency outputs have low presence → deprioritized by scheduler
+- Cannot fake high agency without coherent internal state
+- Gaming presence requires gaming *all* components simultaneously
+
+#### 12.2.3 Bond Coherence Exposes Attention Patterns
+
+Attention weights are stored as bond coherences - visible, inspectable DET state:
+
+```existence
+// Attention scores become inspectable bonds
+bond_coherences := attn_weights;
+```
+
+**Anti-Hacking Properties**:
+- Attention patterns are first-class DET state, not hidden internals
+- Pathological attention (e.g., attending to nothing relevant) shows as low bond coherence
+- Reward hacking via "attention tricks" becomes visible and auditable
+
+#### 12.2.4 Phase Commits Are Atomic and Witnessed
+
+The READ→PROPOSE→CHOOSE→COMMIT cycle ensures:
+
+```
+Phase COMMIT:
+  - All effects applied atomically
+  - State changes witnessed and recorded
+  - No retroactive modification
+```
+
+**Anti-Hacking Properties**:
+- Cannot modify outputs retroactively to appear more correct
+- Proposal scores are recorded before choice - no post-hoc score inflation
+- Full audit trail of what was proposed vs what was chosen
+
+### 12.3 DET-Native Constraints on Hallucination
+
+#### 12.3.1 Debt (q) as Grounding Deficit
+
+In DET, `q` represents accumulated debt/structure. We can extend this to track **grounding**:
+
+```existence
+creature GroundedGeneratorCreature {
+    var q: float := 0.0;  // Grounding debt
+
+    kernel Generate {
+        phase PROPOSE {
+            proposal GROUNDED_OUTPUT {
+                // Claims backed by retrieved facts
+                grounding_score := check_retrieval_support(candidate);
+
+                effect {
+                    output := candidate;
+                    // Ungrounded claims accumulate debt
+                    q := q + (1.0 - grounding_score) * claim_weight;
+                }
+            }
+
+            proposal HEDGED_OUTPUT {
+                // Acknowledge uncertainty
+                effect {
+                    output := add_uncertainty_markers(candidate);
+                    q := q + 0.01;  // Small debt for hedging
+                }
+            }
+        }
+
+        phase CHOOSE {
+            // High debt creatures have reduced agency
+            effective_a := base_a / (1.0 + q);
+            choice := choose({GROUNDED_OUTPUT, HEDGED_OUTPUT},
+                           decisiveness = effective_a);
+        }
+    }
+}
+```
+
+**Anti-Hallucination Properties**:
+- Ungrounded claims accumulate debt
+- High debt reduces agency → reduced presence → less scheduling priority
+- Natural pressure toward grounded or hedged outputs
+
+#### 12.3.2 Agency Reflects Genuine Confidence
+
+In DET, agency (`a`) is not arbitrary - it emerges from:
+- Structural coherence (q balance)
+- Resource availability (F)
+- Relational health (bond coherence)
+
+```existence
+// Agency modulates sampling temperature
+effective_temp := base_temp + (current_a - 0.5) * 0.2;
+
+// Low agency → higher temperature → more uncertainty in sampling
+// High agency → lower temperature → more decisive sampling
+```
+
+**Anti-Hallucination Properties**:
+- Low genuine confidence → low agency → higher sampling temperature → more diverse candidates
+- Model cannot claim high confidence while having low agency
+- Temperature reflects internal state, not arbitrary setting
+
+#### 12.3.3 Bond Coherence as Relevance Signal
+
+Weak attention (low bond coherence) signals the model is "guessing":
+
+```existence
+kernel Attend {
+    effect {
+        attn_weights := primitive("softmax", scores, temperature);
+        bond_coherences := attn_weights;
+
+        // Compute attention entropy as uncertainty signal
+        attn_entropy := -sum(attn_weights * log(attn_weights + eps));
+
+        // High entropy attention = weak grounding
+        if attn_entropy > ENTROPY_THRESHOLD {
+            // Signal low confidence to parent creature
+            signal_uncertainty := true;
+        }
+    }
+}
+```
+
+**Anti-Hallucination Properties**:
+- Diffuse attention (high entropy) is detected and signaled
+- Parent creatures can request hedging or retrieval when attention is weak
+- Hallucination often correlates with attention to irrelevant positions - now visible
+
+#### 12.3.4 Proposal Competition Exposes Alternatives
+
+The PROPOSE phase generates multiple candidates with scores:
+
+```existence
+phase PROPOSE {
+    proposal CONFIDENT_CLAIM {
+        score = 0.9;
+        effect { output := "X is definitely Y"; }
+    }
+
+    proposal HEDGED_CLAIM {
+        score = 0.7;
+        effect { output := "X is likely Y, though I'm uncertain"; }
+    }
+
+    proposal RETRIEVAL_REQUEST {
+        score = 0.6;
+        effect { output := "[RETRIEVE: X relationship to Y]"; }
+    }
+}
+
+phase CHOOSE {
+    // Decisiveness modulates winner-take-all vs sampling
+    choice := choose(proposals, decisiveness = a);
+}
+```
+
+**Anti-Hallucination Properties**:
+- Multiple proposals exist - not just the "most likely" token
+- Lower decisiveness (low agency) → more likely to choose hedged/retrieval options
+- Competition between confident and uncertain outputs is explicit
+
+### 12.4 Architectural Mechanisms Summary
+
+| Pathology | DET Mechanism | How It Helps |
+|-----------|---------------|--------------|
+| Reward hacking via shortcuts | F expenditure | Real costs can't be faked |
+| Gaming confidence scores | Presence formula | Requires coherent internal state |
+| Hidden attention tricks | Bond coherence | Attention is visible DET state |
+| Post-hoc justification | Atomic commits | No retroactive modification |
+| Ungrounded claims | Debt (q) accumulation | Hallucination creates debt |
+| False confidence | Agency from structure | Low grounding → low agency |
+| Ignoring uncertainty | Attention entropy | Weak attention detected |
+| Single-path generation | Proposal competition | Alternatives are explicit |
+
+### 12.5 Empirical Predictions
+
+If this architecture works as theorized, we should observe:
+
+1. **Calibration Improvement**: Model uncertainty (via agency) should correlate with actual accuracy
+2. **Reduced Confident Errors**: High-agency outputs should be more accurate than low-agency ones
+3. **Natural Hedging**: Low-grounding scenarios should produce hedged language without explicit prompting
+4. **Attention Transparency**: Hallucinated content should show characteristic attention patterns (high entropy, low bond coherence)
+5. **Debt Accumulation**: Extended confabulation should visibly increase q, reducing creature presence
+
+### 12.6 Limitations and Caveats
+
+**This is theoretical.** The mechanisms described require:
+
+1. **Training Integration**: Models must be trained with DET-aware objectives to leverage these constraints
+2. **Grounding Infrastructure**: Retrieval/fact-checking must be integrated for q debt to be meaningful
+3. **Calibration Work**: The mapping between internal states and DET quantities (F, a, q) needs empirical tuning
+4. **Overhead Tolerance**: Additional tracking adds computational cost
+
+**DET does not magically solve hallucination.** It provides:
+- Transparency (internal states are visible)
+- Natural pressures (debt, presence, agency)
+- Audit capability (phase commits, bond coherence)
+
+The model still needs good training. DET makes pathological behavior *visible and costly*, not impossible.
+
+### 12.7 Research Directions
+
+1. **DET-Aware Fine-Tuning**: Train models with F/q/a signals as auxiliary losses
+2. **Grounding-Debt Correlation**: Empirically measure relationship between q and factual accuracy
+3. **Attention-Hallucination Signatures**: Characterize attention patterns during confabulation
+4. **Agency Calibration**: Tune agency computation to correlate with human-judged confidence
+5. **Intervention Studies**: When debt is high, does forcing retrieval improve accuracy?
+
+---
+
 ## References
 
 - DET v6.3 Specification (internal)
