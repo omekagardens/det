@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 21.2 Complete (Conversation Management)
+**Current Phase**: Phase 26.6 Complete (Native Inference Creatures)
 
 ---
 
@@ -2104,7 +2104,7 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-25 (Substrate v2 Fixes: 14-point fix list implemented)*
+*Last Updated: 2026-01-25 (Phase 26.6 Complete: Native Inference Creatures)*
 
 ---
 
@@ -2143,8 +2143,24 @@ Implementing DET-native LLM inference to replace Ollama dependency. The approach
 | `det_dequantize` | Q8_0/Q4_0/F16→F32 | ✅ |
 | `det_quantize` | F32→Q8_0 | ✅ |
 
-**Missing from 26.1**:
-- [ ] Metal matmul shader (GPU acceleration)
+**Metal GPU Backend** (added 2026-01-25):
+- `include/det_tensor_metal.h` - C API for Metal backend
+- `metal/tensor_shaders.metal` (~450 lines) - GPU compute shaders
+- `metal/tensor_metal.m` (~345 lines) - Objective-C bridge
+
+| Metal Shader | Description | Status |
+|--------------|-------------|--------|
+| `matmul_f32` | Tiled matrix multiplication (16x16) | ✅ |
+| `matvec_f32` | Matrix-vector multiply | ✅ |
+| `add_f32`, `mul_f32` | Element-wise ops | ✅ |
+| `silu_f32` | SiLU activation | ✅ |
+| `gelu_f32` | GELU activation | ✅ |
+| `relu_f32` | ReLU activation | ✅ |
+| `rmsnorm_f32` | RMS normalization | ✅ |
+| `softmax_f32` | Softmax with temperature | ✅ |
+| `attention_scores_f32` | Q·K^T/√d_k | ✅ |
+| `causal_mask_f32` | Causal attention mask | ✅ |
+| `rope_f32` | Rotary position encoding | ✅ |
 
 ### 26.2 GGUF Model Loading ✅ COMPLETE
 
@@ -2177,15 +2193,11 @@ Implementing DET-native LLM inference to replace Ollama dependency. The approach
 - Special token handling (BOS, EOS, PAD, UNK)
 - Hash table for O(1) token lookup
 
-### 26.4 C Inference Pipeline (Primitives Only)
+### 26.4 C Inference Pipeline ✅ COMPLETE
 
 **Files Created**:
 - `include/det_model.h` (287 lines) - Model API
 - `src/det_model.c` (878 lines) - Forward pass implementation
-
-**Note**: This provides C primitives for inference, but **not yet wrapped as creatures**.
-The ROADMAP specifies creatures (EmbeddingCreature.ex, TransformerLayerCreature.ex, etc.)
-that call these primitives. This creature layer is still TODO.
 
 **C Primitives Available**:
 - `det_model_load(path)` - Load GGUF model
@@ -2193,21 +2205,74 @@ that call these primitives. This creature layer is still TODO.
 - `det_model_sample(logits)` - Sample next token
 - `det_choose_token(logits, temp, top_p, det_presence)` - DET-aware sampling
 
+### 26.5 Python Bindings & Substrate Primitives ✅ COMPLETE (2026-01-25)
+
+**Python Bindings** (`src/python/det/inference.py` ~480 lines):
+- ctypes wrapper for all C inference functions
+- `Model` class: load, forward, sample, generate
+- Metal GPU status and initialization
+- DET-aware token selection via `choose_token(det_presence=...)`
+
+**Substrate Primitives** (`src/python/det/eis/primitives.py`):
+| Primitive | Description | Cost |
+|-----------|-------------|------|
+| `model_load` | Load GGUF model from path | 0.5 |
+| `model_info` | Get model info string | 0.01 |
+| `model_reset` | Reset KV cache | 0.01 |
+| `model_tokenize` | Text → tokens | 0.01 |
+| `model_detokenize` | Tokens → text | 0.01 |
+| `model_forward` | Forward pass (sets internal logits) | 0.1 + 0.01/token |
+| `model_sample` | Standard sampling | 0.01 |
+| `det_choose_token` | **DET-aware sampling (SACRED INTEGRATION)** | 0.02 |
+| `model_generate` | High-level generation | 1.0 + 0.02/token |
+| `model_generate_step` | Single token step (streaming) | 0.15 |
+| `metal_status` | GPU status query | 0.001 |
+
+### 26.6 Existence-Lang Creatures ✅ COMPLETE (2026-01-25)
+
+**File Created**: `src/existence/inference.ex` (~700 lines)
+
+| Creature | Description | Kernels |
+|----------|-------------|---------|
+| `NativeModelCreature` | Model loading, forward pass, tokenization | Load, Forward, Tokenize, Detokenize, Reset, Status |
+| `SamplerCreature` | **DET-aware token selection (THE SACRED INTEGRATION POINT)** | Sample, DetSample, Configure, SetDetState, Status |
+| `GeneratorCreature` | High-level text generation | Generate, GenerateStep, Configure, Status |
+
+**SamplerCreature - Sacred Integration**:
+- Agency (a) modulates temperature: higher a → more exploration
+- Structure (q) modulates consistency: higher q → lower temperature
+- Presence (P) gates generation: P < 0.1 → entity fading, refuse to sample
+- DET presence bias vector influences token selection via `det_choose_token` primitive
+
 ### Build & Test Summary
 
 ```
-Library:  4,676 lines (headers + sources)
-Tests:    1,003 lines (25 tests, all passing)
-Total:    5,679 lines of C code
+C Library:    ~5,000 lines (headers + sources + Metal)
+Tests:        1,003 lines (25 tests, all passing)
+Python:       ~480 lines (inference.py)
+Primitives:   ~350 lines (added to primitives.py)
+Creatures:    ~700 lines (inference.ex)
+Total:        ~7,500 lines new code
 ```
+
+### Phase 26 Status Summary
+
+| Sub-phase | Status | Description |
+|-----------|--------|-------------|
+| 26.1 Foundation | ✅ COMPLETE | Tensor primitives + Metal GPU shaders |
+| 26.2 GGUF Loading | ✅ COMPLETE | Model parser with mmap |
+| 26.3 Tokenizer | ✅ COMPLETE | BPE encoding/decoding |
+| 26.4 Inference Pipeline | ✅ COMPLETE | C forward pass + sampling |
+| 26.5 Python Bindings | ✅ COMPLETE | ctypes + substrate primitives |
+| 26.6 EL Creatures | ✅ COMPLETE | NativeModel, Sampler, Generator |
+| 26.7 Truthfulness | ⏳ TODO | T score computation |
+| 26.8 Integration | ⏳ TODO | Replace Ollama in LLMCreature |
 
 ### Next Steps for Phase 26
 
-1. **26.1 Completion**: Add Metal matmul shader for GPU acceleration
-2. **26.3 Creatures**: Create EL wrappers (EmbeddingCreature.ex, SamplerCreature.ex, etc.)
-3. **26.5 DET Sampler**: Wire det_choose_token to substrate agency/arousal
-4. **26.6 Truthfulness**: Implement T score computation
-5. **26.7 Metal Shaders**: GPU-accelerated attention and FFN
-6. **26.8 Integration**: Replace Ollama in LLMCreature.ex
+1. **26.7 Truthfulness**: Implement T score from debt/agency/coherence
+2. **26.8 Integration**: Update LLMCreature.ex to use native inference
+3. **Witness Recording**: Full substrate integration for audit trail
+4. **Performance**: Benchmark vs Ollama, optimize hot paths
 
 ---

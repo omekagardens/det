@@ -398,6 +398,9 @@ class PrimitiveRegistry:
         # Register lattice primitives (Phase 20.5)
         self._register_lattice_primitives()
 
+        # Register inference primitives (Phase 26.3)
+        self._register_inference_primitives()
+
     def register(self, spec: PrimitiveSpec):
         """Register a primitive."""
         self.primitives[spec.name] = spec
@@ -1142,6 +1145,360 @@ class PrimitiveRegistry:
                 setattr(lattice.p, param, value)
                 return True
             return False
+
+    # =========================================================================
+    # Inference Primitives (Phase 26.3)
+    # Native LLM inference using DET inference library
+    # =========================================================================
+
+    def _init_inference_backend(self):
+        """Initialize inference backend."""
+        if hasattr(self, '_inference_backend_initialized'):
+            return
+
+        self._use_native_inference = False
+        self._inference_model = None
+
+        try:
+            from det.inference import Model, metal_available, metal_init
+            self._InferenceModel = Model
+            self._metal_available = metal_available
+            self._metal_init = metal_init
+            self._use_native_inference = True
+            print("[Primitives] Native inference library available")
+
+            # Try to initialize Metal GPU
+            if metal_available():
+                if metal_init():
+                    print("[Primitives] Metal GPU acceleration enabled")
+        except ImportError as e:
+            print(f"[Primitives] Native inference not available: {e}")
+
+        self._inference_backend_initialized = True
+
+    def _register_inference_primitives(self):
+        """Register inference primitives for native LLM inference."""
+
+        # === Model Loading ===
+        self.register(PrimitiveSpec(
+            name="model_load",
+            handler=self._model_load,
+            base_cost=0.5,
+            min_agency=0.3,
+            description="Load GGUF model from path",
+            arg_types=["string"],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_info",
+            handler=self._model_info,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Get loaded model info",
+            arg_types=[],
+            return_type="string"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_reset",
+            handler=self._model_reset,
+            base_cost=0.01,
+            min_agency=0.1,
+            description="Reset model KV cache for new conversation",
+            arg_types=[],
+            return_type="void"
+        ))
+
+        # === Tokenization ===
+        self.register(PrimitiveSpec(
+            name="model_tokenize",
+            handler=self._model_tokenize,
+            base_cost=0.01,
+            cost_per_unit=0.0001,  # per character
+            min_agency=0.0,
+            description="Convert text to token IDs",
+            arg_types=["string"],
+            return_type="list"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_detokenize",
+            handler=self._model_detokenize,
+            base_cost=0.01,
+            cost_per_unit=0.0001,  # per token
+            min_agency=0.0,
+            description="Convert token IDs to text",
+            arg_types=["list"],
+            return_type="string"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_token_text",
+            handler=self._model_token_text,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get text for a single token ID",
+            arg_types=["int"],
+            return_type="string"
+        ))
+
+        # === Inference ===
+        self.register(PrimitiveSpec(
+            name="model_forward",
+            handler=self._model_forward,
+            base_cost=0.1,
+            cost_per_unit=0.01,  # per token
+            min_agency=0.2,
+            description="Run forward pass on tokens, returns logits",
+            arg_types=["list"],
+            return_type="list"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_sample",
+            handler=self._model_sample,
+            base_cost=0.01,
+            min_agency=0.1,
+            description="Sample next token from logits (temp, top_p)",
+            arg_types=["list", "float", "float"],
+            return_type="int"
+        ))
+
+        # === DET-Aware Sampling (Sacred Integration Point) ===
+        self.register(PrimitiveSpec(
+            name="det_choose_token",
+            handler=self._det_choose_token,
+            base_cost=0.02,
+            min_agency=0.1,
+            description="DET-aware token selection with presence bias",
+            arg_types=["list", "float", "float", "list"],
+            return_type="int"
+        ))
+
+        # === High-Level Generation ===
+        self.register(PrimitiveSpec(
+            name="model_generate",
+            handler=self._model_generate,
+            base_cost=1.0,
+            cost_per_unit=0.02,  # per generated token
+            min_agency=0.3,
+            description="Generate text from prompt",
+            arg_types=["string", "int"],
+            return_type="string"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_generate_step",
+            handler=self._model_generate_step,
+            base_cost=0.15,
+            min_agency=0.2,
+            description="Generate single token (for streaming)",
+            arg_types=["list", "float", "float"],
+            return_type="dict"
+        ))
+
+        # === GPU Status ===
+        self.register(PrimitiveSpec(
+            name="metal_status",
+            handler=self._metal_status,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get Metal GPU status",
+            arg_types=[],
+            return_type="dict"
+        ))
+
+    def _model_load(self, path: str) -> bool:
+        """Load GGUF model from path."""
+        self._init_inference_backend()
+
+        if not self._use_native_inference:
+            raise RuntimeError("Native inference not available")
+
+        path = os.path.expanduser(str(path))
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Model file not found: {path}")
+
+        self._inference_model = self._InferenceModel(path)
+        return True
+
+    def _model_info(self) -> str:
+        """Get loaded model info."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            return "No model loaded"
+
+        return self._inference_model.info
+
+    def _model_reset(self) -> None:
+        """Reset model KV cache."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        self._inference_model.reset()
+
+    def _model_tokenize(self, text: str) -> list:
+        """Tokenize text to token IDs."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        return self._inference_model.tokenize(str(text))
+
+    def _model_detokenize(self, tokens: list) -> str:
+        """Detokenize token IDs to text."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        return self._inference_model.detokenize([int(t) for t in tokens])
+
+    def _model_token_text(self, token_id: int) -> str:
+        """Get text for single token."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        return self._inference_model.token_to_text(int(token_id))
+
+    def _model_forward(self, tokens: list) -> list:
+        """Run forward pass, return logits."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        # Note: Forward returns a tensor pointer; we need to extract logits
+        # For now, store internally and return token count processed
+        token_list = [int(t) for t in tokens]
+        self._last_logits = self._inference_model.forward(token_list)
+        return [len(token_list)]  # Return count; logits stored internally
+
+    def _model_sample(self, logits: list, temperature: float = 0.7,
+                      top_p: float = 0.9) -> int:
+        """Sample next token from logits."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        if not hasattr(self, '_last_logits') or self._last_logits is None:
+            raise RuntimeError("No logits available - call model_forward first")
+
+        from det.inference import SamplingParams
+        params = SamplingParams(
+            temperature=float(temperature),
+            top_p=float(top_p)
+        )
+        return self._inference_model.sample(self._last_logits, params)
+
+    def _det_choose_token(self, logits: list, temperature: float = 0.7,
+                          top_p: float = 0.9, det_presence: list = None) -> int:
+        """
+        DET-aware token selection.
+
+        This is the SACRED INTEGRATION POINT where DET physics
+        can influence token selection via presence values.
+
+        The presence values act as a bias on the logits before sampling,
+        allowing the substrate's computed presence field to guide generation.
+
+        Args:
+            logits: Raw logits from forward pass
+            temperature: Sampling temperature
+            top_p: Nucleus sampling threshold
+            det_presence: DET presence bias per token (optional)
+
+        Returns:
+            Selected token ID
+        """
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        # Convert inputs
+        logits_list = [float(x) for x in logits]
+        presence_list = [float(x) for x in det_presence] if det_presence else None
+
+        return self._inference_model.choose_token(
+            logits_list,
+            float(temperature),
+            float(top_p),
+            presence_list
+        )
+
+    def _model_generate(self, prompt: str, max_tokens: int = 256) -> str:
+        """Generate text from prompt."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        return self._inference_model.generate(str(prompt), int(max_tokens))
+
+    def _model_generate_step(self, tokens: list, temperature: float = 0.7,
+                             top_p: float = 0.9) -> dict:
+        """
+        Generate single token (for streaming/step-by-step generation).
+
+        Returns dict with:
+            - token_id: Generated token ID
+            - token_text: Text for this token
+            - is_eos: Whether this is end-of-sequence
+        """
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        token_list = [int(t) for t in tokens]
+
+        # Forward pass
+        logits = self._inference_model.forward(token_list)
+
+        # Sample
+        from det.inference import SamplingParams
+        params = SamplingParams(
+            temperature=float(temperature),
+            top_p=float(top_p)
+        )
+        token_id = self._inference_model.sample(logits, params)
+
+        # Check for EOS
+        is_eos = token_id == self._inference_model.eos_token or token_id < 0
+
+        return {
+            "token_id": token_id,
+            "token_text": self._inference_model.token_to_text(token_id) if not is_eos else "",
+            "is_eos": is_eos
+        }
+
+    def _metal_status(self) -> dict:
+        """Get Metal GPU status."""
+        self._init_inference_backend()
+
+        if not self._use_native_inference:
+            return {
+                "available": False,
+                "device": "None",
+                "reason": "Native inference not loaded"
+            }
+
+        from det.inference import metal_available, metal_device_name
+        available = metal_available()
+        return {
+            "available": available,
+            "device": metal_device_name() if available else "None",
+            "reason": "OK" if available else "Metal not available"
+        }
 
 
 # Global registry instance

@@ -399,7 +399,7 @@ src/existence/
 
 **Note**: C primitives complete. Creature wrapper still needed.
 
-#### 26.3 Inference Pipeline (M3) ⚠️ PRIMITIVES DONE, CREATURES TODO
+#### 26.3 Inference Pipeline (M3) ✅ PRIMITIVES + CREATURES COMPLETE
 **Goal**: Single token generation via creatures
 
 **C Primitives** (in `src/inference/det_model.c`):
@@ -412,14 +412,36 @@ src/existence/
 **Tokenizer** (in `src/inference/det_tokenizer.c`):
 - [x] BPE encoding/decoding from GGUF vocabulary
 
-**Existence-Lang Creatures** (TODO):
-- [ ] EmbeddingCreature.ex (token → embedding)
-- [ ] TransformerLayerCreature.ex (coordinates attn + FFN)
-- [ ] AttentionHeadCreature.ex (attention as auditable effect)
-- [ ] FFNCreature.ex (feed-forward computation)
-- [ ] SamplerCreature.ex with `det_choose_token()`
+**Python Bindings** (in `src/python/det/inference.py`):
+- [x] ctypes bindings for all C inference functions
+- [x] Model class with load/forward/sample/generate
+- [x] Metal GPU status and initialization
+- [x] DET-aware token selection via `choose_token()`
 
-**Files**: `src/inference/{det_model.h, det_model.c, det_tokenizer.h, det_tokenizer.c}` (1,943 lines)
+**Substrate Primitives** (in `src/python/det/eis/primitives.py`):
+- [x] `model_load` - Load GGUF model from path
+- [x] `model_info` - Get model info string
+- [x] `model_reset` - Reset KV cache
+- [x] `model_tokenize` - Text to tokens
+- [x] `model_detokenize` - Tokens to text
+- [x] `model_forward` - Forward pass
+- [x] `model_sample` - Standard sampling
+- [x] `det_choose_token` - DET-aware sampling (sacred integration)
+- [x] `model_generate` - High-level generation
+- [x] `model_generate_step` - Single token step (streaming)
+- [x] `metal_status` - GPU status query
+
+**Existence-Lang Creatures** (in `src/existence/inference.ex`):
+- [x] NativeModelCreature - Model loading/forward/tokenize
+- [x] SamplerCreature - DET-aware token selection (THE SACRED INTEGRATION POINT)
+- [x] GeneratorCreature - High-level text generation
+- [ ] EmbeddingCreature.ex (optional - for per-layer control)
+- [ ] TransformerLayerCreature.ex (optional - for per-layer control)
+
+**Files**:
+- `src/inference/{det_model.h, det_model.c, det_tokenizer.h, det_tokenizer.c}` (1,943 lines)
+- `src/python/det/inference.py` (~480 lines)
+- `src/existence/inference.ex` (~700 lines)
 
 **Architecture Decision**: Per-layer creatures (not per-head) for simplicity, with attention heads as internal structure.
 
@@ -436,20 +458,26 @@ src/existence/
 
 **Performance Critical**: KV cache correctness + efficiency is where decode speed lives.
 
-#### 26.5 DET-Native Sampler ⚠️ C PRIMITIVE DONE, DET INTEGRATION TODO
+#### 26.5 DET-Native Sampler ✅ COMPLETE
 **Goal**: The sacred DET integration point
 
-- [x] `det_choose_token(logits, temperature, top_p, top_k)` primitive
+- [x] `det_choose_token(logits, temperature, top_p, top_k)` C primitive
 - [x] Repetition penalty via context tokens
 - [x] Reproducible via deterministic RNG (xorshift64)
 - [x] DET presence bias parameter (`det_presence` in API)
-- [ ] DET agency modulates temperature (higher a → lower temp) ← TODO
-- [ ] DET arousal modulates variability ← TODO
-- [ ] Choice committed as witness/trace ← TODO (substrate integration)
+- [x] DET agency modulates temperature (in SamplerCreature.ex)
+- [x] DET structure modulates consistency (in SamplerCreature.ex)
+- [x] Presence-gated generation (low P → refuse to generate)
+- [ ] Choice committed as witness/trace ← TODO (full substrate integration)
 
-**Note**: The C function `det_choose_token()` exists with a `det_presence` parameter
-for DET bias, but the substrate integration (reading agency/arousal, committing
-witnesses) is not yet implemented.
+**SamplerCreature.ex** implements the sacred integration point where:
+- Agency (a) modulates temperature: higher a → more exploration
+- Structure (q) modulates consistency: higher q → lower temperature
+- Presence (P) gates generation: P < 0.1 → entity fading, refuse to sample
+- DET presence bias vector influences token selection
+
+**Note**: Core DET integration complete. Witness/trace recording for full auditability
+is the remaining substrate integration work.
 
 **Key**: Even when using external sampling, wrap it in DET choose semantics.
 

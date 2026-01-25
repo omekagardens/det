@@ -116,6 +116,32 @@ except ImportError:
     OllamaClient = None
     DETLLMInterface = None
 
+# Native Inference (Phase 26 - Ollama replacement)
+try:
+    from .inference import (
+        Model as InferenceModel,
+        SamplingParams,
+        metal_available,
+        metal_device_name,
+        metal_init,
+        load_model,
+        generate,
+        tokenize,
+        detokenize,
+    )
+    INFERENCE_AVAILABLE = True
+except (ImportError, RuntimeError):
+    INFERENCE_AVAILABLE = False
+    InferenceModel = None
+    SamplingParams = None
+    metal_available = None
+    metal_device_name = None
+    metal_init = None
+    load_model = None
+    generate = None
+    tokenize = None
+    detokenize = None
+
 # Web App (optional visualization)
 try:
     from .webapp import create_app, run_server
@@ -163,6 +189,7 @@ __all__ = [
     "DETOS_AVAILABLE",
     "METAL_AVAILABLE",
     "LLM_AVAILABLE",
+    "INFERENCE_AVAILABLE",
     "WEBAPP_AVAILABLE",
     "SANDBOX_AVAILABLE",
     "NETWORK_AVAILABLE",
@@ -201,6 +228,17 @@ __all__ = [
     # LLM
     "OllamaClient",
     "DETLLMInterface",
+
+    # Native Inference (Phase 26)
+    "InferenceModel",
+    "SamplingParams",
+    "metal_available",
+    "metal_device_name",
+    "metal_init",
+    "load_model",
+    "generate",
+    "tokenize",
+    "detokenize",
 
     # Web App
     "create_app",
