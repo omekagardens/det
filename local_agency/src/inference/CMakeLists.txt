@@ -25,11 +25,13 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(INFERENCE_SOURCES
     src/det_tensor.c
     src/det_gguf.c
+    src/det_tokenizer.c
 )
 
 set(INFERENCE_HEADERS
     include/det_tensor.h
     include/det_gguf.h
+    include/det_tokenizer.h
 )
 
 # =============================================================================
