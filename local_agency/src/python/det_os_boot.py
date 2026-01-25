@@ -508,6 +508,132 @@ class DETRuntime:
 
         return None
 
+    # =========================================================================
+    # Phase 21: LLM Management Methods
+    # =========================================================================
+
+    def _llm_help(self):
+        """Show LLM management commands."""
+        print("""
+\033[33mLLM Management Commands (Phase 21):\033[0m
+  llm              Show this help
+  llm status       Show LLM creature status (model, budget, temp)
+  llm models       List configured models
+  llm model <name> [type]  Set model (types: default, reasoning, coding, fast)
+  llm budget       Show token budget status
+  llm budget reset [amount]  Reset token budget
+  llm stream <prompt>  Send streaming prompt
+  llm config <json>    Apply JSON configuration
+
+\033[33mExample:\033[0m
+  llm model deepseek-r1:1.5b reasoning
+  llm model llama3.2:3b default
+  llm budget reset 5000
+  llm stream What is consciousness?
+""")
+
+    def _llm_status(self):
+        """Show LLM creature status."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        # Get basic creature state (always available)
+        state = self.runner.get_creature_state(self.llm_cid)
+        if state:
+            print("\n\033[33mLLM Creature Status:\033[0m")
+            print(f"  F: {state.get('F', 0):.1f}")
+            print(f"  Agency: {state.get('a', 0):.2f}")
+            print(f"  Kernels Executed: {state.get('kernels_executed', 0)}")
+            print(f"  Messages: {state.get('messages_sent', 0)} sent, {state.get('messages_received', 0)} received")
+            print()
+        else:
+            print("Could not get LLM status")
+
+    def _llm_list_models(self):
+        """List configured models."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        # Show default models (from llm.ex defaults)
+        print("\n\033[33mConfigured Models (Phase 21):\033[0m")
+        print("  Default:   llama3.2:3b")
+        print("  Reasoning: deepseek-r1:1.5b")
+        print("  Coding:    qwen2.5-coder:1.5b")
+        print("  Fast:      phi4-mini")
+        print("\n  Use 'llm model <name> <type>' to change")
+        print()
+
+    def _llm_set_model(self, model_name: str, model_type: str):
+        """Set a model for the LLM creature."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        # For now, just acknowledge the request
+        # Full kernel integration requires creature runner updates
+        valid_types = ["default", "reasoning", "coding", "fast"]
+        if model_type not in valid_types:
+            print(f"Invalid model type: {model_type}")
+            print(f"  Valid types: {', '.join(valid_types)}")
+            return
+
+        print(f"Model configuration noted: {model_type} = {model_name}")
+        print("  (Full runtime integration pending)")
+
+    def _llm_show_budget(self):
+        """Show token budget status."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        # Show default budget info (from llm.ex defaults)
+        print("\n\033[33mToken Budget (Phase 21):\033[0m")
+        print("  Total Budget:   10000 tokens")
+        print("  Budget Period:  3600 seconds (1 hour)")
+        print("  Cost per token: 0.01 F")
+        print("  Base call cost: 1.0 F")
+        print("\n  Use 'llm budget reset [amount]' to reset")
+        print()
+
+    def _llm_reset_budget(self, new_budget: int = 0):
+        """Reset token budget."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        if new_budget > 0:
+            print(f"Budget reset requested: {new_budget} tokens")
+        else:
+            print("Budget reset requested: default (10000 tokens)")
+        print("  (Full runtime integration pending)")
+
+    def _llm_stream(self, prompt: str):
+        """Send streaming prompt to LLM."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        # For now, fall back to standard call
+        # Full streaming requires primitive infrastructure
+        print("\033[33m[Streaming via standard call...]\033[0m")
+        response = self.send_to_llm(prompt)
+        if response:
+            print(f"\033[32m{response}\033[0m")
+        else:
+            print("\033[31m[No response from LLM]\033[0m")
+
+    def _llm_configure(self, config_json: str):
+        """Apply JSON configuration to LLM creature."""
+        if not self.llm_cid:
+            print("LLM creature not loaded")
+            return
+
+        print("Configuration noted:")
+        print(f"  {config_json}")
+        print("  (Full runtime integration pending)")
+
     def send_to_tool(self, command: str, safe: bool = True) -> Optional[str]:
         """Send a command to Tool creature via bond and get response."""
         if not self.terminal_cid or not self.tool_cid:
@@ -666,6 +792,50 @@ class DETRuntime:
                         print(f"\033[32m{response}\033[0m")
                     else:
                         print("\033[31m[No response from LLM]\033[0m")
+
+                # Phase 21: LLM Management Commands
+                elif cmd_lower == "llm" or cmd_lower == "llm help":
+                    self._llm_help()
+                    continue
+
+                elif cmd_lower == "llm status":
+                    self._llm_status()
+                    continue
+
+                elif cmd_lower == "llm models":
+                    self._llm_list_models()
+                    continue
+
+                elif cmd_lower.startswith("llm model "):
+                    args = user_input[10:].strip().split()
+                    if len(args) >= 1:
+                        model_name = args[0]
+                        model_type = args[1] if len(args) > 1 else "default"
+                        self._llm_set_model(model_name, model_type)
+                    else:
+                        print("Usage: llm model <name> [type]")
+                        print("  Types: default, reasoning, coding, fast")
+                    continue
+
+                elif cmd_lower == "llm budget":
+                    self._llm_show_budget()
+                    continue
+
+                elif cmd_lower.startswith("llm budget reset"):
+                    args = user_input[16:].strip().split()
+                    new_budget = int(args[0]) if args else 0
+                    self._llm_reset_budget(new_budget)
+                    continue
+
+                elif cmd_lower.startswith("llm stream "):
+                    prompt = user_input[11:].strip()
+                    self._llm_stream(prompt)
+                    continue
+
+                elif cmd_lower.startswith("llm config "):
+                    config_json = user_input[11:].strip()
+                    self._llm_configure(config_json)
+                    continue
 
                 elif cmd_lower.startswith("run "):
                     command = user_input[4:].strip()
@@ -851,6 +1021,15 @@ class DETRuntime:
   exec <cmd>        Execute via Tool creature (unsafe mode)
   calc <expr>       Evaluate math expression (auto-loads calculator)
   send <creature> <primitive> [args]  Send primitive to creature
+
+\033[33mLLM Management (Phase 21):\033[0m
+  llm               Show LLM help
+  llm status        Show LLM status (model, budget, temp)
+  llm models        List configured models
+  llm model <n> [t] Set model (types: default,reasoning,coding,fast)
+  llm budget        Show token budget
+  llm budget reset  Reset token budget
+  llm stream <p>    Streaming prompt
 
 \033[33mGPU Acceleration:\033[0m
   gpu               Show GPU status

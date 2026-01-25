@@ -278,7 +278,8 @@ class OllamaClient:
         context: Optional[List[int]] = None,
         temperature: float = 0.7,
         max_tokens: int = 1024,
-        stream: bool = False
+        stream: bool = False,
+        model_override: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate a response from the LLM.
@@ -290,12 +291,13 @@ class OllamaClient:
             temperature: Sampling temperature.
             max_tokens: Maximum tokens to generate.
             stream: Whether to stream the response.
+            model_override: Optional model to use instead of default (Phase 21).
 
         Returns:
             Response dictionary with 'response', 'context', etc.
         """
         payload = {
-            "model": self.model,
+            "model": model_override or self.model,
             "prompt": prompt,
             "stream": stream,
             "options": {
@@ -318,11 +320,85 @@ class OllamaClient:
         response.raise_for_status()
         return response.json()
 
+    def generate_stream(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        context: Optional[List[int]] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        model_override: Optional[str] = None,
+        on_chunk: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate a streaming response from the LLM (Phase 21).
+
+        Args:
+            prompt: User prompt.
+            system: Optional system prompt.
+            context: Optional context tokens from previous response.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+            model_override: Optional model to use instead of default.
+            on_chunk: Callback function called with each chunk text.
+
+        Returns:
+            Final response dictionary with full 'response' and token count.
+        """
+        payload = {
+            "model": model_override or self.model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            }
+        }
+
+        if system:
+            payload["system"] = system
+
+        if context:
+            payload["context"] = context
+
+        response = self._session.post(
+            f"{self.base_url}/api/generate",
+            json=payload,
+            timeout=self.timeout,
+            stream=True
+        )
+        response.raise_for_status()
+
+        full_response = ""
+        final_context = None
+        total_tokens = 0
+
+        for line in response.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                if "response" in chunk:
+                    chunk_text = chunk["response"]
+                    full_response += chunk_text
+                    if on_chunk:
+                        on_chunk(chunk_text)
+
+                if chunk.get("done", False):
+                    final_context = chunk.get("context")
+                    total_tokens = chunk.get("eval_count", len(full_response.split()))
+
+        return {
+            "response": full_response,
+            "context": final_context,
+            "eval_count": total_tokens,
+            "done": True
+        }
+
     def chat(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
-        max_tokens: int = 1024
+        max_tokens: int = 1024,
+        model_override: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Chat with the LLM.
@@ -331,12 +407,13 @@ class OllamaClient:
             messages: List of message dicts with 'role' and 'content'.
             temperature: Sampling temperature.
             max_tokens: Maximum tokens to generate.
+            model_override: Optional model to use instead of default (Phase 21).
 
         Returns:
             Response dictionary.
         """
         payload = {
-            "model": self.model,
+            "model": model_override or self.model,
             "messages": messages,
             "stream": False,
             "options": {
@@ -352,6 +429,66 @@ class OllamaClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        model_override: Optional[str] = None,
+        on_chunk: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """
+        Chat with streaming response (Phase 21).
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+            model_override: Optional model to use instead of default.
+            on_chunk: Callback function called with each chunk text.
+
+        Returns:
+            Final response dictionary with full response and token count.
+        """
+        payload = {
+            "model": model_override or self.model,
+            "messages": messages,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            }
+        }
+
+        response = self._session.post(
+            f"{self.base_url}/api/chat",
+            json=payload,
+            timeout=self.timeout,
+            stream=True
+        )
+        response.raise_for_status()
+
+        full_response = ""
+        total_tokens = 0
+
+        for line in response.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                if "message" in chunk and "content" in chunk["message"]:
+                    chunk_text = chunk["message"]["content"]
+                    full_response += chunk_text
+                    if on_chunk:
+                        on_chunk(chunk_text)
+
+                if chunk.get("done", False):
+                    total_tokens = chunk.get("eval_count", len(full_response.split()))
+
+        return {
+            "message": {"role": "assistant", "content": full_response},
+            "eval_count": total_tokens,
+            "done": True
+        }
 
 
 # =============================================================================
@@ -1173,3 +1310,161 @@ class DETLLMInterface:
         """Clear conversation history."""
         self.conversation_history.clear()
         self.context = None
+
+
+# =============================================================================
+# Phase 21: LLM Primitives Handler for Existence-Lang Runtime
+# =============================================================================
+
+class LLMPrimitives:
+    """
+    Primitives handler for LLMCreature.ex calls.
+
+    Maps Existence-Lang primitive() calls to OllamaClient methods.
+    This class is used by the Existence-Lang runtime to execute LLM operations.
+    """
+
+    def __init__(self, ollama_url: str = "http://localhost:11434"):
+        """
+        Initialize the primitives handler.
+
+        Args:
+            ollama_url: Ollama API URL.
+        """
+        self.client = OllamaClient(base_url=ollama_url)
+        self._callbacks: Dict[str, callable] = {}
+
+    def register_callback(self, name: str, callback: callable):
+        """Register a callback for streaming responses."""
+        self._callbacks[name] = callback
+
+    def execute(self, primitive_name: str, *args) -> Any:
+        """
+        Execute an LLM primitive.
+
+        Args:
+            primitive_name: Name of the primitive to execute.
+            *args: Arguments for the primitive.
+
+        Returns:
+            Result of the primitive execution.
+        """
+        if primitive_name == "llm_call":
+            # Legacy single-arg call
+            prompt = args[0] if args else ""
+            result = self.client.generate(prompt=prompt)
+            return result.get("response", "")
+
+        elif primitive_name == "llm_call_v2":
+            # Phase 21: Enhanced call with model, temp, max_tokens
+            model = args[0] if len(args) > 0 else None
+            prompt = args[1] if len(args) > 1 else ""
+            temperature = args[2] if len(args) > 2 else 0.7
+            max_tokens = args[3] if len(args) > 3 else 512
+
+            result = self.client.generate(
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model_override=model
+            )
+            return {
+                "text": result.get("response", ""),
+                "tokens": result.get("eval_count", 0)
+            }
+
+        elif primitive_name == "llm_stream_v2":
+            # Phase 21: Streaming call
+            model = args[0] if len(args) > 0 else None
+            prompt = args[1] if len(args) > 1 else ""
+            temperature = args[2] if len(args) > 2 else 0.7
+            max_tokens = args[3] if len(args) > 3 else 512
+            callback_ref = args[4] if len(args) > 4 else None
+
+            # Get callback function
+            on_chunk = self._callbacks.get(callback_ref) if callback_ref else None
+
+            result = self.client.generate_stream(
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model_override=model,
+                on_chunk=on_chunk
+            )
+            return {
+                "text": result.get("response", ""),
+                "tokens": result.get("eval_count", 0)
+            }
+
+        elif primitive_name == "llm_chat":
+            # Legacy chat call
+            messages = args[0] if args else []
+            result = self.client.chat(messages=messages)
+            return result.get("message", {}).get("content", "")
+
+        elif primitive_name == "llm_chat_v2":
+            # Phase 21: Enhanced chat with model, temp, max_tokens
+            model = args[0] if len(args) > 0 else None
+            messages = args[1] if len(args) > 1 else []
+            temperature = args[2] if len(args) > 2 else 0.7
+            max_tokens = args[3] if len(args) > 3 else 512
+
+            result = self.client.chat(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model_override=model
+            )
+            return {
+                "text": result.get("message", {}).get("content", ""),
+                "tokens": result.get("eval_count", 0)
+            }
+
+        elif primitive_name == "llm_chat_stream_v2":
+            # Phase 21: Streaming chat
+            model = args[0] if len(args) > 0 else None
+            messages = args[1] if len(args) > 1 else []
+            temperature = args[2] if len(args) > 2 else 0.7
+            max_tokens = args[3] if len(args) > 3 else 512
+            callback_ref = args[4] if len(args) > 4 else None
+
+            on_chunk = self._callbacks.get(callback_ref) if callback_ref else None
+
+            result = self.client.chat_stream(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model_override=model,
+                on_chunk=on_chunk
+            )
+            return {
+                "text": result.get("message", {}).get("content", ""),
+                "tokens": result.get("eval_count", 0)
+            }
+
+        elif primitive_name == "get_time":
+            # Return current time in seconds
+            import time
+            return time.time()
+
+        elif primitive_name == "parse_config":
+            # Parse JSON config string
+            config = args[0] if args else "{}"
+            if isinstance(config, str):
+                return json.loads(config)
+            return config
+
+        elif primitive_name == "list_models":
+            # List available Ollama models
+            return self.client.list_models()
+
+        else:
+            raise ValueError(f"Unknown LLM primitive: {primitive_name}")
+
+    def is_available(self) -> bool:
+        """Check if LLM backend is available."""
+        return self.client.is_available()
+
+    def set_default_model(self, model: str):
+        """Set the default model for the client."""
+        self.client.model = model

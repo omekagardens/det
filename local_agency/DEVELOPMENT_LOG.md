@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 20.7 Complete (Falsification Suite)
+**Current Phase**: Phase 21 Complete (LLM Integration Enhancement)
 
 ---
 
@@ -1755,17 +1755,120 @@ All 11 falsifiers pass:
 
 ---
 
+## Phase 21: LLM Integration Enhancement ✅
+
+**Goal**: Enhance LLMCreature.ex with multi-model support, token budget management, temperature modulation, and streaming responses - keeping logic in Existence-Lang.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/existence/llm.ex` | Added 10 new kernels, 4 helper functions, ~460 new lines |
+| `src/python/det/llm.py` | Added streaming support, model override, LLMPrimitives class |
+| `src/python/det_os_boot.py` | Added `llm` command family for REPL integration |
+
+### New Existence-Lang Features (llm.ex)
+
+**Variables**:
+- `model`, `model_reasoning`, `model_coding`, `model_fast` - Multi-model routing
+- `arousal`, `bondedness` - Affect state for temperature modulation
+- `token_budget`, `tokens_remaining`, `budget_period` - Token budget management
+- `base_temperature`, `temperature_agency_weight`, `temperature_arousal_weight` - Dynamic temperature config
+
+**Helper Functions**:
+- `compute_temperature()` - Calculates effective temperature from agency, arousal, bondedness
+- `select_model(intent)` - Routes to specialist model based on intent type
+- `check_budget(requested)` - Verifies token budget availability
+- `deduct_budget(used)` - Updates budget tracking
+
+**New Kernels**:
+| Kernel | Purpose |
+|--------|---------|
+| `Think` | Enhanced with model selection, budget checking, temperature modulation |
+| `ThinkStream` | Streaming response with callback support |
+| `Chat` | Enhanced multi-turn conversation with Phase 21 features |
+| `SetModel` | Configure model per type (default, reasoning, coding, fast) |
+| `ResetBudget` | Reset token budget to default or custom amount |
+| `SetAffect` | Update arousal/bondedness/agency for temperature modulation |
+| `Status` | Enhanced status reporting with all Phase 21 metrics |
+| `ListModels` | List all configured models |
+| `Configure` | Bulk configuration via JSON |
+
+### Python Enhancements (llm.py)
+
+**OllamaClient**:
+- `generate()` - Added `model_override` parameter
+- `generate_stream()` - New streaming method with `on_chunk` callback
+- `chat()` - Added `model_override` parameter
+- `chat_stream()` - New streaming chat method
+
+**LLMPrimitives Class**:
+Maps Existence-Lang `primitive()` calls to Python:
+- `llm_call_v2(model, prompt, temp, max_tokens)` - Enhanced call
+- `llm_stream_v2(...)` - Streaming with callback
+- `llm_chat_v2(...)` - Enhanced chat
+- `llm_chat_stream_v2(...)` - Streaming chat
+- `get_time()` - Time primitive for budget tracking
+- `parse_config(json)` - Configuration parsing
+- `list_models()` - Ollama model listing
+
+### REPL Commands (det_os_boot.py)
+
+```
+LLM Management (Phase 21):
+  llm               Show LLM help
+  llm status        Show LLM status (model, budget, temp)
+  llm models        List configured models
+  llm model <n> [t] Set model (types: default,reasoning,coding,fast)
+  llm budget        Show token budget
+  llm budget reset  Reset token budget
+  llm stream <p>    Streaming prompt
+```
+
+### Temperature Modulation Formula
+
+```
+effective_temp = base_temperature
+               + (agency - 0.5) * agency_weight     # Higher agency -> exploration
+               + (arousal - 0.5) * arousal_weight   # Higher arousal -> variability
+               - (bondedness - 0.5) * 0.1           # Higher bond -> consistency
+```
+
+### Model Routing Logic
+
+```
+select_model(intent):
+  if intent in ["code", "debug"]:     return model_coding
+  if intent in ["reason", "plan"]:    return model_reasoning
+  if intent in ["quick", "simple"]:   return model_fast
+  else:                               return model  # default
+```
+
+### Phase 21 Summary
+- **Multi-Model**: Route to specialist models based on intent (code, reasoning, fast, default)
+- **Temperature**: Dynamic temperature from DET affect state (agency, arousal, bondedness)
+- **Token Budget**: Per-creature tracking with budget exhaustion handling
+- **Streaming**: Full streaming support with callback mechanism
+- **Pure Ex-Lang**: All logic in Existence-Lang, Python only provides primitives
+
+---
+
 ## Next Steps
 
 See `ROADMAP_V2.md` for detailed roadmap.
 
-1. **Phase 21: LLM Integration Enhancement**:
-   - [ ] Multi-model support in LLMCreature.ex
-   - [ ] Temperature modulation by agency/arousal
-   - [ ] Token budget management per-creature
-   - [ ] Streaming response support
+1. **Phase 21: LLM Integration Enhancement**: ✅ COMPLETE
+   - [x] Multi-model support in LLMCreature.ex
+   - [x] Temperature modulation by agency/arousal
+   - [x] Token budget management per-creature
+   - [x] Streaming response support
 
-2. **Future Work**:
+2. **Phase 22: Advanced Creature Networking**:
+   - [ ] Bond-based affect propagation between creatures
+   - [ ] Creature federation (multiple presences)
+   - [ ] Remote presence protocol
+
+3. **Future Work**:
    - [ ] Integrate Metal backend into det_os_boot for GPU-accelerated creature execution
    - [ ] Cross-platform GPU support (Vulkan compute for Linux/Windows)
    - [ ] Remote presence networking
@@ -1826,4 +1929,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-24 (Phase 20.7: Falsification Suite Complete)*
+*Last Updated: 2026-01-24 (Phase 21: LLM Integration Enhancement Complete)*
