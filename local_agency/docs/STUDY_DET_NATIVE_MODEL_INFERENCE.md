@@ -924,7 +924,209 @@ If this architecture works as theorized, we should observe:
 
 The model still needs good training. DET makes pathological behavior *visible and costly*, not impossible.
 
-### 12.7 Research Directions
+### 12.7 Truthfulness Weighting: Quantifying Output Reliability
+
+A key benefit of DET-native inference is the ability to **compute a truthfulness weight** for each output - a scalar (or vector) that accompanies generated text and quantifies how much to trust it.
+
+#### 12.7.1 Composite Truthfulness Score
+
+We can derive a truthfulness weight `T` from observable DET quantities:
+
+```existence
+creature TruthfulnessEvaluator {
+    // Weights for combining signals (tunable)
+    var w_debt: float := 0.3;
+    var w_agency: float := 0.25;
+    var w_entropy: float := 0.25;
+    var w_coherence: float := 0.2;
+
+    kernel ComputeTruthfulness {
+        in  q: float;              // Accumulated debt
+        in  a: float;              // Agency
+        in  attn_entropy: float;   // Attention entropy (averaged across layers)
+        in  bond_coherence: float; // Mean bond coherence to context
+        out T: float;              // Truthfulness weight [0, 1]
+
+        phase PROPOSE {
+            proposal COMPUTE {
+                effect {
+                    // Debt penalty: high debt → low truthfulness
+                    debt_score := 1.0 / (1.0 + q);
+
+                    // Agency contribution: calibrated confidence
+                    agency_score := a;  // Assumes a is calibrated to accuracy
+
+                    // Entropy penalty: diffuse attention → uncertainty
+                    // Normalize entropy to [0,1] range
+                    max_entropy := log(context_length);
+                    entropy_score := 1.0 - (attn_entropy / max_entropy);
+
+                    // Coherence contribution: strong bonds → grounded
+                    coherence_score := bond_coherence;
+
+                    // Weighted combination
+                    T := w_debt * debt_score
+                       + w_agency * agency_score
+                       + w_entropy * entropy_score
+                       + w_coherence * coherence_score;
+
+                    // Clamp to [0, 1]
+                    T := clamp(T, 0.0, 1.0);
+                }
+            }
+        }
+    }
+}
+```
+
+#### 12.7.2 Per-Token Truthfulness
+
+For fine-grained analysis, compute `T` per token:
+
+```existence
+kernel GenerateWithTruthfulness {
+    out tokens: array[int];
+    out truthfulness: array[float];  // T_i for each token
+
+    phase PROPOSE {
+        for i in 0..max_tokens {
+            // Generate token
+            token_i := sample_next_token();
+
+            // Compute per-token truthfulness from layer states
+            T_i := compute_token_truthfulness(
+                layer_debts,           // q from each layer
+                layer_agencies,        // a from each layer
+                attention_entropies,   // H from each attention head
+                bond_coherences        // C from attention to context
+            );
+
+            tokens[i] := token_i;
+            truthfulness[i] := T_i;
+        }
+    }
+}
+```
+
+This enables:
+- **Highlighting uncertain spans**: Low T tokens shown in red/italics
+- **Selective verification**: Only fact-check claims where T < threshold
+- **Automatic hedging insertion**: When T drops, insert "I think" / "possibly"
+
+#### 12.7.3 Truthfulness Vector (Multi-Dimensional)
+
+For richer signal, output a **truthfulness vector** rather than scalar:
+
+```existence
+struct TruthfulnessVector {
+    factual_grounding: float;   // How well-grounded in retrieved facts
+    logical_coherence: float;   // Internal consistency of reasoning
+    source_attribution: float;  // Whether sources are cited/available
+    uncertainty_acknowledged: float;  // Does output express appropriate doubt
+    temporal_validity: float;   // Is information potentially outdated
+}
+
+kernel ComputeTruthfulnessVector {
+    in  generation_state: GenerationState;
+    out T_vec: TruthfulnessVector;
+
+    phase PROPOSE {
+        proposal COMPUTE {
+            effect {
+                // Factual grounding from retrieval bond coherence
+                T_vec.factual_grounding := mean(retrieval_bond_coherences);
+
+                // Logical coherence from cross-layer q consistency
+                T_vec.logical_coherence := 1.0 - variance(layer_debts);
+
+                // Source attribution from citation detection
+                T_vec.source_attribution := citation_coverage_ratio;
+
+                // Uncertainty acknowledgment from hedging token presence
+                T_vec.uncertainty_acknowledged := hedging_token_ratio * (1.0 - agency);
+
+                // Temporal validity from knowledge cutoff proximity
+                T_vec.temporal_validity := temporal_relevance_score;
+            }
+        }
+    }
+}
+```
+
+#### 12.7.4 Output Format with Truthfulness
+
+Generated output includes truthfulness metadata:
+
+```json
+{
+  "text": "The capital of France is Paris.",
+  "truthfulness": {
+    "overall": 0.94,
+    "per_token": [0.91, 0.88, 0.92, 0.95, 0.97, 0.98],
+    "vector": {
+      "factual_grounding": 0.97,
+      "logical_coherence": 0.95,
+      "source_attribution": 0.82,
+      "uncertainty_acknowledged": 0.90,
+      "temporal_validity": 0.99
+    }
+  },
+  "det_state": {
+    "q": 0.02,
+    "a": 0.89,
+    "mean_attn_entropy": 0.31,
+    "mean_bond_coherence": 0.87
+  }
+}
+```
+
+#### 12.7.5 Calibration Requirements
+
+For truthfulness weights to be meaningful, they must be **calibrated**:
+
+1. **Ground Truth Dataset**: Collect outputs with known factual accuracy
+2. **Correlation Analysis**: Measure correlation between T and actual accuracy
+3. **Weight Tuning**: Optimize w_debt, w_agency, etc. to maximize correlation
+4. **Threshold Selection**: Determine T thresholds for "reliable" vs "verify" vs "reject"
+
+**Calibration Procedure**:
+```
+For each (output, ground_truth_accuracy) pair:
+    1. Run DET-native inference, collect q, a, entropy, coherence
+    2. Compute T with current weights
+    3. Compare T to ground_truth_accuracy
+    4. Adjust weights via gradient descent on MSE(T, accuracy)
+
+Validation:
+    - T > 0.8 should correlate with >90% factual accuracy
+    - T < 0.3 should correlate with <50% factual accuracy
+    - ECE (Expected Calibration Error) should be minimized
+```
+
+#### 12.7.6 Use Cases for Truthfulness Weights
+
+| Use Case | How T Helps |
+|----------|-------------|
+| **User-facing display** | Show confidence indicator alongside responses |
+| **Automatic fact-checking** | Only verify claims where T < threshold |
+| **Agentic workflows** | Gate tool execution on T > safety threshold |
+| **Training signal** | Use T as auxiliary reward in RLHF |
+| **Ensemble selection** | Prefer outputs with higher T |
+| **Retrieval triggering** | Low T triggers automatic retrieval augmentation |
+| **Audit/compliance** | Log T for regulated domains (medical, legal, financial) |
+
+#### 12.7.7 Comparison to Existing Approaches
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Token probabilities** | Built-in, no extra compute | Poor calibration, doesn't reflect factuality |
+| **Verbalized confidence** | Easy to implement | Models confabulate confidence too |
+| **Ensemble disagreement** | Captures genuine uncertainty | N× compute cost |
+| **DET Truthfulness (T)** | Grounded in internal state, auditable | Requires DET-native architecture, calibration work |
+
+The DET approach is unique in deriving confidence from **architectural signals** (debt, attention, coherence) rather than post-hoc estimation or verbalization.
+
+### 12.8 Research Directions
 
 1. **DET-Aware Fine-Tuning**: Train models with F/q/a signals as auxiliary losses
 2. **Grounding-Debt Correlation**: Empirically measure relationship between q and factual accuracy
