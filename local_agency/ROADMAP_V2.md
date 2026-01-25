@@ -435,8 +435,8 @@ src/existence/
 - [x] NativeModelCreature - Model loading/forward/tokenize
 - [x] SamplerCreature - DET-aware token selection (THE SACRED INTEGRATION POINT)
 - [x] GeneratorCreature - High-level text generation
-- [ ] EmbeddingCreature.ex (optional - for per-layer control)
-- [ ] TransformerLayerCreature.ex (optional - for per-layer control)
+- [~] EmbeddingCreature.ex - DEFERRED (per-layer control, future work)
+- [~] TransformerLayerCreature.ex - DEFERRED (per-layer control, future work)
 
 **Files**:
 - `src/inference/{det_model.h, det_model.c, det_tokenizer.h, det_tokenizer.c}` (1,943 lines)
@@ -502,22 +502,30 @@ is the remaining substrate integration work.
 
 **Apply learnings from substrate_lattice Metal shaders**.
 
-#### 26.8 Integration (M6)
+#### 26.8 Integration (M6) ✅ INITIAL INTEGRATION COMPLETE
 **Goal**: Drop-in replacement for Ollama
 
-- [ ] LLMCreature.ex compatibility layer (unchanged interface)
-- [ ] Model switching support (load/unload)
+- [x] LLMCreature.ex compatibility layer (unchanged interface)
+- [x] Model switching support (LoadNativeModel, EnableNative kernels)
 - [ ] Streaming token output
-- [ ] Graceful fallback to Ollama if native fails
+- [x] Graceful fallback to Ollama if native fails (use_native flag)
 - [ ] Deprecate Ollama primitives (phase out `llm_call_v2` HTTP calls)
+
+**LLMCreature.ex Enhancements** (Phase 26):
+- `use_native` flag: Toggle between native GGUF and Ollama HTTP
+- `LoadNativeModel` kernel: One-time GGUF model loading
+- `EnableNative` kernel: Switch between modes
+- `NativeStatus` kernel: Report GPU and model status
+- Modified `Think` kernel with CALL_NATIVE and CALL_OLLAMA proposals
+- DET integration: Presence (P) gates native inference
 
 #### 26.9 Success Criteria
 
 **MVP**:
 - [ ] Load and run phi-2 (2.7B params) or qwen2-0.5B
 - [ ] Generate coherent text (same quality as Ollama)
-- [ ] Track F expenditure per generation
-- [ ] Integrate with existing LLMCreature.ex
+- [x] Track F expenditure per generation
+- [x] Integrate with existing LLMCreature.ex
 
 **Full Success**:
 - [ ] Support llama-architecture models up to 7B
