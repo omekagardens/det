@@ -92,6 +92,114 @@ Memory    Tool               Reasoner         Planner
 
 ---
 
+## Current Phase
+
+### Phase 20.5: Native DET Collider
+**Goal**: DET physics experimentation using native Existence-Lang, not Python wrappers
+
+The collider implements DET v6.3 physics as pure Existence-Lang creatures on a lattice substrate. This validates that the substrate's core physics (F, a, q, bonds, phases) can express the full DET theory.
+
+#### Design Philosophy
+
+The substrate already has the physics primitives:
+- **Nodes** are creatures with F (resource), a (agency), q (structure)
+- **Bonds** have C (coherence), and can carry momentum π
+- **Phases** (READ→PROPOSE→CHOOSE→COMMIT) map to physics timesteps
+- **GPU** accelerates parallel node/bond updates
+
+What we need to add:
+1. **Lattice topology** - Regular grid bond patterns (1D chain, 2D grid, 3D cubic)
+2. **FFT primitives** - For Helmholtz/Poisson gravity solvers (must be C/Metal)
+3. **Neighbor access** - Efficient access to adjacent nodes on lattice
+4. **Physics kernels** - Pure EL implementations of DET v6.3 operators
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    ColliderCreature.ex                       │
+│  Orchestrates physics: Init, Step, Query, Render            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ bonds to lattice
+┌──────────────────────────▼──────────────────────────────────┐
+│                    Lattice of Nodes                          │
+│  Each node: F, a, q, σ, P, Δτ                               │
+│  Each bond: C, π (momentum)                                  │
+│  Topology: 1D chain, 2D grid, or 3D cubic                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│                    Substrate + GPU                           │
+│  FFT solver, parallel phase execution, Metal shaders        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 20.5.1 Lattice Substrate Extensions
+- [ ] `lattice_create(dim, N)` - Create 1D/2D/3D periodic lattice
+- [ ] `lattice_get_neighbor(node, direction)` - Get adjacent node ref
+- [ ] `lattice_get_bond(node, direction)` - Get bond to neighbor
+- [ ] Automatic bond topology for regular grids
+- [ ] Lattice-aware GPU dispatch (coalesced memory access)
+
+#### 20.5.2 FFT Gravity Primitives
+- [ ] `fft_forward(field)` - Forward FFT on lattice field
+- [ ] `fft_inverse(field_k)` - Inverse FFT
+- [ ] `gravity_solve(q_field)` - Helmholtz + Poisson solver
+- [ ] Metal Performance Shaders integration for GPU FFT
+- [ ] Lattice correction factor η by dimension/size
+
+#### 20.5.3 Physics Operators in Existence-Lang
+
+**Presence Kernel** (physics.ex):
+```existence
+kernel ComputePresence {
+    // P = a·σ / (1 + F) / (1 + H)
+    // Δτ = P · dt
+    phase READ {
+        my_F ::= witness(self.F);
+        my_a ::= witness(self.a);
+        my_sigma ::= witness(self.sigma);
+    }
+    phase PROPOSE {
+        proposal UpdatePresence {
+            score = 1.0;
+            effect {
+                H = my_sigma;  // or coherence-weighted Option B
+                P = my_a * my_sigma / (1.0 + my_F) / (1.0 + H);
+                self.P = P;
+                self.Delta_tau = P * DT;
+            }
+        }
+    }
+    // ... CHOOSE, COMMIT
+}
+```
+
+**Flow Kernel** - Diffusive, momentum, floor, gravity flux
+**Momentum Kernel** - β_g gravity coupling, decay
+**Structure Kernel** - q accumulation from outflow
+**Agency Kernel** - v6.4 structural ceiling + relational drive
+**Grace Kernel** - Boundary injection for depleted nodes
+
+#### 20.5.4 ColliderCreature.ex
+- [ ] Init kernel: Create lattice, set parameters
+- [ ] AddPacket kernel: Inject Gaussian resource distribution
+- [ ] Step kernel: Execute one/N physics timesteps
+- [ ] Query kernel: Total mass, separation, potential energy
+- [ ] Render kernel: Generate ASCII field visualization
+
+#### 20.5.5 Visualization (Temporary Python)
+- [ ] ASCII art renderer for terminal (via terminal primitives)
+- [ ] Python matplotlib hook for development visualization
+- [ ] Future: Native DET visualization creature
+
+#### 20.5.6 Validation Tests
+- [ ] Vacuum stability (q=0 → no gravity)
+- [ ] Mass conservation (with grace accounting)
+- [ ] Gravitational binding (two-body inspiral)
+- [ ] Time dilation (P decreases with F)
+- [ ] Compare results with det_v6_3 Python colliders
+
+---
+
 ## Current Architecture
 
 ### Entry Point
@@ -137,14 +245,15 @@ src/existence/
 ├── planner.ex      # Task planning
 ├── calculator.ex   # Math evaluation
 ├── kernel.ex       # Core kernel library
-└── physics.ex      # DET physics layer
+├── physics.ex      # DET physics operators (presence, flow, agency)
+└── collider.ex     # Native DET collider (Phase 20.5)
 ```
 
 ---
 
 ## Next Phases
 
-### Phase 21: LLM Integration Enhancement
+### Phase 21: LLM Integration Enhancement (After 20.5)
 **Goal**: Better LLM coordination and multi-model support
 
 #### 21.1 LLM Creature Enhancement
@@ -243,11 +352,12 @@ src/existence/
 
 1. **DET First**: All behavior emerges from DET physics (F, a, P, bonds)
 2. **Existence-Lang Native**: All creature logic in EL, not Python
-3. **Substrate is Infrastructure**: Only primitives and execution in Python/C
+3. **Substrate is Infrastructure**: Only primitives and execution in Python/C/Metal
 4. **Bonds are Communication**: No direct method calls between creatures
 5. **Phases are Atomic**: READ→PROPOSE→CHOOSE→COMMIT is the execution unit
 6. **Resources are Real**: Every action costs F, tracked honestly
 7. **GPU When Needed**: Use Metal for large-scale parallel execution
+8. **No Wrapper Creatures**: Physics/colliders are native EL on substrate, not Python wraps
 
 ---
 
@@ -283,4 +393,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-24*
+*Last Updated: 2026-01-24* | *Phase 20.5 - Native DET Collider*
