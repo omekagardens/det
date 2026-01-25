@@ -1,67 +1,86 @@
 # DET Local Agency Documentation
 
+## Overview
+
+DET Local Agency is a DET-native operating system where all logic runs as **Existence-Lang creatures** executed via the EIS (Existence-Informed Substrate) virtual machine.
+
 ## Core Documentation
 
 | Document | Description |
 |----------|-------------|
-| [API.md](API.md) | Full API reference for DET Core and Python bindings |
-| [ARCHITECTURE_V2.md](ARCHITECTURE_V2.md) | System architecture with substrate v2 |
-| [USAGE.md](USAGE.md) | Usage guide for CLI, web interface, and API |
-| [SUBSTRATE_SPEC.md](SUBSTRATE_SPEC.md) | Substrate v2 specification |
-| [ROADMAP_V2.md](ROADMAP_V2.md) | Project roadmap and migration phases |
-| [SOMATIC_ARCHITECTURE.md](SOMATIC_ARCHITECTURE.md) | Somatic/embodiment design |
-| [NEXT_STEPS.md](NEXT_STEPS.md) | Future development directions |
+| [ARCHITECTURE_V2.md](ARCHITECTURE_V2.md) | System architecture with EIS VM and creature model |
+| [SUBSTRATE_SPEC.md](SUBSTRATE_SPEC.md) | Substrate v2 specification (phases, effects, opcodes) |
+| [ROADMAP_V2.md](ROADMAP_V2.md) | Project roadmap and completed phases |
 
-## Theoretical Foundation (Explorations)
+## Root-Level Documentation
 
-Research documents covering Deep Existence Theory:
+| Document | Description |
+|----------|-------------|
+| [GETTING_STARTED.md](../GETTING_STARTED.md) | Quick start guide |
+| [DEVELOPMENT_LOG.md](../DEVELOPMENT_LOG.md) | Development history |
+| [FEASIBILITY_PLAN.md](../FEASIBILITY_PLAN.md) | Original technical specification |
 
-| Document | Topic |
-|----------|-------|
-| [01_node_topology.md](explorations/01_node_topology.md) | Node and bond structure |
-| [02_dormant_agency_distribution.md](explorations/02_dormant_agency_distribution.md) | Dormant pool dynamics |
-| [03_self_as_cluster.md](explorations/03_self_as_cluster.md) | Self-identification |
-| [04_cluster_identification.md](explorations/04_cluster_identification.md) | Cluster algorithms |
-| [05_llm_det_interface.md](explorations/05_llm_det_interface.md) | LLM integration |
-| [06_cross_layer_dynamics.md](explorations/06_cross_layer_dynamics.md) | Layer interactions |
-| [07_temporal_dynamics.md](explorations/07_temporal_dynamics.md) | Time-based dynamics |
-| [08_emotional_feedback.md](explorations/08_emotional_feedback.md) | Affect mechanisms |
-| [09_det_os_feasibility.md](explorations/09_det_os_feasibility.md) | DET-OS design study |
-| [10_existence_lang_v1_1.md](explorations/10_existence_lang_v1_1.md) | Existence-Lang v1.1 specification |
-
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│         Existence-Lang (kernel.ex)          │
-│   Schedule, Allocate, Send, Gate, Grace     │
-└─────────────────────────────────────────────┘
-                    │ imports
-┌─────────────────────────────────────────────┐
-│         Existence-Lang (physics.ex)         │
-│   Transfer, Diffuse, Compare, GraceFlow     │
-└─────────────────────────────────────────────┘
-                    │
-                    ▼ bridges via
-┌─────────────────────────────────────────────┐
-│         Physics Bridge (Python)             │
-│   physics_bridge.py → PhysicsKernels        │
-└─────────────────────────────────────────────┘
-                    │
-                    ▼ executes on
-┌─────────────────────────────────────────────┐
-│         Substrate v2 (C)                    │
-│   Phase-based: READ→PROPOSE→CHOOSE→COMMIT   │
-│   Effects: XFER_F, DIFFUSE, SET_F, etc.     │
-└─────────────────────────────────────────────┘
-                    │
-                    ▼ future
-┌─────────────────────────────────────────────┐
-│         DET-Native Hardware                 │
-│   (Direct substrate execution on silicon)   │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                 User Terminal                    │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│           Existence-Lang Creatures               │
+│  terminal.ex, llm.ex, tool.ex, memory.ex, ...   │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│              EIS Interpreter                     │
+│    (READ → PROPOSE → CHOOSE → COMMIT)           │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│           Substrate Layer (C/Metal)              │
+│  Primitives, state management, GPU acceleration  │
+└─────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
 
-See the root [GETTING_STARTED.md](../GETTING_STARTED.md) for installation and setup instructions.
+```bash
+cd local_agency/src/python
+python det_os_boot.py        # Standard mode
+python det_os_boot.py --gpu  # GPU acceleration
+python det_os_boot.py -v     # Verbose output
+```
+
+## Key Concepts
+
+### Creatures
+Self-contained entities written in Existence-Lang (.ex files) that communicate via bonds. Each creature has:
+- **F** (Resource): Available computational budget
+- **a** (Agency): Autonomy level [0,1]
+- **Kernels**: Named entry points for execution
+
+### Bonds
+Communication channels between creatures. Messages flow through bonds, not direct method calls.
+
+### Phases
+Every tick executes four phases:
+1. **READ**: Load state from trace
+2. **PROPOSE**: Generate proposals with scores
+3. **CHOOSE**: Select best proposal
+4. **COMMIT**: Apply effects, emit witnesses
+
+### Primitives
+External I/O operations (LLM calls, file access, shell execution) with F cost tracking.
+
+## Historical Documentation
+
+Archived research and exploration documents are in `/archive/deprecated_docs/explorations/`:
+- Node topology and layer dynamics
+- Agency distribution models
+- DET-OS feasibility studies
+- Existence-Lang v1.1 specification
+
+---
+
+*Last Updated: 2026-01-24*
