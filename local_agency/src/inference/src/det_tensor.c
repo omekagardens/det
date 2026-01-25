@@ -1022,6 +1022,197 @@ DetTensor* det_workspace_get_scratch(DetTensorWorkspace* ws, int idx,
 }
 
 /* ==========================================================================
+ * QUANTIZATION
+ * ========================================================================== */
+
+/* Q8_0 block structure: 1 float scale + 32 int8 values */
+#define Q8_0_BLOCK_SIZE 32
+
+/* Q4_0 block structure: 1 float16 scale + 16 bytes (32 4-bit values) */
+#define Q4_0_BLOCK_SIZE 32
+
+int det_dequantize(DetTensor* dst, const DetTensor* src) {
+    if (!dst || !src) return DET_TENSOR_ERR_INVALID;
+    if (dst->dtype != DET_DTYPE_F32) return DET_TENSOR_ERR_DTYPE;
+
+    size_t n = det_tensor_numel(src);
+    float* out = (float*)dst->data;
+
+    switch (src->dtype) {
+        case DET_DTYPE_F32:
+            /* Already float, just copy */
+            memcpy(out, src->data, n * sizeof(float));
+            break;
+
+        case DET_DTYPE_F16: {
+            /* Convert half to float */
+            const uint16_t* in = (const uint16_t*)src->data;
+            for (size_t i = 0; i < n; i++) {
+                /* IEEE 754 half to float conversion */
+                uint32_t h = in[i];
+                uint32_t sign = (h & 0x8000) << 16;
+                uint32_t exp = (h >> 10) & 0x1F;
+                uint32_t mant = h & 0x3FF;
+
+                if (exp == 0) {
+                    /* Denormal or zero */
+                    if (mant == 0) {
+                        out[i] = 0.0f;
+                    } else {
+                        /* Denormal */
+                        float f = (float)mant / 1024.0f;
+                        f *= powf(2.0f, -14.0f);
+                        out[i] = sign ? -f : f;
+                    }
+                } else if (exp == 31) {
+                    /* Inf or NaN */
+                    uint32_t f = sign | 0x7F800000 | (mant << 13);
+                    memcpy(&out[i], &f, 4);
+                } else {
+                    /* Normal */
+                    uint32_t f = sign | ((exp + 112) << 23) | (mant << 13);
+                    memcpy(&out[i], &f, 4);
+                }
+            }
+            break;
+        }
+
+        case DET_DTYPE_BF16: {
+            /* bfloat16: just shift left by 16 to get float32 */
+            const uint16_t* in = (const uint16_t*)src->data;
+            for (size_t i = 0; i < n; i++) {
+                uint32_t f = (uint32_t)in[i] << 16;
+                memcpy(&out[i], &f, 4);
+            }
+            break;
+        }
+
+        case DET_DTYPE_Q8_0: {
+            /* Q8_0: blocks of 32 int8 values with float scale */
+            const uint8_t* in = (const uint8_t*)src->data;
+            size_t num_blocks = (n + Q8_0_BLOCK_SIZE - 1) / Q8_0_BLOCK_SIZE;
+
+            for (size_t b = 0; b < num_blocks; b++) {
+                /* Read scale (4 bytes) */
+                float scale;
+                memcpy(&scale, in + b * (4 + Q8_0_BLOCK_SIZE), 4);
+
+                /* Dequantize block */
+                const int8_t* q = (const int8_t*)(in + b * (4 + Q8_0_BLOCK_SIZE) + 4);
+                size_t base = b * Q8_0_BLOCK_SIZE;
+                size_t count = (base + Q8_0_BLOCK_SIZE > n) ? (n - base) : Q8_0_BLOCK_SIZE;
+
+                for (size_t i = 0; i < count; i++) {
+                    out[base + i] = q[i] * scale;
+                }
+            }
+            break;
+        }
+
+        case DET_DTYPE_Q4_0:
+        case DET_DTYPE_Q4_K_M: {
+            /* Q4_0: blocks of 32 4-bit values with float16 scale */
+            const uint8_t* in = (const uint8_t*)src->data;
+            size_t num_blocks = (n + Q4_0_BLOCK_SIZE - 1) / Q4_0_BLOCK_SIZE;
+
+            for (size_t b = 0; b < num_blocks; b++) {
+                /* Read scale (2 bytes as float16) */
+                uint16_t scale_h;
+                memcpy(&scale_h, in + b * (2 + Q4_0_BLOCK_SIZE / 2), 2);
+
+                /* Convert half to float */
+                float scale;
+                {
+                    uint32_t h = scale_h;
+                    uint32_t sign = (h & 0x8000) << 16;
+                    uint32_t exp = (h >> 10) & 0x1F;
+                    uint32_t mant = h & 0x3FF;
+                    if (exp == 0) {
+                        scale = 0.0f;
+                    } else {
+                        uint32_t f = sign | ((exp + 112) << 23) | (mant << 13);
+                        memcpy(&scale, &f, 4);
+                    }
+                }
+
+                /* Dequantize block (2 values per byte) */
+                const uint8_t* q = in + b * (2 + Q4_0_BLOCK_SIZE / 2) + 2;
+                size_t base = b * Q4_0_BLOCK_SIZE;
+                size_t count = (base + Q4_0_BLOCK_SIZE > n) ? (n - base) : Q4_0_BLOCK_SIZE;
+
+                for (size_t i = 0; i < count; i += 2) {
+                    uint8_t byte = q[i / 2];
+                    /* Low nibble, then high nibble */
+                    int8_t v0 = (byte & 0x0F) - 8;
+                    int8_t v1 = ((byte >> 4) & 0x0F) - 8;
+
+                    if (i < count) out[base + i] = v0 * scale;
+                    if (i + 1 < count) out[base + i + 1] = v1 * scale;
+                }
+            }
+            break;
+        }
+
+        default:
+            return DET_TENSOR_ERR_DTYPE;
+    }
+
+    return DET_TENSOR_OK;
+}
+
+int det_quantize(DetTensor* dst, const DetTensor* src, DetDType target_dtype) {
+    if (!dst || !src) return DET_TENSOR_ERR_INVALID;
+    if (src->dtype != DET_DTYPE_F32) return DET_TENSOR_ERR_DTYPE;
+
+    /* For now, only support F32 -> Q8_0 quantization */
+    if (target_dtype != DET_DTYPE_Q8_0) {
+        return DET_TENSOR_ERR_DTYPE;
+    }
+
+    size_t n = det_tensor_numel(src);
+    const float* in = (const float*)src->data;
+    uint8_t* out = (uint8_t*)dst->data;
+
+    size_t num_blocks = (n + Q8_0_BLOCK_SIZE - 1) / Q8_0_BLOCK_SIZE;
+
+    for (size_t b = 0; b < num_blocks; b++) {
+        size_t base = b * Q8_0_BLOCK_SIZE;
+        size_t count = (base + Q8_0_BLOCK_SIZE > n) ? (n - base) : Q8_0_BLOCK_SIZE;
+
+        /* Find max absolute value in block */
+        float amax = 0.0f;
+        for (size_t i = 0; i < count; i++) {
+            float abs_val = fabsf(in[base + i]);
+            if (abs_val > amax) amax = abs_val;
+        }
+
+        /* Compute scale */
+        float scale = amax / 127.0f;
+        float inv_scale = (scale > 0.0f) ? (1.0f / scale) : 0.0f;
+
+        /* Write scale */
+        memcpy(out + b * (4 + Q8_0_BLOCK_SIZE), &scale, 4);
+
+        /* Quantize block */
+        int8_t* q = (int8_t*)(out + b * (4 + Q8_0_BLOCK_SIZE) + 4);
+        for (size_t i = 0; i < count; i++) {
+            float v = in[base + i] * inv_scale;
+            int32_t vi = (int32_t)roundf(v);
+            if (vi > 127) vi = 127;
+            if (vi < -128) vi = -128;
+            q[i] = (int8_t)vi;
+        }
+
+        /* Zero-fill remainder of block */
+        for (size_t i = count; i < Q8_0_BLOCK_SIZE; i++) {
+            q[i] = 0;
+        }
+    }
+
+    return DET_TENSOR_OK;
+}
+
+/* ==========================================================================
  * GLOBAL CONFIGURATION
  * ========================================================================== */
 

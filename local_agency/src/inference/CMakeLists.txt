@@ -24,10 +24,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(INFERENCE_SOURCES
     src/det_tensor.c
+    src/det_gguf.c
 )
 
 set(INFERENCE_HEADERS
     include/det_tensor.h
+    include/det_gguf.h
 )
 
 # =============================================================================
@@ -98,8 +100,12 @@ if(DET_INFERENCE_BUILD_TESTS)
     add_executable(test_tensor tests/test_tensor.c)
     target_link_libraries(test_tensor det_inference_static ${PLATFORM_LIBS} m)
     target_include_directories(test_tensor PRIVATE include)
-
     add_test(NAME tensor_tests COMMAND test_tensor)
+
+    add_executable(test_gguf tests/test_gguf.c)
+    target_link_libraries(test_gguf det_inference_static ${PLATFORM_LIBS} m)
+    target_include_directories(test_gguf PRIVATE include)
+    add_test(NAME gguf_tests COMMAND test_gguf)
 endif()
 
 # =============================================================================
