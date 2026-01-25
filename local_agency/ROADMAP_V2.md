@@ -31,7 +31,7 @@ Memory    Tool               Reasoner         Planner
 │           Substrate Layer (C/Metal)              │
 │  - Primitives (llm_call, exec, file_*, etc.)    │
 │  - State management (F, a, q, bonds)            │
-│  - Scheduling (presence-based)                   │
+│  - GPU acceleration (Metal compute shaders)      │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -48,241 +48,194 @@ Memory    Tool               Reasoner         Planner
 - DET-OS bootstrap and runtime
 - Creature loading system (JIT + bytecode)
 
-### Phase 14: GPU Backend (Planned) ⏸️
+### Phase 14: GPU Backend ✅
 - Metal compute shaders for parallel execution
-- Deferred until interpreter is complete
-
----
-
-## Current Work: Full EIS Execution
+- 1,000+ ticks/sec with 10,000 nodes
+- Python/C/Metal integration complete
+- GPU commands in det_os_boot REPL
 
 ### Phase 15: EIS Interpreter ✅
-**Status**: Complete
+- Python interpreter executes EIS bytecode
+- Full phase semantics (READ→PROPOSE→CHOOSE→COMMIT)
+- 46 opcodes implemented
+- Register file with scalar/ref/token registers
 
-Built Python interpreter that executes EIS bytecode with full phase semantics.
-
-#### 15.1 Instruction Decoder ✅
-- [x] Decode 4-byte EIS instructions
-- [x] Extract opcode, operands, flags
-- [x] Handle opcodes (LDI, ADD, SUB, MUL, DIV, CMP, PROP_*, etc.)
-
-#### 15.2 Register File ✅
-- [x] R0-R63: Scalar registers (float)
-- [x] H0-H31: Reference registers (node/bond IDs)
-- [x] T0-T31: Token registers (witness tokens)
-- [x] Lane-based register isolation
-
-#### 15.3 Phase Execution Engine ✅
-- [x] READ phase: Load state, create witnesses
-- [x] PROPOSE phase: Generate proposals with scores
-- [x] CHOOSE phase: Deterministic selection
-- [x] COMMIT phase: Apply effects, emit witnesses
-
-#### 15.4 Memory Model ✅
-- [x] Node state access (F, a, q, σ, P, τ)
-- [x] Bond state access (C, flux, node_i, node_j)
-- [x] TraceStore for state management
-
-**Files**:
-- `src/python/det/eis/vm.py` - Main VM (557 lines)
-- `src/python/det/eis/registers.py` - Register file
-- `src/python/det/eis/encoding.py` - Instruction decoder
-- `src/python/det/eis/phases.py` - Phase execution
-- `src/python/det/eis/memory.py` - Memory model
-
----
-
-### Phase 16: Kernel Runtime 🔄
-**Status**: In Progress
-
-Integrate interpreter with creature/kernel dispatch.
-
-#### 16.1 Message Dispatcher ✅
-- [x] Parse bond messages
-- [x] Match to kernel by name/type
-- [x] Invoke kernel with inputs
-
-#### 16.2 Kernel Execution ✅
-- [x] Execute kernel bytecode
-- [x] Track F cost
-- [x] Send response via bond
-
-#### 16.3 Proposal Mechanics
-- [ ] Collect proposals from PROPOSE phase
-- [ ] Score aggregation
-- [ ] Deterministic choice (seeded RNG)
-- [ ] Effect application
-
-#### 16.4 Creature Runner ✅
-- [x] Spawn creatures from compiled code
-- [x] Manage creature state (F, a, q)
-- [x] Bond creation and messaging
-- [x] Kernel invocation via bonds
-
-**Files**:
-- `src/python/det/eis/creature_runner.py` - Creature execution layer (NEW)
-
----
+### Phase 16: Kernel Runtime ✅
+- Message dispatcher
+- Kernel execution with F cost tracking
+- CreatureRunner for creature lifecycle
+- Bond-based messaging
 
 ### Phase 17: Substrate Primitives ✅
-**Status**: Complete
-
-Define and implement external I/O primitives callable from Existence-Lang.
-
-#### 17.1 Primitive Interface ✅
-- [x] Define `primitive` keyword in EL
-- [x] `primitive("name", arg1, arg2, ...)` syntax
-- [x] Compiler emits V2_PRIM instruction
-- [x] VM dispatches to primitive registry
-
-#### 17.2 Core Primitives ✅
-17 primitives implemented:
-- [x] `llm_call`, `llm_chat` - LLM interaction
-- [x] `exec`, `exec_safe` - Shell execution
-- [x] `file_read`, `file_write`, `file_exists`, `file_list` - File I/O
-- [x] `now`, `now_iso`, `sleep` - Time operations
-- [x] `random`, `random_int`, `random_seed` - Randomness
-- [x] `print`, `log` - Debug output
-- [x] `hash_sha256` - Cryptography
-
-#### 17.3 Primitive Registry ✅
-- [x] Python primitive implementations
-- [x] Primitive cost model (base + per-unit F consumption)
-- [x] Agency checking (min_agency per primitive)
-- [x] Call history tracking
-
-**Files**:
-- `src/python/det/eis/primitives.py` - Full implementation (~550 lines)
-- `src/python/det/lang/tokens.py` - PRIMITIVE token
-- `src/python/det/lang/ast_nodes.py` - PrimitiveCallExpr
-- `src/python/det/lang/parser.py` - Parse primitive calls
-- `src/python/det/lang/eis_compiler.py` - Compile V2_PRIM
-- `src/python/det/eis/encoding.py` - V2_PRIM opcode (0x84)
-- `src/python/det/eis/vm.py` - Execute primitives
-
----
+- 22+ primitives implemented
+- LLM, file I/O, shell execution, time, random, terminal
+- Primitive registry with cost model
+- Agency-gated execution
 
 ### Phase 18: Pure EL Creatures ✅
-**Status**: Complete
-
-Rewrite all creatures in pure Existence-Lang using primitives.
-
-#### 18.1 LLMCreature.ex ✅
-- [x] Think kernel using `primitive("llm_call", prompt)`
-- [x] Chat kernel for multi-turn conversations
-- [x] Temperature modulation by agency
-- [x] Token cost accounting in F
-
-#### 18.2 ToolCreature.ex ✅
-- [x] ExecSafe kernel using `primitive("exec_safe", command)`
-- [x] Exec kernel for full execution (agency-gated)
-- [x] FileRead/FileWrite kernels
-- [x] Agency-gated execution levels
-
-#### 18.3 MemoryCreature.ex ✅
-- [x] Store kernel with importance-weighted cost
-- [x] Recall kernel with matching
-- [x] Prune kernel for memory management
-- [x] Uses `primitive("now")` for timestamps
-
-#### 18.4 ReasonerCreature.ex ✅
-- [x] Reason kernel with chain-of-thought
-- [x] Optional LLM assistance based on agency
-- [x] Analyze kernel for statement analysis
-
-#### 18.5 PlannerCreature.ex ✅
-- [x] Plan kernel for task planning
-- [x] Decompose kernel for subtask generation
-- [x] Estimate kernel for resource estimation
-
-**Files**:
-- `src/existence/llm.ex` - 150 lines, 3 kernels
-- `src/existence/tool.ex` - 250 lines, 5 kernels
-- `src/existence/memory.ex` - 250 lines, 4 kernels
-- `src/existence/reasoner.ex` - 180 lines, 3 kernels
-- `src/existence/planner.ex` - 250 lines, 5 kernels
-
----
+- LLMCreature.ex, ToolCreature.ex, MemoryCreature.ex
+- ReasonerCreature.ex, PlannerCreature.ex
+- CalculatorCreature.ex (math expression evaluator)
+- All creature logic in Existence-Lang
 
 ### Phase 19: Terminal Creature ✅
-**Status**: Complete
+- TerminalCreature.ex with 9 kernels
+- Terminal primitives (read, write, prompt, color)
+- Minimal Python bootstrap (det_os_boot.py)
+- Bond-based command dispatch
 
-The CLI itself becomes an Existence-Lang creature.
-
-#### 19.1 Terminal Primitives ✅
-- [x] `terminal_read()` - Read line of user input
-- [x] `terminal_write(msg)` - Write output (no newline)
-- [x] `terminal_prompt(prompt)` - Prompt with prefix
-- [x] `terminal_clear()` - Clear terminal screen
-- [x] `terminal_color(color)` - Set text color
-
-#### 19.2 TerminalCreature.ex ✅
-- [x] Main creature with 9 kernels
-- [x] Init, ReadInput, WriteOutput kernels
-- [x] Dispatch kernel for command routing
-- [x] Help, Status, Quit kernels
-- [x] BondLLM, BondTool kernels for creature connectivity
-
-#### 19.3 Bootstrap ✅
-- [x] Minimal Python bootstrap loader (`det_os_boot.py`)
-- [x] Load TerminalCreature from bytecode
-- [x] REPL loop structure
-
-#### 19.4 Full Integration ✅
-- [x] Proper input/output port mapping (compiler records port info)
-- [x] Bond-based command dispatch to LLM/Tool creatures
-- [ ] Command history and editing (optional enhancement)
-
-**Files**:
-- `src/existence/terminal.ex` - 450 lines, 9 kernels
-- `src/python/det_os_boot.py` - 220 lines
-- `src/python/det/eis/primitives.py` - 5 terminal primitives
+### Phase 20: Full Integration ✅
+- **20.1** Python wrapper deprecation (archived to /archive)
+- **20.2** Performance optimization (25% faster parser, 6.8x faster load)
+- **20.3** GPU integration in det_os_boot.py
+- **20.4** Project cleanup (removed 300KB deprecated code)
 
 ---
 
-### Phase 20: Full Integration 🔄
-**Status**: In Progress
+## Current Architecture
 
-Complete the DET-native operating system.
+### Entry Point
+```bash
+python det_os_boot.py [--gpu] [-v]
+```
 
-#### 20.1 Deprecate Python Wrappers ✅
-- [x] Mark Python creature implementations as deprecated
-- [x] Update CreatureLoader to prefer .ex files
-- [x] Add deprecation warnings for built-in usage
-- [x] Add force_builtin flag for backward compatibility
-- [x] All creature logic now in Existence-Lang
+### Core Modules
+```
+det/
+├── lang/           # Existence-Lang compiler
+│   ├── parser.py          # Recursive descent parser
+│   ├── tokens.py          # Lexer/tokenizer
+│   ├── ast_nodes.py       # AST definitions
+│   ├── eis_compiler.py    # AST → EIS bytecode
+│   ├── bytecode_cache.py  # .exb caching
+│   └── excompile.py       # CLI compiler
+│
+├── eis/            # EIS Virtual Machine
+│   ├── vm.py              # Interpreter
+│   ├── creature_runner.py # Creature execution
+│   ├── primitives.py      # Primitive registry
+│   ├── registers.py       # Register file
+│   ├── phases.py          # Phase controller
+│   ├── memory.py          # Trace store
+│   └── encoding.py        # Opcode definitions
+│
+├── os/             # DET-OS Kernel
+│   ├── kernel.py          # Core kernel
+│   └── creatures/         # Built-in creatures
+│
+└── metal.py        # Metal GPU backend
+```
 
-#### 20.2 Performance Optimization
-- [ ] Profile interpreter
-- [ ] Hot path optimization
-- [ ] Consider Cython/C interpreter
-
-#### 20.3 GPU Acceleration (Phase 14 Revival)
-- [ ] Metal compute shaders for interpreter
-- [ ] Parallel creature execution
-- [ ] Batch kernel dispatch
-
-**Files Modified**:
-- `det/os/creatures/loader.py` - Updated to prefer EL creatures
+### Existence-Lang Creatures
+```
+src/existence/
+├── terminal.ex     # REPL interface
+├── llm.ex          # LLM reasoning
+├── tool.ex         # Shell execution
+├── memory.ex       # Memory storage
+├── reasoner.ex     # Chain-of-thought
+├── planner.ex      # Task planning
+├── calculator.ex   # Math evaluation
+├── kernel.ex       # Core kernel library
+└── physics.ex      # DET physics layer
+```
 
 ---
 
-## Future Phases
+## Next Phases
 
-### Phase 21: Networking
-- Bond channels over network
-- Distributed creature execution
-- Consensus for shared state
+### Phase 21: LLM Integration Enhancement
+**Goal**: Better LLM coordination and multi-model support
 
-### Phase 22: Persistence
-- Creature state serialization
-- Checkpoint/restore
-- Memory-mapped substrate
+#### 21.1 LLM Creature Enhancement
+- [ ] Multi-model support in LLMCreature.ex
+- [ ] Temperature modulation by agency/arousal
+- [ ] Token budget management per-creature
+- [ ] Streaming response support
 
-### Phase 23: Security
-- Capability-based access control
-- Resource quotas
-- Sandboxed primitives
+#### 21.2 Conversation Management
+- [ ] ConversationCreature.ex for multi-turn context
+- [ ] Memory-backed context window
+- [ ] Automatic context summarization when budget exceeded
+
+#### 21.3 Model Routing
+- [ ] Domain-aware model selection (code→coder, math→math-model)
+- [ ] Fallback chains when primary model unavailable
+- [ ] Cost tracking per model
+
+### Phase 22: System Integration
+**Goal**: Full system access and tool execution
+
+#### 22.1 Enhanced Tool Creature
+- [ ] Multi-step command execution
+- [ ] Working directory management
+- [ ] Environment variable handling
+- [ ] Async command execution
+
+#### 22.2 File System Creature
+- [ ] FileCreature.ex for file operations
+- [ ] Watch/monitor file changes
+- [ ] Project structure understanding
+
+#### 22.3 Git Integration
+- [ ] GitCreature.ex for version control
+- [ ] Commit, branch, diff operations
+- [ ] Conflict resolution assistance
+
+### Phase 23: Networking
+**Goal**: Distributed creature execution
+
+#### 23.1 Network Primitives
+- [ ] `net_connect(host, port)` - Establish connection
+- [ ] `net_send(channel, data)` - Send message
+- [ ] `net_receive(channel)` - Receive message
+- [ ] `net_discover()` - Find peers
+
+#### 23.2 Remote Bonds
+- [ ] Bond channels over TCP/WebSocket
+- [ ] Serialization of bond messages
+- [ ] Reconnection handling
+
+#### 23.3 Distributed Execution
+- [ ] Remote creature spawning
+- [ ] Load balancing across nodes
+- [ ] Consensus for shared state
+
+### Phase 24: Persistence
+**Goal**: State persistence and recovery
+
+#### 24.1 Creature Serialization
+- [ ] Save creature state (F, a, q, registers)
+- [ ] Save bond topology
+- [ ] Save message queues
+
+#### 24.2 Checkpoint/Restore
+- [ ] Periodic checkpoints
+- [ ] Crash recovery
+- [ ] State rollback
+
+#### 24.3 Memory-Mapped Substrate
+- [ ] mmap for node/bond arrays
+- [ ] Shared memory between processes
+- [ ] Persistent trace store
+
+### Phase 25: Security
+**Goal**: Capability-based access control
+
+#### 25.1 Resource Quotas
+- [ ] F budget per creature
+- [ ] Primitive call limits
+- [ ] Memory limits
+
+#### 25.2 Capability System
+- [ ] Capabilities granted via bonds
+- [ ] Capability delegation
+- [ ] Revocation
+
+#### 25.3 Sandboxed Primitives
+- [ ] File access restrictions
+- [ ] Network restrictions
+- [ ] Process isolation
 
 ---
 
@@ -294,6 +247,39 @@ Complete the DET-native operating system.
 4. **Bonds are Communication**: No direct method calls between creatures
 5. **Phases are Atomic**: READ→PROPOSE→CHOOSE→COMMIT is the execution unit
 6. **Resources are Real**: Every action costs F, tracked honestly
+7. **GPU When Needed**: Use Metal for large-scale parallel execution
+
+---
+
+## Quick Start
+
+```bash
+# Navigate to project
+cd local_agency/src/python
+
+# Run DET-OS
+python det_os_boot.py
+
+# Run with GPU acceleration
+python det_os_boot.py --gpu
+
+# Run with verbose output
+python det_os_boot.py -v
+```
+
+### REPL Commands
+```
+help              Show commands
+status            Show creature status
+list              List available creatures
+load <name>       Load a creature
+use <name>        Load and bond creature
+bond <a> <b>      Bond two creatures
+calc <expr>       Calculator shortcut
+gpu               Show GPU status
+gpu benchmark     Run GPU benchmark
+quit              Exit
+```
 
 ---
 
