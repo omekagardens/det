@@ -8,6 +8,7 @@
  */
 
 #include "../include/substrate_metal.h"
+#include "../include/substrate_lattice.h"
 
 #if !defined(__APPLE__)
 
@@ -119,6 +120,33 @@ void sub_metal_get_stats(SubstrateMetalHandle ctx, uint64_t* out_ticks, uint64_t
 const char* sub_metal_get_error(SubstrateMetalHandle ctx) {
     (void)ctx;
     return "Metal is only available on macOS/iOS";
+}
+
+/* Lattice physics stubs (Fix: add missing stubs for lattice API) */
+int sub_metal_upload_lattice_config(SubstrateMetalHandle ctx, const LatticeConfig* config,
+                                     const LatticePhysicsParams* physics) {
+    (void)ctx; (void)config; (void)physics;
+    return SUB_METAL_ERR_NO_DEVICE;
+}
+
+int sub_metal_lattice_step(SubstrateMetalHandle ctx, Lattice* L) {
+    (void)ctx; (void)L;
+    return SUB_METAL_ERR_NO_DEVICE;
+}
+
+int sub_metal_lattice_step_n(SubstrateMetalHandle ctx, Lattice* L, uint32_t num_steps) {
+    (void)ctx; (void)L; (void)num_steps;
+    return SUB_METAL_ERR_NO_DEVICE;
+}
+
+int sub_metal_lattice_solve_gravity(SubstrateMetalHandle ctx, Lattice* L, uint32_t iterations) {
+    (void)ctx; (void)L; (void)iterations;
+    return SUB_METAL_ERR_NO_DEVICE;
+}
+
+int sub_metal_lattice_get_stats(SubstrateMetalHandle ctx, const Lattice* L, LatticeStats* stats) {
+    (void)ctx; (void)L; (void)stats;
+    return SUB_METAL_ERR_NO_DEVICE;
 }
 
 #endif /* !__APPLE__ */

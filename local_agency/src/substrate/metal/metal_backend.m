@@ -10,6 +10,7 @@
 
 #include "../include/substrate_metal.h"
 #include "../include/substrate_types.h"
+#include "../include/substrate_lattice.h"
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
@@ -852,4 +853,74 @@ const char* sub_metal_get_error(SubstrateMetalHandle ctx) {
     SubstrateMetal* impl = GetImpl(ctx);
     if (!impl.lastError) return "";
     return [impl.lastError UTF8String];
+}
+
+/* ==========================================================================
+ * LATTICE PHYSICS API (GPU-accelerated DET v6.3)
+ * ========================================================================== */
+
+int sub_metal_upload_lattice_config(SubstrateMetalHandle ctx, const LatticeConfig* config,
+                                     const LatticePhysicsParams* physics) {
+    if (!ctx || !ctx->impl || !config || !physics) return SUB_METAL_ERR_INVALID;
+
+    /* TODO: Upload lattice configuration to GPU constant buffer */
+    /* For now, return success - CPU lattice_step can be used */
+    (void)GetImpl(ctx);
+    return SUB_METAL_OK;
+}
+
+int sub_metal_lattice_step(SubstrateMetalHandle ctx, Lattice* L) {
+    if (!ctx || !ctx->impl || !L) return SUB_METAL_ERR_INVALID;
+
+    /* TODO: Implement GPU-accelerated lattice physics kernels:
+     * 1. Upload node/bond state to GPU
+     * 2. Run gravity solver kernel (parallel Jacobi)
+     * 3. Run presence/Delta_tau kernel
+     * 4. Run per-bond flux kernel (Fix A3: antisymmetric)
+     * 5. Run limiter kernel (donor + receiver limits)
+     * 6. Run F update kernel
+     * 7. Run q/C/pi update kernels
+     * 8. Run agency update kernel
+     * 9. Run grace injection kernel
+     * 10. Download updated state
+     *
+     * For now, fall back to CPU implementation
+     */
+    lattice_step(L);
+    return SUB_METAL_OK;
+}
+
+int sub_metal_lattice_step_n(SubstrateMetalHandle ctx, Lattice* L, uint32_t num_steps) {
+    if (!ctx || !ctx->impl || !L) return SUB_METAL_ERR_INVALID;
+
+    /* TODO: Batch GPU execution for better performance */
+    for (uint32_t i = 0; i < num_steps; i++) {
+        int result = sub_metal_lattice_step(ctx, L);
+        if (result != SUB_METAL_OK) return result;
+    }
+    return SUB_METAL_OK;
+}
+
+int sub_metal_lattice_solve_gravity(SubstrateMetalHandle ctx, Lattice* L, uint32_t iterations) {
+    if (!ctx || !ctx->impl || !L) return SUB_METAL_ERR_INVALID;
+
+    /* TODO: GPU-accelerated parallel Jacobi iteration
+     * This is where Metal shines - Jacobi iterations are perfectly parallel
+     * Each thread handles one node, reading from neighbor phi values
+     *
+     * For now, use CPU implementation
+     */
+    (void)iterations;
+    lattice_solve_gravity(L);
+    return SUB_METAL_OK;
+}
+
+int sub_metal_lattice_get_stats(SubstrateMetalHandle ctx, const Lattice* L, LatticeStats* stats) {
+    if (!ctx || !ctx->impl || !L || !stats) return SUB_METAL_ERR_INVALID;
+
+    /* TODO: GPU parallel reduction for statistics
+     * For now, use CPU implementation
+     */
+    lattice_get_stats(L, stats);
+    return SUB_METAL_OK;
 }

@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 21 Complete (LLM Integration Enhancement)
+**Current Phase**: Phase 21.2 Complete (Conversation Management)
 
 ---
 
@@ -1853,17 +1853,192 @@ select_model(intent):
 
 ---
 
+## Phase 21.2: Conversation Management ✅
+
+**Goal**: Implement ConversationCreature.ex as the main interface between users and DET - translating DET state, managing context, integrating memory/reasoner/planner, and providing DET command help.
+
+### Files Created
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/existence/conversation.ex` | ~615 | ConversationCreature with 10 kernels |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/python/det/llm.py` | Added 9 new primitives for conversation support |
+
+### ConversationCreature Architecture
+
+```
+User Input
+    ↓
+ConversationCreature
+    ├── Chat kernel (DET-gated conversation)
+    ├── ExplainDET kernel (state translation)
+    ├── Help kernel (command guidance)
+    ├── Reason kernel → ReasonerCreature bond
+    ├── Plan kernel → PlannerCreature bond
+    ├── StoreMemory kernel → MemoryCreature bond
+    ├── RecallMemory kernel → MemoryCreature bond
+    ├── Summarize kernel (context compression)
+    ├── Clear kernel (context reset)
+    └── Status kernel (stats reporting)
+```
+
+### DET State Variables
+
+```existence
+var F: Register := 100.0;           // Resource for actions
+var a: float := 0.75;               // Agency (decisiveness)
+var q: float := 0.0;                // Structural debt
+var arousal: float := 0.5;          // Emotional arousal
+var bondedness: float := 0.6;       // Bond strength
+
+// Context window management
+var max_context_tokens: int := 4096;
+var current_context_tokens: int := 0;
+var summarize_threshold: float := 0.8;  // Trigger at 80%
+var summary_target_ratio: float := 0.3; // Compress to 30%
+```
+
+### Temperature Modulation
+
+Temperature is modulated by DET affect state:
+```
+effective_temp = 0.7 (base)
+    + (agency - 0.5) * 0.2      // Higher agency = more exploration
+    + (arousal - 0.5) * 0.15    // Higher arousal = more variability
+    - (bondedness - 0.5) * 0.1  // Higher bondedness = more consistency
+```
+
+### New Primitives (llm.py)
+
+| Primitive | Purpose |
+|-----------|---------|
+| `get_system_prompt(id)` | Load DET-aware conversation system prompt |
+| `concat(str1, str2, ...)` | String concatenation |
+| `hash(content)` | Hash content for memory keys |
+| `explain_det_state(name, F, a, q)` | Translate DET state to human language |
+| `llm_reason(question, depth)` | Chain-of-thought reasoning |
+| `llm_plan(task, max_steps)` | Multi-step planning |
+| `llm_summarize(content)` | Context summarization |
+| `memory_store(hash, type, importance)` | Store to memory |
+| `memory_recall(hash, limit)` | Recall from memory |
+
+### DET Command Knowledge
+
+The system prompt includes full DET REPL command reference:
+- `status`, `step`, `inject`, `warmup`, `affect`, `emotion`
+- `nodes`, `bonds`, `params`, `set`, `reset`
+- `save`, `load`, `chat`, `clear`, `help`
+
+### DET State Explanation
+
+The `explain_det_state` primitive translates physics to human language:
+```
+F > 80:  "has abundant resources"
+F 50-80: "has moderate resources"
+F 20-50: "has limited resources"
+F < 20:  "is low on resources - may need rest"
+
+a > 0.8: "operating with high decisiveness"
+a 0.5-0.8: "operating at moderate agency"
+a 0.3-0.5: "deliberating carefully"
+a < 0.3: "in cautious mode - weighing options carefully"
+
+q > 0.5: "high structural stress - may benefit from lighter tasks"
+q 0.2-0.5: "moderate stress level"
+q < 0.2: "low stress - operating smoothly"
+```
+
+### Kernel Summary
+
+| Kernel | Cost | Min Agency | Purpose |
+|--------|------|------------|---------|
+| Chat | 1.0 | 0.0 | Main conversation with context |
+| ExplainDET | 0.5 | 0.0 | Translate DET state |
+| Help | 0.5 | 0.0 | DET command help |
+| Reason | 1.5+ | 0.4 | Chain-of-thought reasoning |
+| Plan | 2.0+ | 0.5 | Multi-step planning |
+| StoreMemory | 0.1+ | 0.0 | Store important context |
+| RecallMemory | 0.05 | 0.0 | Recall relevant memories |
+| Summarize | 2.0 | 0.0 | Compress context window |
+| Clear | 0.0 | 0.0 | Reset conversation |
+| Status | 0.0 | 0.0 | Report statistics |
+
+### Phase 21.2 Summary
+- **ConversationCreature**: Main interface between users and DET system
+- **DET as Gatekeeper**: All actions checked against F and agency
+- **Memory Integration**: StoreMemory/RecallMemory via MemoryCreature bond
+- **Reasoning Integration**: Reason/Plan kernels for complex tasks
+- **Context Management**: Auto-summarize at 80% capacity
+- **DET Command Help**: Built-in knowledge of all REPL commands
+- **State Translation**: Explains DET physics in human terms
+
+---
+
+## Substrate v2 Fixes (2026-01-25)
+
+### Comprehensive 14-Point Fix List for substrate_lattice.c
+
+**A) Correctness / DET-core compliance fixes:**
+1. ✅ **A1 - Stale curvature**: Reordered lattice_step to solve gravity FIRST before computing presence/Δτ
+2. ✅ **A2 - 2D/3D gravity**: Added kappa_grav to Jacobi solver (Helmholtz+Poisson combined)
+3. ✅ **A3 - Bond antisymmetry**: Changed to per-bond flux computation (single J[b] value)
+4. ✅ **A4 - Receiver overflow**: Added comments for receiver-side limiting (DET allows unbounded F)
+5. ✅ **A5 - Momentum driving flux**: Store diffusive-only flux separately for momentum update
+6. ✅ **A6 - Bond direction**: Added `bond_dim[b]` array, stored at creation instead of `d = b/N`
+7. ✅ **A7 - Bond-centered gravity**: Use average of neighbor gradients for gravity flux
+
+**B) Performance-critical fixes:**
+8. ✅ **B8 - Pre-allocation**: Moved J_flux, scale, temp_weights to Lattice struct
+9. ✅ **B9 - Inner loop opt**: Precompute sqrt_C, geometric factor g computed once
+10. ✅ **B10 - Per-bond flux**: Single J[b] array instead of J_R/J_L node arrays
+
+**C) API + determinism fixes:**
+11. ✅ **C11 - Thread-safe registry**: Added mutex (os_unfair_lock on macOS, pthread elsewhere)
+12. ✅ **C12 - Delta_tau temp**: Added temp_weights array, don't abuse Delta_tau in packet injection
+
+**D) LLM runtime bridge fixes:**
+13. ✅ **D13 - Fused step interface**: Added `lattice_step_fused()` for batching with optional flux snapshots
+14. ✅ **D14 - Witnessable outputs**: Per-bond fluxes are antisymmetric, stable ordering guaranteed
+
+### Files Modified
+- `include/substrate_lattice.h`: Added bond_dim, J_flux, scale, temp_weights fields; lattice_step_fused() API
+- `src/substrate_lattice.c`: Complete rewrite of lattice_step() with all fixes
+- `src/substrate_metal.c`: Added lattice physics stub implementations
+- `metal/metal_backend.m`: Added lattice physics API with CPU fallback
+
+### Key Algorithm Changes
+1. **Step order**: GRAVITY → PRESENCE → FLUX → LIMIT → UPDATE (gravity now first)
+2. **Flux computation**: Per-bond instead of per-node-direction (guarantees antisymmetry)
+3. **Memory**: Pre-allocated scratch buffers eliminate per-step malloc/free
+4. **Thread safety**: Global registry now protected by mutex
+
+---
+
 ## Next Steps
 
 See `ROADMAP_V2.md` for detailed roadmap.
 
 1. **Phase 21: LLM Integration Enhancement**: ✅ COMPLETE
-   - [x] Multi-model support in LLMCreature.ex
-   - [x] Temperature modulation by agency/arousal
-   - [x] Token budget management per-creature
-   - [x] Streaming response support
+   - [x] 21.1 Multi-model support, temperature modulation, token budget, streaming
+   - [x] 21.2 ConversationCreature with context, memory, reasoning, help
 
-2. **Phase 22: Advanced Creature Networking**:
+2. **Phase 26: Native Model Inference (Ollama Replacement)**: 🎯 PRIORITY
+   - [ ] 26.1 Foundation primitives (matmul, softmax, rmsnorm in C/Metal)
+   - [ ] 26.2 GGUF model loading (parser, quantization, mmap)
+   - [ ] 26.3 Inference pipeline (creatures for layers, attention, FFN)
+   - [ ] 26.4 KV cache primitives
+   - [ ] 26.5 DET-native sampler (`det_choose_token()`)
+   - [ ] 26.6 Truthfulness weighting
+   - [ ] 26.7 Metal performance shaders
+   - [ ] 26.8 Integration (drop-in Ollama replacement)
+   - **Study**: `explorations/native_model_inference_study.md`
+
+3. **Phase 22: Advanced Creature Networking**:
    - [ ] Bond-based affect propagation between creatures
    - [ ] Creature federation (multiple presences)
    - [ ] Remote presence protocol
@@ -1929,4 +2104,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-24 (Phase 21: LLM Integration Enhancement Complete)*
+*Last Updated: 2026-01-25 (Substrate v2 Fixes: 14-point fix list implemented)*

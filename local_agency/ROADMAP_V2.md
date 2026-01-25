@@ -253,22 +253,25 @@ src/existence/
 
 ## Next Phases
 
-### Phase 21: LLM Integration Enhancement (After 20.5)
+### Phase 21: LLM Integration Enhancement ✅ COMPLETE
 **Goal**: Better LLM coordination and multi-model support
 
-#### 21.1 LLM Creature Enhancement
-- [ ] Multi-model support in LLMCreature.ex
-- [ ] Temperature modulation by agency/arousal
-- [ ] Token budget management per-creature
-- [ ] Streaming response support
+#### 21.1 LLM Creature Enhancement ✅
+- [x] Multi-model support in LLMCreature.ex
+- [x] Temperature modulation by agency/arousal
+- [x] Token budget management per-creature
+- [x] Streaming response support
 
-#### 21.2 Conversation Management
-- [ ] ConversationCreature.ex for multi-turn context
-- [ ] Memory-backed context window
-- [ ] Automatic context summarization when budget exceeded
+#### 21.2 Conversation Management ✅
+- [x] ConversationCreature.ex for multi-turn context
+- [x] Memory-backed context window (via StoreMemory/RecallMemory kernels)
+- [x] Automatic context summarization when budget exceeded (Summarize kernel)
+- [x] DET state explanation and translation (ExplainDET kernel)
+- [x] Integrated reasoning/planning via Reasoner/Planner bonds
+- [x] Built-in DET command help system
 
-#### 21.3 Model Routing
-- [ ] Domain-aware model selection (code→coder, math→math-model)
+#### 21.3 Model Routing (Partial - in LLMCreature)
+- [x] Domain-aware model selection (code→coder, math→math-model)
 - [ ] Fallback chains when primary model unavailable
 - [ ] Cost tracking per model
 
@@ -345,6 +348,142 @@ src/existence/
 - [ ] File access restrictions
 - [ ] Network restrictions
 - [ ] Process isolation
+
+### Phase 26: Native Model Inference (Ollama Replacement)
+**Goal**: DET-native LLM inference - load GGUF models directly, execute as creatures, replace Ollama dependency
+
+**Key Insight**: Model inference becomes DET-native while avoiding the trap of implementing matmul/attention as bond diffusion (beautiful but slow). Instead, treat matmul/attention as effect kernels whose output is deterministic and auditable, while DET controls when/why they run and how results are committed.
+
+**Critical Design**: The sampler is where you "stay DET" - `det_choose_token()` is the ur-choice that gets committed as past trace/witness.
+
+#### 26.1 Foundation Primitives (M1)
+**Goal**: Basic tensor operations in substrate (C + Metal)
+
+- [ ] Memory-mapped tensor loading (`tensor_mmap`)
+- [ ] Basic matmul (CPU fallback with BLAS)
+- [ ] Metal matmul shader (GPU-accelerated)
+- [ ] RMSNorm primitive
+- [ ] SiLU activation primitive
+- [ ] Softmax with optional temperature
+- [ ] Element-wise ops (add, mul, div_scalar)
+
+**Performance Notes** (from substrate_lattice.c learnings):
+- Keep buffers persistent (reuse across tokens)
+- Avoid per-step allocations
+- Profile hot paths early
+
+#### 26.2 GGUF Model Loading (M2)
+**Goal**: Parse GGUF format, extract weights
+
+- [ ] GGUF header parser (metadata extraction)
+- [ ] Weight tensor extraction
+- [ ] Quantization support (Q4_K_M minimum, Q8_0)
+- [ ] Memory-mapped weights (don't load full model into RAM)
+- [ ] ModelLoaderCreature.ex
+
+**Interim**: Use ollama.cpp as library for GGUF parsing during development
+
+#### 26.3 Inference Pipeline (M3)
+**Goal**: Single token generation via creatures
+
+- [ ] EmbeddingCreature.ex (token → embedding)
+- [ ] TransformerLayerCreature.ex (coordinates attn + FFN)
+- [ ] AttentionHeadCreature.ex (attention as auditable effect)
+- [ ] FFNCreature.ex (feed-forward computation)
+- [ ] SamplerCreature.ex with `det_choose_token()`
+
+**Architecture Decision**: Per-layer creatures (not per-head) for simplicity, with attention heads as internal structure.
+
+#### 26.4 KV Cache (M4)
+**Goal**: Efficient multi-token generation
+
+- [ ] `kv_cache_create(layers, max_len, d)` primitive
+- [ ] `kv_cache_append(cache, k, v)` primitive
+- [ ] `kv_cache_slice(cache, start, end)` for sliding window
+- [ ] Cache management in ModelCreature
+- [ ] Context window handling (truncation, summarization trigger)
+
+**Performance Critical**: KV cache correctness + efficiency is where decode speed lives.
+
+#### 26.5 DET-Native Sampler
+**Goal**: The sacred DET integration point
+
+- [ ] `det_choose_token(logits, temperature, top_p, top_k)` primitive
+- [ ] DET agency modulates temperature (higher a → lower temp)
+- [ ] DET arousal modulates variability
+- [ ] Choice committed as witness/trace
+- [ ] Reproducible via deterministic RNG from trace state
+- [ ] Repetition penalty via context tokens
+
+**Key**: Even when using external sampling, wrap it in DET choose semantics.
+
+#### 26.6 Truthfulness Weighting
+**Goal**: Compute reliability score T for each output
+
+- [ ] TruthfulnessEvaluator creature
+- [ ] Per-token truthfulness from layer states
+- [ ] Composite score from: debt (q), agency (a), attention entropy, bond coherence
+- [ ] Truthfulness vector output (factual_grounding, logical_coherence, etc.)
+- [ ] Calibration infrastructure
+
+**Formula**: `T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C`
+
+#### 26.7 Metal Performance Shaders (M5)
+**Goal**: GPU-accelerated inference
+
+- [ ] Metal attention kernel (Q·K^T/√d_k, softmax, V multiply)
+- [ ] Metal matmul for large weight matrices
+- [ ] Batch prefill (prompt ingestion)
+- [ ] Speculative decoding exploration
+
+**Apply learnings from substrate_lattice Metal shaders**.
+
+#### 26.8 Integration (M6)
+**Goal**: Drop-in replacement for Ollama
+
+- [ ] LLMCreature.ex compatibility layer (unchanged interface)
+- [ ] Model switching support (load/unload)
+- [ ] Streaming token output
+- [ ] Graceful fallback to Ollama if native fails
+- [ ] Deprecate Ollama primitives (phase out `llm_call_v2` HTTP calls)
+
+#### 26.9 Success Criteria
+
+**MVP**:
+- [ ] Load and run phi-2 (2.7B params) or qwen2-0.5B
+- [ ] Generate coherent text (same quality as Ollama)
+- [ ] Track F expenditure per generation
+- [ ] Integrate with existing LLMCreature.ex
+
+**Full Success**:
+- [ ] Support llama-architecture models up to 7B
+- [ ] Performance within 2x of Ollama throughput
+- [ ] Quantization support (Q4_K_M, Q8_0)
+- [ ] Streaming token generation
+- [ ] Full DET physics integration (P-based scheduling)
+- [ ] Truthfulness weighting on all outputs
+- [ ] Deprecate Ollama dependency
+
+#### 26.10 DET Physics Mapping
+
+| Transformer Concept | DET Concept |
+|---------------------|-------------|
+| Attention weight | Bond coherence (auditable, not simulated) |
+| Softmax temperature | Agency-modulated decisiveness |
+| Token sampling | Ur-choice (committed as witness) |
+| FLOPS (matmul) | F expenditure |
+| Model weights | Creature structure (q) |
+| KV cache | Creature memory state |
+
+#### 26.11 Anti-Hallucination Mechanisms
+
+| Pathology | DET Mechanism |
+|-----------|---------------|
+| Reward hacking | F expenditure tracks real compute |
+| False confidence | Agency from structure, not assertion |
+| Ungrounded claims | Debt (q) accumulation |
+| Hidden attention | Attention is auditable effect |
+| Post-hoc justification | Atomic commits, no retroactive changes |
 
 ---
 

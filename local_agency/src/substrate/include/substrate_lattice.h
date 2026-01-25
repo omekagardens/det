@@ -139,15 +139,21 @@ typedef struct Lattice {
      */
     uint32_t* bond_index;       /* [num_nodes * 2 * dim] */
 
+    /* Bond metadata (Fix A6: store dimension at creation, not inferred) */
+    uint8_t* bond_dim;          /* [num_bonds] dimension index for each bond */
+
     /* FFT workspace (for gravity solver) */
     float* fft_workspace;       /* Complex interleaved: [num_nodes * 2] */
     float* psi_field;           /* Helmholtz solution */
     float* phi_field;           /* Poisson solution (gravity potential) */
 
-    /* Scratch arrays for physics */
+    /* Scratch arrays for physics (Fix B8: pre-allocated, not per-step) */
     float* Delta_tau;           /* [num_nodes] proper timestep */
     float* J_total;             /* [num_nodes * dim] total flux per direction */
     float* grad_phi;            /* [num_nodes * dim] gravity gradient */
+    float* J_flux;              /* [num_bonds] per-bond flux (Fix B10) */
+    float* scale;               /* [num_nodes] limiter scale factors */
+    float* temp_weights;        /* [num_nodes] temp array for packet injection (Fix C12) */
 
     /* Statistics */
     uint64_t step_count;
@@ -309,6 +315,20 @@ void lattice_step(Lattice* L);
 /** Execute n physics timesteps */
 void lattice_step_n(Lattice* L, uint32_t n);
 
+/**
+ * Fused step interface for batching (Fix D13)
+ *
+ * Executes n steps with minimal overhead, batching witness emissions.
+ * Returns total flux magnitude for witnessable output.
+ *
+ * @param L           Lattice
+ * @param n           Number of steps
+ * @param out_fluxes  Optional: array to receive per-bond flux snapshots [num_bonds * n]
+ * @param emit_every  Emit witness snapshot every N steps (0 = only final)
+ * @return            Total flux magnitude over all steps
+ */
+float lattice_step_fused(Lattice* L, uint32_t n, float* out_fluxes, uint32_t emit_every);
+
 /* ==========================================================================
  * FFT GRAVITY SOLVER
  * ========================================================================== */
@@ -403,6 +423,7 @@ void lattice_set_default_physics(LatticePhysicsParams* params);
 
 /* ==========================================================================
  * LATTICE REGISTRY (for primitive calls)
+ * Note: Registry is thread-safe via internal mutex (Fix C11)
  * ========================================================================== */
 
 /** Initialize global lattice registry */
@@ -411,13 +432,13 @@ void lattice_registry_init(void);
 /** Shutdown registry and destroy all lattices */
 void lattice_registry_shutdown(void);
 
-/** Register a new lattice, returns handle ID */
+/** Register a new lattice, returns handle ID (thread-safe) */
 uint32_t lattice_registry_add(Lattice* L);
 
-/** Get lattice by handle ID */
+/** Get lattice by handle ID (thread-safe) */
 Lattice* lattice_registry_get(uint32_t id);
 
-/** Remove lattice from registry (does not destroy) */
+/** Remove lattice from registry (does not destroy) (thread-safe) */
 void lattice_registry_remove(uint32_t id);
 
 /* ==========================================================================

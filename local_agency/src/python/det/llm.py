@@ -1458,6 +1458,118 @@ class LLMPrimitives:
             # List available Ollama models
             return self.client.list_models()
 
+        # =====================================================================
+        # Phase 21.2: ConversationCreature Primitives
+        # =====================================================================
+
+        elif primitive_name == "get_system_prompt":
+            # Load system prompt by ID
+            prompt_id = args[0] if args else "det_conversation_system"
+            return self._get_conversation_system_prompt(prompt_id)
+
+        elif primitive_name == "concat":
+            # String concatenation
+            parts = [str(arg) for arg in args]
+            return "".join(parts)
+
+        elif primitive_name == "hash":
+            # Hash content for memory keys
+            import hashlib
+            content = args[0] if args else ""
+            return hashlib.sha256(str(content).encode()).hexdigest()[:16]
+
+        elif primitive_name == "explain_det_state":
+            # Explain DET state in human terms
+            creature_name = args[0] if len(args) > 0 else "unknown"
+            creature_F = args[1] if len(args) > 1 else 0.0
+            creature_a = args[2] if len(args) > 2 else 0.5
+            creature_q = args[3] if len(args) > 3 else 0.0
+            return self._explain_det_state(creature_name, creature_F, creature_a, creature_q)
+
+        elif primitive_name == "llm_reason":
+            # Chain-of-thought reasoning
+            question = args[0] if len(args) > 0 else ""
+            depth = args[1] if len(args) > 1 else 3
+
+            prompt = f"""Think through this step by step:
+
+Question: {question}
+
+Provide {int(depth)} clear reasoning steps, then give your conclusion."""
+
+            result = self.client.generate(
+                prompt=prompt,
+                system="You are a careful reasoning assistant. Think step by step and be explicit about your logic.",
+                temperature=0.3,
+                max_tokens=1024
+            )
+            return {"text": result.get("response", ""), "steps": int(depth)}
+
+        elif primitive_name == "llm_plan":
+            # Multi-step planning
+            task = args[0] if len(args) > 0 else ""
+            max_steps = args[1] if len(args) > 1 else 5
+
+            prompt = f"""Create a plan to accomplish this task:
+
+Task: {task}
+
+Provide up to {int(max_steps)} clear action steps. For each step:
+1. State the action
+2. Note any dependencies on previous steps
+3. Estimate complexity (low/medium/high)"""
+
+            result = self.client.generate(
+                prompt=prompt,
+                system="You are a planning assistant. Create clear, actionable plans.",
+                temperature=0.4,
+                max_tokens=1024
+            )
+            return {"text": result.get("response", ""), "steps": int(max_steps)}
+
+        elif primitive_name == "llm_summarize":
+            # Summarize context
+            content = args[0] if len(args) > 0 else ""
+
+            if not content or len(str(content)) < 50:
+                return {"text": content, "tokens": 0}
+
+            prompt = f"""Summarize this conversation context concisely, preserving key information:
+
+{content}
+
+Provide a brief summary that captures the main points."""
+
+            result = self.client.generate(
+                prompt=prompt,
+                system="You are a summarization assistant. Be concise but preserve key information.",
+                temperature=0.2,
+                max_tokens=512
+            )
+            return {
+                "text": result.get("response", ""),
+                "tokens": result.get("eval_count", len(result.get("response", "").split()))
+            }
+
+        elif primitive_name == "memory_store":
+            # Store in memory (integration point for MemoryCreature)
+            content_hash = args[0] if len(args) > 0 else ""
+            mem_type = args[1] if len(args) > 1 else 0
+            importance = args[2] if len(args) > 2 else 0.5
+
+            # For now, return a mock ID - full integration needs MemoryCreature bond
+            import time
+            memory_id = int(time.time() * 1000) % 100000
+            return {"id": memory_id, "stored": True}
+
+        elif primitive_name == "memory_recall":
+            # Recall from memory (integration point for MemoryCreature)
+            query_hash = args[0] if len(args) > 0 else ""
+            limit = args[1] if len(args) > 1 else 5
+
+            # For now, return empty - full integration needs MemoryCreature bond
+            return {"content": "", "count": 0}
+
         else:
             raise ValueError(f"Unknown LLM primitive: {primitive_name}")
 
@@ -1468,3 +1580,102 @@ class LLMPrimitives:
     def set_default_model(self, model: str):
         """Set the default model for the client."""
         self.client.model = model
+
+    def _get_conversation_system_prompt(self, prompt_id: str) -> str:
+        """
+        Get system prompt for conversation creature.
+
+        Phase 21.2: Provides DET-aware system prompt with command knowledge.
+        """
+        if prompt_id == "det_conversation_system":
+            return """You are a helpful assistant integrated with the DET (Dynamical Emergence Theory) system.
+
+## About DET
+DET is a physics-based framework for AI safety and agency. Key concepts:
+- **F (Resource/Free Energy)**: Available energy for actions. Low F means limited capacity.
+- **a (Agency)**: Decisiveness level (0-1). High a = confident decisions, low a = more deliberation.
+- **q (Structural Debt)**: Accumulated stress. High q needs rest/recovery.
+- **P (Presence)**: How "present" the system is in the interaction.
+- **C (Coherence)**: Integration quality of bonds between creatures.
+
+## Your Role
+1. Translate DET state into human-understandable terms
+2. Help users understand what the system is doing and why
+3. Route complex reasoning to specialized creatures
+4. Maintain conversation context efficiently
+
+## DET REPL Commands (for user help)
+- `status` - Show current DET state (P, C, F, q aggregates)
+- `step [n]` - Run n simulation steps
+- `inject <ports> <values>` - Inject stimulus into ports
+- `warmup [n]` - Initialize system with n steps
+- `affect` - Show emotional state (valence, arousal, bondedness)
+- `emotion` - Show current emotion label
+- `history` - Show recent state history
+- `nodes` - List all nodes in the presence
+- `bonds` - List all bonds
+- `params` - Show physics parameters
+- `set <param> <value>` - Set a physics parameter
+- `reset` - Reset to initial state
+- `save <file>` - Save state to file
+- `load <file>` - Load state from file
+- `chat <message>` - Chat with LLM integration
+- `clear` - Clear chat history
+- `help` - Show command help
+
+## Response Guidelines
+- Be conversational but concise
+- Explain DET concepts when relevant
+- If F is low, keep responses brief
+- If q is high, suggest the user let the system rest
+- Match your response style to the agency level (a):
+  - High a (>0.7): Direct, confident responses
+  - Medium a (0.4-0.7): Balanced, exploratory
+  - Low a (<0.4): More cautious, suggesting options
+"""
+        else:
+            return DET_SYSTEM_PROMPT
+
+    def _explain_det_state(
+        self,
+        creature_name: str,
+        F: float,
+        a: float,
+        q: float
+    ) -> str:
+        """
+        Explain DET state in human-understandable terms.
+
+        Phase 21.2: Translates DET physics into natural language.
+        """
+        explanations = []
+
+        # Resource level
+        if F > 80:
+            explanations.append(f"{creature_name} has abundant resources (F={F:.1f})")
+        elif F > 50:
+            explanations.append(f"{creature_name} has moderate resources (F={F:.1f})")
+        elif F > 20:
+            explanations.append(f"{creature_name} has limited resources (F={F:.1f})")
+        else:
+            explanations.append(f"{creature_name} is low on resources (F={F:.1f}) - may need rest")
+
+        # Agency level
+        if a > 0.8:
+            explanations.append(f"Operating with high decisiveness (a={a:.2f})")
+        elif a > 0.5:
+            explanations.append(f"Operating at moderate agency (a={a:.2f})")
+        elif a > 0.3:
+            explanations.append(f"Deliberating carefully (a={a:.2f})")
+        else:
+            explanations.append(f"In cautious mode (a={a:.2f}) - weighing options carefully")
+
+        # Structural debt
+        if q > 0.5:
+            explanations.append(f"High structural stress (q={q:.2f}) - may benefit from lighter tasks")
+        elif q > 0.2:
+            explanations.append(f"Moderate stress level (q={q:.2f})")
+        elif q > 0:
+            explanations.append(f"Low stress (q={q:.2f}) - operating smoothly")
+
+        return " | ".join(explanations)

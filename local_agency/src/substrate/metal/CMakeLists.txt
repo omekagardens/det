@@ -90,6 +90,7 @@ target_include_directories(substrate_metal PRIVATE
 target_link_libraries(substrate_metal
     ${METAL_FRAMEWORK}
     ${FOUNDATION_FRAMEWORK}
+    eis_substrate_v2_static
 )
 
 # Enable ARC for Objective-C
@@ -124,6 +125,10 @@ add_library(substrate_metal_static STATIC ${METAL_BACKEND_SOURCES})
 
 target_include_directories(substrate_metal_static PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+target_link_libraries(substrate_metal_static
+    eis_substrate_v2_static
 )
 
 target_compile_options(substrate_metal_static PRIVATE
