@@ -221,6 +221,58 @@ void sub_metal_get_stats(SubstrateMetalHandle ctx, uint64_t* out_ticks, uint64_t
 const char* sub_metal_get_error(SubstrateMetalHandle ctx);
 
 /* ==========================================================================
+ * LATTICE PHYSICS (GPU-accelerated DET v6.3)
+ * ========================================================================== */
+
+#include "substrate_lattice.h"
+
+/**
+ * Upload lattice configuration to GPU.
+ * @param ctx Metal context
+ * @param config Lattice configuration
+ * @return 0 on success, negative error code on failure
+ */
+int sub_metal_upload_lattice_config(SubstrateMetalHandle ctx, const LatticeConfig* config,
+                                     const LatticePhysicsParams* physics);
+
+/**
+ * Execute one lattice physics step on GPU.
+ * This runs all physics kernels: presence, flux, limiter, apply, momentum, etc.
+ * @param ctx Metal context
+ * @param L Lattice (for node/bond data)
+ * @return 0 on success, negative error code on failure
+ */
+int sub_metal_lattice_step(SubstrateMetalHandle ctx, Lattice* L);
+
+/**
+ * Execute multiple lattice physics steps on GPU.
+ * @param ctx Metal context
+ * @param L Lattice
+ * @param num_steps Number of steps to execute
+ * @return 0 on success, negative error code on failure
+ */
+int sub_metal_lattice_step_n(SubstrateMetalHandle ctx, Lattice* L, uint32_t num_steps);
+
+/**
+ * Solve gravity potential on GPU using iterative method.
+ * For large lattices, this is much faster than CPU.
+ * @param ctx Metal context
+ * @param L Lattice
+ * @param iterations Number of Jacobi iterations
+ * @return 0 on success, negative error code on failure
+ */
+int sub_metal_lattice_solve_gravity(SubstrateMetalHandle ctx, Lattice* L, uint32_t iterations);
+
+/**
+ * Compute lattice statistics on GPU.
+ * @param ctx Metal context
+ * @param L Lattice
+ * @param stats Output statistics
+ * @return 0 on success, negative error code on failure
+ */
+int sub_metal_lattice_get_stats(SubstrateMetalHandle ctx, const Lattice* L, LatticeStats* stats);
+
+/* ==========================================================================
  * ERROR CODES
  * ========================================================================== */
 

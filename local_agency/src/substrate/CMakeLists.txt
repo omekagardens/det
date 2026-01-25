@@ -26,15 +26,26 @@ include_directories(include)
 
 set(SUBSTRATE_V2_SOURCES
     src/eis_substrate_v2.c
+    src/substrate_lattice.c
 )
+
+# Platform-specific libraries
+if(APPLE)
+    # Link with Accelerate for vDSP FFT
+    find_library(ACCELERATE_FRAMEWORK Accelerate)
+    set(PLATFORM_LIBS ${ACCELERATE_FRAMEWORK})
+else()
+    # TODO: Add FFTW for non-Apple platforms
+    set(PLATFORM_LIBS "")
+endif()
 
 # Shared library
 add_library(eis_substrate_v2 SHARED ${SUBSTRATE_V2_SOURCES})
-target_link_libraries(eis_substrate_v2 m)
+target_link_libraries(eis_substrate_v2 m ${PLATFORM_LIBS})
 
 # Static library
 add_library(eis_substrate_v2_static STATIC ${SUBSTRATE_V2_SOURCES})
-target_link_libraries(eis_substrate_v2_static m)
+target_link_libraries(eis_substrate_v2_static m ${PLATFORM_LIBS})
 
 # Test executable
 add_executable(test_substrate_v2 tests/test_substrate_v2.c)
@@ -74,6 +85,7 @@ install(FILES
     include/eis_substrate_v2.h
     include/substrate_types.h
     include/effect_table.h
+    include/substrate_lattice.h
     DESTINATION include/eis
 )
 

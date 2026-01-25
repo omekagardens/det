@@ -395,6 +395,9 @@ class PrimitiveRegistry:
             return_type="float"
         ))
 
+        # Register lattice primitives (Phase 20.5)
+        self._register_lattice_primitives()
+
     def register(self, spec: PrimitiveSpec):
         """Register a primitive."""
         self.primitives[spec.name] = spec
@@ -786,6 +789,359 @@ class PrimitiveRegistry:
     def _math_abs(self, value: float) -> float:
         """Compute absolute value."""
         return abs(float(value))
+
+    # =========================================================================
+    # Lattice / Collider Primitives (Phase 20.5)
+    # Now uses C substrate backend when available for performance
+    # =========================================================================
+
+    def _init_lattice_backend(self):
+        """Initialize the lattice backend (C or Python fallback)."""
+        if hasattr(self, '_lattice_backend_initialized'):
+            return
+
+        self._use_c_lattice = False
+        self._c_lattices = {}  # Maps lattice_id -> CLattice instance
+
+        try:
+            from det.lattice_c import CLattice, is_available
+            if is_available():
+                self._use_c_lattice = True
+                self._CLattice = CLattice
+                print("[Primitives] Using C lattice substrate")
+        except ImportError:
+            pass
+
+        if not self._use_c_lattice:
+            print("[Primitives] Using Python lattice fallback")
+
+        self._lattice_backend_initialized = True
+
+    def _register_lattice_primitives(self):
+        """Register lattice primitives for native DET collider."""
+
+        self.register(PrimitiveSpec(
+            name="lattice_create",
+            handler=self._lattice_create,
+            base_cost=0.1,
+            min_agency=0.2,
+            description="Create a DET lattice (dim, N, params...)",
+            arg_types=["int", "int"],
+            return_type="int"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_destroy",
+            handler=self._lattice_destroy,
+            base_cost=0.01,
+            min_agency=0.1,
+            description="Destroy a lattice by ID",
+            arg_types=["int"],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_step",
+            handler=self._lattice_step,
+            base_cost=0.05,
+            min_agency=0.1,
+            description="Execute N physics steps on lattice",
+            arg_types=["int", "int"],
+            return_type="int"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_add_packet",
+            handler=self._lattice_add_packet,
+            base_cost=0.02,
+            min_agency=0.1,
+            description="Add resource packet (id, pos, mass, width, momentum, q)",
+            arg_types=["int", "list", "float", "float"],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_total_mass",
+            handler=self._lattice_total_mass,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Get total mass in lattice",
+            arg_types=["int"],
+            return_type="float"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_total_q",
+            handler=self._lattice_total_q,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Get total structure in lattice",
+            arg_types=["int"],
+            return_type="float"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_separation",
+            handler=self._lattice_separation,
+            base_cost=0.02,
+            min_agency=0.0,
+            description="Get separation between two largest blobs",
+            arg_types=["int"],
+            return_type="float"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_potential_energy",
+            handler=self._lattice_potential_energy,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Get gravitational potential energy",
+            arg_types=["int"],
+            return_type="float"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_center_of_mass",
+            handler=self._lattice_center_of_mass,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Get center of mass position",
+            arg_types=["int"],
+            return_type="list"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_render",
+            handler=self._lattice_render,
+            base_cost=0.02,
+            min_agency=0.0,
+            description="Render lattice field as ASCII art",
+            arg_types=["int", "string", "int"],
+            return_type="string"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_get_stats",
+            handler=self._lattice_get_stats,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Get lattice statistics",
+            arg_types=["int"],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="lattice_set_param",
+            handler=self._lattice_set_param,
+            base_cost=0.01,
+            min_agency=0.1,
+            description="Set lattice parameter",
+            arg_types=["int", "string", "float"],
+            return_type="bool"
+        ))
+
+    def _lattice_create(self, dim: int = 1, N: int = 100, **kwargs) -> int:
+        """Create a new DET lattice."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice:
+            # Use C substrate
+            lattice = self._CLattice(dim=int(dim), size=int(N), **kwargs)
+            # Generate unique ID
+            lattice_id = id(lattice) & 0xFFFFFF  # Truncate to reasonable ID
+            self._c_lattices[lattice_id] = lattice
+            return lattice_id
+        else:
+            # Fallback to Python
+            from .lattice import lattice_create
+            return lattice_create(int(dim), int(N), **kwargs)
+
+    def _lattice_destroy(self, lattice_id: int) -> bool:
+        """Destroy a lattice."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            del self._c_lattices[int(lattice_id)]
+            return True
+        else:
+            from .lattice import lattice_destroy
+            return lattice_destroy(int(lattice_id))
+
+    def _lattice_step(self, lattice_id: int, num_steps: int = 1) -> int:
+        """Execute physics steps on lattice."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            lattice = self._c_lattices[int(lattice_id)]
+            lattice.step(int(num_steps))
+            return lattice.get_stats().step_count
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            for _ in range(int(num_steps)):
+                lattice.step()
+            return lattice.step_count
+
+    def _lattice_add_packet(self, lattice_id: int, pos: list,
+                            mass: float = 5.0, width: float = 5.0,
+                            momentum: list = None, initial_q: float = 0.0) -> bool:
+        """Add resource packet to lattice."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            lattice = self._c_lattices[int(lattice_id)]
+            center = list(pos) if pos else [lattice.size // 2] * lattice.dim
+            mom = list(momentum) if momentum else None
+            lattice.add_packet(center, float(mass), float(width), mom, float(initial_q))
+            return True
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            center = tuple(pos) if pos else (lattice.N // 2,) * lattice.dim
+            mom = tuple(momentum) if momentum else None
+            lattice.add_packet(center, float(mass), float(width), mom, float(initial_q))
+            return True
+
+    def _lattice_total_mass(self, lattice_id: int) -> float:
+        """Get total mass in lattice."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            return self._c_lattices[int(lattice_id)].total_mass()
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return lattice.total_mass()
+
+    def _lattice_total_q(self, lattice_id: int) -> float:
+        """Get total structure in lattice."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            return self._c_lattices[int(lattice_id)].get_stats().total_structure
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return lattice.total_q()
+
+    def _lattice_separation(self, lattice_id: int) -> float:
+        """Get separation between blobs."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            return self._c_lattices[int(lattice_id)].separation()
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return lattice.separation()
+
+    def _lattice_potential_energy(self, lattice_id: int) -> float:
+        """Get potential energy."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            return self._c_lattices[int(lattice_id)].get_stats().potential_energy
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return lattice.potential_energy()
+
+    def _lattice_center_of_mass(self, lattice_id: int) -> list:
+        """Get center of mass."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            return self._c_lattices[int(lattice_id)].get_stats().center_of_mass
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return list(lattice.center_of_mass())
+
+    def _lattice_render(self, lattice_id: int, field: str = "F", width: int = 60) -> str:
+        """Render lattice as ASCII."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            # Map field name to render field constant
+            from det.lattice_c import (RENDER_FIELD_F, RENDER_FIELD_Q,
+                                        RENDER_FIELD_A, RENDER_FIELD_P)
+            field_map = {
+                'F': RENDER_FIELD_F, 'f': RENDER_FIELD_F,
+                'Q': RENDER_FIELD_Q, 'q': RENDER_FIELD_Q,
+                'A': RENDER_FIELD_A, 'a': RENDER_FIELD_A,
+                'P': RENDER_FIELD_P, 'p': RENDER_FIELD_P,
+            }
+            render_field = field_map.get(field, RENDER_FIELD_F)
+            return self._c_lattices[int(lattice_id)].render(render_field, int(width))
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return lattice.render_ascii(field, int(width))
+
+    def _lattice_get_stats(self, lattice_id: int) -> dict:
+        """Get lattice statistics."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            lattice = self._c_lattices[int(lattice_id)]
+            stats = lattice.get_stats()
+            return {
+                "dim": lattice.dim,
+                "N": lattice.size,
+                "step_count": stats.step_count,
+                "time": stats.step_count * 0.02,  # Approximate from step count
+                "total_mass": stats.total_mass,
+                "total_q": stats.total_structure,
+                "total_grace": 0.0,  # Not tracked in C substrate yet
+                "eta": 1.0,  # Lattice correction
+            }
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            return {
+                "dim": lattice.dim,
+                "N": lattice.N,
+                "step_count": lattice.step_count,
+                "time": lattice.time,
+                "total_mass": lattice.total_mass(),
+                "total_q": lattice.total_q(),
+                "total_grace": lattice.total_grace,
+                "eta": lattice.eta,
+            }
+
+    def _lattice_set_param(self, lattice_id: int, param: str, value: float) -> bool:
+        """Set a lattice parameter."""
+        self._init_lattice_backend()
+
+        if self._use_c_lattice and int(lattice_id) in self._c_lattices:
+            return self._c_lattices[int(lattice_id)].set_param(str(param), float(value))
+        else:
+            from .lattice import lattice_get
+            lattice = lattice_get(int(lattice_id))
+            if lattice is None:
+                raise ValueError(f"Lattice not found: {lattice_id}")
+            if hasattr(lattice.p, param):
+                setattr(lattice.p, param, value)
+                return True
+            return False
 
 
 # Global registry instance

@@ -735,6 +735,78 @@ class DETRuntime:
                         print("GPU not enabled. Use 'gpu enable' first.")
                     continue
 
+                # Collider commands (Phase 20.5)
+                elif cmd_lower == "collider" or cmd_lower == "collider help":
+                    self._collider_help()
+                    continue
+
+                elif cmd_lower == "collider demo":
+                    self._collider_demo()
+                    continue
+
+                elif cmd_lower.startswith("collider create"):
+                    args = user_input[15:].strip().split()
+                    dim = int(args[0]) if len(args) > 0 else 1
+                    N = int(args[1]) if len(args) > 1 else 200
+                    self._collider_create(dim, N)
+                    continue
+
+                elif cmd_lower.startswith("collider add"):
+                    # collider add <pos> <mass> <width> [momentum] [q]
+                    self._collider_add_packet(user_input[12:].strip())
+                    continue
+
+                elif cmd_lower.startswith("collider step"):
+                    args = user_input[13:].strip().split()
+                    n = int(args[0]) if args else 100
+                    self._collider_step(n)
+                    continue
+
+                elif cmd_lower == "collider status" or cmd_lower == "collider stats":
+                    self._collider_status()
+                    continue
+
+                elif cmd_lower.startswith("collider render"):
+                    args = user_input[15:].strip().split()
+                    field = args[0] if args else "F"
+                    width = int(args[1]) if len(args) > 1 else 60
+                    self._collider_render(field, width)
+                    continue
+
+                elif cmd_lower == "collider destroy":
+                    self._collider_destroy()
+                    continue
+
+                # === Falsification Suite ===
+                elif cmd_lower == "falsify" or cmd_lower == "falsify help":
+                    self._falsify_help()
+                    continue
+
+                elif cmd_lower == "falsify all":
+                    self._falsify_all()
+                    continue
+
+                elif cmd_lower == "falsify core":
+                    self._falsify_core()
+                    continue
+
+                elif cmd_lower == "falsify gtd":
+                    self._falsify_gtd()
+                    continue
+
+                elif cmd_lower == "falsify agency":
+                    self._falsify_agency()
+                    continue
+
+                elif cmd_lower == "falsify list":
+                    self._falsify_list()
+                    continue
+
+                elif cmd_lower.startswith("falsify "):
+                    test_id = user_input[8:].strip()
+                    self._falsify_single(test_id)
+                    continue
+
                 else:
                     # Default: send to LLM
                     print(f"\033[33m[Sending to LLM via bond...]\033[0m")
@@ -786,6 +858,24 @@ class DETRuntime:
   gpu disable       Disable GPU acceleration
   gpu tick [N]      Execute N substrate ticks on GPU
   gpu benchmark [nodes] [bonds] [ticks]  Run GPU benchmark
+
+\033[33mCollider (Phase 20.5):\033[0m
+  collider          Show collider commands
+  collider demo     Run gravitational binding demo
+  collider create [dim] [N]   Create lattice
+  collider add <pos> <mass> <width> [momentum] [q]
+  collider step [N] Run N physics steps
+  collider status   Show statistics
+  collider render   Show ASCII visualization
+
+\033[33mFalsification (DET v6.3):\033[0m
+  falsify           Show falsification help
+  falsify all       Run all falsification tests
+  falsify core      Run core falsifiers (F6-F9)
+  falsify gtd       Run time dilation tests
+  falsify agency    Run agency tests
+  falsify <test>    Run single test (e.g., falsify F6)
+  falsify list      List all available tests
 
 \033[33mArchitecture:\033[0m
   All commands dispatch through DET bonds.
@@ -1003,6 +1093,401 @@ class DETRuntime:
                 print(f"\033[31m[Error: {response.get('result_code', 'unknown')}]\033[0m")
         else:
             print("\033[31m[No response]\033[0m")
+
+    # =========================================================================
+    # Collider Methods (Phase 20.5)
+    # =========================================================================
+
+    def _collider_help(self):
+        """Display collider commands help."""
+        print("""
+\033[33mCollider Commands (Phase 20.5 - Native DET Physics):\033[0m
+  collider                Show this help
+  collider demo           Run demonstration (two-body gravitational binding)
+  collider create [dim] [N]   Create lattice (default: dim=1, N=200)
+  collider add <pos> <mass> <width> [momentum] [q]
+                          Add resource packet
+  collider step [N]       Run N physics steps (default: 100)
+  collider status         Show lattice statistics
+  collider render [field] [width]  Render ASCII visualization (field: F,q,a,P)
+  collider destroy        Destroy current lattice
+
+\033[33mExample Session:\033[0m
+  det> collider create 1 200         # Create 1D lattice with 200 nodes
+  det> collider add 50 8 5 0.1 0.3   # Add packet at pos 50, mass 8, width 5
+  det> collider add 150 8 5 -0.1 0.3 # Add packet at pos 150
+  det> collider step 500             # Run 500 physics steps
+  det> collider render               # Show ASCII visualization
+  det> collider status               # Show mass, separation, energy
+
+\033[33mOr just run:\033[0m
+  det> collider demo                 # Auto-run gravitational binding demo
+""")
+
+    def _collider_demo(self):
+        """Run a demonstration of the DET collider."""
+        import time
+
+        print("\n\033[33m=== DET Collider Demo ===\033[0m")
+        print("Demonstrating DET v6.3 physics: gravity, momentum, structure\n")
+
+        # Try C lattice first for performance
+        use_c_lattice = False
+        try:
+            from det.lattice_c import CLattice, is_available
+            if is_available():
+                use_c_lattice = True
+                print("\033[32m[Using C substrate for native performance]\033[0m\n")
+        except ImportError:
+            pass
+
+        if use_c_lattice:
+            # C substrate path
+            lattice = CLattice(dim=1, size=200)
+            # Set DET v6.3 physics parameters
+            lattice.set_param("beta_g", 15.0)
+            lattice.set_param("kappa_grav", 3.0)
+            lattice.set_param("mu_grav", 1.5)
+            lattice.set_param("gravity_enabled", 1.0)
+            lattice.set_param("momentum_enabled", 1.0)
+
+            # Add two structure sites with resource
+            print("Creating two gravitational wells (q=structure, F=resource)...")
+            lattice.add_packet(center=[70], mass=12.0, width=6.0, momentum=[0.0], q=0.5)
+            lattice.add_packet(center=[130], mass=12.0, width=6.0, momentum=[0.0], q=0.5)
+
+            initial_mass = lattice.total_mass()
+            initial_sep = lattice.separation()
+            print(f"Initial: total_mass={initial_mass:.2f}, separation={initial_sep:.1f}")
+            print("\nRunning 1000 physics steps...")
+
+            start = time.time()
+
+            for i in range(10):
+                lattice.step(100)
+                if i % 2 == 1:
+                    stats = lattice.get_stats()
+                    print(f"  Step {(i+1)*100:4d}: mass={stats.total_mass:.2f}, sep={stats.separation:.1f}, PE={stats.potential_energy:.1f}")
+
+            elapsed = time.time() - start
+
+            # Final stats
+            final_stats = lattice.get_stats()
+            print(f"\n\033[32mResults:\033[0m")
+            print(f"  Mass: {initial_mass:.2f} -> {final_stats.total_mass:.2f}")
+            print(f"  Separation: {initial_sep:.1f} -> {final_stats.separation:.1f}")
+            print(f"  Structure (q): {final_stats.total_structure:.3f}")
+            print(f"  Elapsed: {elapsed*1000:.1f}ms ({1000/elapsed:.0f} steps/sec)")
+
+            # Physics explanation
+            print(f"\n\033[33mPhysics:\033[0m Gravity from structure (q) concentrates resource (F) at wells.")
+
+            # Render
+            from det.lattice_c import RENDER_FIELD_F
+            print(f"\n\033[36m{lattice.render(RENDER_FIELD_F, 60)}\033[0m")
+
+            self._collider_lattice = lattice
+        else:
+            # Python fallback path
+            import numpy as np
+            from det.eis.lattice import DETLattice, LatticeParams
+
+            print("\033[33m[Using Python fallback - build C substrate for better performance]\033[0m\n")
+
+            # Create lattice with DET v6.3 physics
+            params = LatticeParams(
+                dim=1, N=200, dt=0.02,
+                gravity_enabled=True,
+                momentum_enabled=True,
+                q_enabled=True,
+                agency_enabled=True,
+                beta_g=15.0,       # Gravity-momentum coupling
+                kappa_grav=3.0,    # Potential strength
+                mu_grav=1.5,       # Gravity flux coefficient
+            )
+            lattice = DETLattice(params)
+            self._collider_lattice = lattice
+
+            # Add two structure sites with resource
+            print("Creating two gravitational wells (q=structure, F=resource)...")
+            lattice.add_packet((70,), mass=12.0, width=6.0, initial_q=0.5)
+            lattice.add_packet((130,), mass=12.0, width=6.0, initial_q=0.5)
+
+            initial_mass = lattice.total_mass()
+            initial_peak1 = lattice.F[70]
+            initial_peak2 = lattice.F[130]
+
+            print(f"Initial: total_mass={initial_mass:.2f}, peaks={initial_peak1:.2f}/{initial_peak2:.2f}")
+            print(f"Lattice eta: {lattice.eta:.3f}, q_max: {lattice.q.max():.3f}")
+            print("\nRunning 1000 physics steps...")
+
+            start = time.time()
+
+            for i in range(10):
+                for _ in range(100):
+                    lattice.step()
+
+                if i % 2 == 1:
+                    p1, p2 = lattice.F[70], lattice.F[130]
+                    pe = lattice.potential_energy()
+                    pi_max = np.abs(lattice.pi).max()
+                    print(f"  Step {(i+1)*100:4d}: peaks={p1:.2f}/{p2:.2f}, PE={pe:.1f}, |pi|_max={pi_max:.3f}")
+
+            elapsed = time.time() - start
+
+            # Final stats
+            final_mass = lattice.total_mass()
+            final_peak1 = lattice.F[70]
+            final_peak2 = lattice.F[130]
+            final_q = lattice.total_q()
+
+            print(f"\n\033[32mResults:\033[0m")
+            print(f"  Mass: {initial_mass:.2f} -> {final_mass:.2f}")
+            print(f"  Peak concentration: {initial_peak1:.2f} -> {final_peak1:.2f} (+{100*(final_peak1-initial_peak1)/initial_peak1:.0f}%)")
+            print(f"  Structure (q): {final_q:.3f}")
+            print(f"  Elapsed: {elapsed*1000:.1f}ms ({1000/elapsed:.0f} steps/sec)")
+
+            # Physics explanation
+            print(f"\n\033[33mPhysics:\033[0m Gravity from structure (q) concentrates resource (F) at wells.")
+
+            # Render
+            print(f"\n\033[36m{lattice.render_ascii('F', 60)}\033[0m")
+
+    def _collider_create(self, dim: int = 1, N: int = 200):
+        """Create a new collider lattice."""
+        from det.eis.primitives import get_registry
+
+        reg = get_registry()
+        result = reg.call('lattice_create', [dim, N], 100.0, 1.0)
+
+        if result.result_code.name == 'OK':
+            self._collider_id = result.result
+            print(f"\033[32mCreated {dim}D lattice (N={N}), id={self._collider_id}\033[0m")
+        else:
+            print(f"\033[31mFailed: {result.result}\033[0m")
+
+    def _collider_add_packet(self, args_str: str):
+        """Add a resource packet to the lattice."""
+        from det.eis.primitives import get_registry
+
+        if not hasattr(self, '_collider_id') or self._collider_id is None:
+            print("\033[31mNo lattice. Use 'collider create' first.\033[0m")
+            return
+
+        # Parse: pos mass width [momentum] [q]
+        parts = args_str.split()
+        if len(parts) < 3:
+            print("Usage: collider add <pos> <mass> <width> [momentum] [q]")
+            return
+
+        pos = [float(parts[0])]
+        mass = float(parts[1])
+        width = float(parts[2])
+        momentum = [float(parts[3])] if len(parts) > 3 else None
+        initial_q = float(parts[4]) if len(parts) > 4 else 0.0
+
+        reg = get_registry()
+        result = reg.call('lattice_add_packet',
+                          [self._collider_id, pos, mass, width, momentum, initial_q],
+                          100.0, 1.0)
+
+        if result.result_code.name == 'OK':
+            print(f"\033[32mAdded packet: pos={pos}, mass={mass}, width={width}\033[0m")
+        else:
+            print(f"\033[31mFailed: {result.result}\033[0m")
+
+    def _collider_step(self, n: int = 100):
+        """Execute physics steps."""
+        import time
+        from det.eis.primitives import get_registry
+
+        if not hasattr(self, '_collider_id') or self._collider_id is None:
+            print("\033[31mNo lattice. Use 'collider create' first.\033[0m")
+            return
+
+        reg = get_registry()
+        start = time.time()
+        result = reg.call('lattice_step', [self._collider_id, n], 100.0, 1.0)
+        elapsed = time.time() - start
+
+        if result.result_code.name == 'OK':
+            print(f"\033[32mExecuted {n} steps in {elapsed*1000:.1f}ms ({n/elapsed:.0f} steps/sec)\033[0m")
+        else:
+            print(f"\033[31mFailed: {result.result}\033[0m")
+
+    def _collider_status(self):
+        """Show lattice statistics."""
+        from det.eis.primitives import get_registry
+
+        if not hasattr(self, '_collider_id') or self._collider_id is None:
+            print("\033[31mNo lattice. Use 'collider create' first.\033[0m")
+            return
+
+        reg = get_registry()
+        stats = reg.call('lattice_get_stats', [self._collider_id], 100.0, 1.0).result
+
+        if isinstance(stats, dict):
+            print(f"\n\033[33mCollider Status:\033[0m")
+            print(f"  Dimension: {stats.get('dim', '?')}D")
+            print(f"  Grid size: {stats.get('N', '?')}")
+            print(f"  Steps: {stats.get('step_count', 0)}")
+            print(f"  Time: {stats.get('time', 0):.3f}")
+            print(f"  Total mass: {stats.get('total_mass', 0):.4f}")
+            print(f"  Total q: {stats.get('total_q', 0):.4f}")
+            print(f"  Total grace: {stats.get('total_grace', 0):.4f}")
+            print(f"  Lattice η: {stats.get('eta', 0):.3f}")
+
+            # Also get separation and PE
+            sep = reg.call('lattice_separation', [self._collider_id], 100.0, 1.0).result
+            pe = reg.call('lattice_potential_energy', [self._collider_id], 100.0, 1.0).result
+            print(f"  Separation: {sep:.2f}")
+            print(f"  Potential energy: {pe:.4f}")
+        else:
+            print(f"\033[31mFailed to get stats: {stats}\033[0m")
+
+    def _collider_render(self, field: str = 'F', width: int = 60):
+        """Render lattice as ASCII."""
+        from det.eis.primitives import get_registry
+
+        if not hasattr(self, '_collider_id') or self._collider_id is None:
+            print("\033[31mNo lattice. Use 'collider create' first.\033[0m")
+            return
+
+        reg = get_registry()
+        result = reg.call('lattice_render', [self._collider_id, field, width], 100.0, 1.0)
+
+        if result.result_code.name == 'OK':
+            print(f"\033[36m{result.result}\033[0m")
+        else:
+            print(f"\033[31mFailed: {result.result}\033[0m")
+
+    def _collider_destroy(self):
+        """Destroy the current lattice."""
+        from det.eis.primitives import get_registry
+
+        if not hasattr(self, '_collider_id') or self._collider_id is None:
+            print("\033[33mNo lattice to destroy.\033[0m")
+            return
+
+        reg = get_registry()
+        result = reg.call('lattice_destroy', [self._collider_id], 100.0, 1.0)
+
+        if result.result_code.name == 'OK':
+            print(f"\033[32mLattice {self._collider_id} destroyed.\033[0m")
+            self._collider_id = None
+        else:
+            print(f"\033[31mFailed: {result.result}\033[0m")
+
+    # =========================================================================
+    # Falsification Suite Commands
+    # =========================================================================
+
+    def _falsify_help(self):
+        """Show falsification suite help."""
+        print("""
+\033[33mDET v6.3 Falsification Suite\033[0m
+Based on det_theory_card_6_3.md Section VIII
+
+\033[36mCommands:\033[0m
+  falsify all       Run all falsification tests
+  falsify core      Run core falsifiers (F6-F9)
+  falsify gtd       Run time dilation falsifiers (F_GTD1-4)
+  falsify agency    Run agency falsifiers (F_A1-A3)
+  falsify <test>    Run single test (e.g., falsify F6)
+  falsify list      List all available tests
+
+\033[36mCore Falsifiers:\033[0m
+  F6   Binding Failure        - Two-body gravitational binding
+  F7   Mass Conservation      - Total mass preserved
+  F8   Vacuum Momentum        - No transport in vacuum
+  F9   Spontaneous Drift      - Symmetric systems stable
+
+\033[36mTime Dilation Falsifiers:\033[0m
+  F_GTD1  Presence Formula    - P = a*sigma/(1+F)/(1+H)
+  F_GTD3  Grav Accumulation   - F flows to potential wells
+  F_GTD4  Dilation Direction  - Time slows where F high
+
+\033[36mAgency Falsifiers:\033[0m
+  F_A1   Zombie Test          - High-q implies low agency ceiling
+  F_A2   Ceiling Violation    - a never exceeds a_max
+  F_A3   Drive w/o Coherence  - Low-C means no relational drive
+
+\033[36mKepler Falsifier:\033[0m
+  F_K1   Kepler's Third Law   - T^2 ~ r^3 for orbits
+
+If ANY test FAILS, DET is FALSIFIED.
+""")
+
+    def _falsify_all(self):
+        """Run all falsification tests."""
+        from det.eis.falsifiers import FalsifierSuite
+
+        print("\n\033[33mRunning DET v6.3 Falsification Suite...\033[0m\n")
+        suite = FalsifierSuite(verbose=True)
+        passed, total, _ = suite.run_all()
+
+    def _falsify_core(self):
+        """Run core falsifiers."""
+        from det.eis.falsifiers import FalsifierSuite
+
+        suite = FalsifierSuite(verbose=True)
+        results = suite.run_core()
+        passed = sum(1 for r in results if r.result.value == "PASS")
+        print(f"\n\033[33mCore: {passed}/{len(results)} PASSED\033[0m")
+
+    def _falsify_gtd(self):
+        """Run gravitational time dilation falsifiers."""
+        from det.eis.falsifiers import FalsifierSuite
+
+        suite = FalsifierSuite(verbose=True)
+        results = suite.run_gtd()
+        passed = sum(1 for r in results if r.result.value == "PASS")
+        print(f"\n\033[33mGTD: {passed}/{len(results)} PASSED\033[0m")
+
+    def _falsify_agency(self):
+        """Run agency falsifiers."""
+        from det.eis.falsifiers import FalsifierSuite
+
+        suite = FalsifierSuite(verbose=True)
+        results = suite.run_agency()
+        passed = sum(1 for r in results if r.result.value == "PASS")
+        print(f"\n\033[33mAgency: {passed}/{len(results)} PASSED\033[0m")
+
+    def _falsify_single(self, test_id: str):
+        """Run a single falsification test."""
+        from det.eis.falsifiers import FalsifierSuite
+
+        suite = FalsifierSuite(verbose=True)
+        result = suite.run_single(test_id)
+        if result:
+            color = "\033[32m" if result.result.value == "PASS" else "\033[31m"
+            print(f"\n{color}{result.test_id}: {result.result.value}\033[0m")
+
+    def _falsify_list(self):
+        """List all available falsification tests."""
+        from det.eis.falsifiers import FalsifierSuite
+
+        suite = FalsifierSuite(verbose=False)
+        tests = suite.list_tests()
+
+        print("\n\033[33mAvailable Falsification Tests:\033[0m")
+        print("\n\033[36mCore:\033[0m")
+        for t in tests:
+            if t.startswith("F") and not "_" in t:
+                print(f"  {t}")
+        print("\n\033[36mTime Dilation:\033[0m")
+        for t in tests:
+            if t.startswith("F_GTD"):
+                print(f"  {t}")
+        print("\n\033[36mAgency:\033[0m")
+        for t in tests:
+            if t.startswith("F_A"):
+                print(f"  {t}")
+        print("\n\033[36mKepler:\033[0m")
+        for t in tests:
+            if t.startswith("F_K"):
+                print(f"  {t}")
+        print()
 
 
 def main():

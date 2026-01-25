@@ -1136,3 +1136,456 @@ kernel void compute_presence(
     float q = node_q[node_id];
     node_P[node_id] = sqrt(F * F + q * q);
 }
+
+/* ==========================================================================
+ * LATTICE PHYSICS KERNELS (DET v6.3)
+ * ==========================================================================
+ *
+ * These kernels implement DET physics on a regular lattice topology.
+ * The lattice is the fundamental computational space of DET.
+ */
+
+/** Lattice configuration (matches substrate_lattice.h) */
+struct LatticeConfig {
+    uint dim;                   /* 1, 2, or 3 */
+    uint shape[3];              /* Grid size per dimension */
+    float dx;                   /* Grid spacing */
+    float dt;                   /* Time step */
+    uint num_nodes;             /* Total nodes */
+    uint num_bonds;             /* Total bonds */
+    float kappa_grav;           /* Helmholtz screening */
+    float mu_grav;              /* Poisson source */
+    float beta_g;               /* Momentum-gravity coupling */
+    float alpha_pi;             /* Momentum amplification */
+    float lambda_pi;            /* Momentum decay */
+    float alpha_C;              /* Coherence growth */
+    float lambda_C;             /* Coherence decay */
+    float C_init;               /* Initial coherence */
+    float outflow_limit;        /* Max outflow fraction */
+    float sigma;                /* Base conductivity */
+    uint gravity_enabled;       /* 1 = enabled */
+    uint momentum_enabled;      /* 1 = enabled */
+    uint _pad;
+};
+
+/** Get neighbor index with periodic boundary (1D) */
+inline uint lattice_neighbor_1d(uint idx, int offset, uint N) {
+    int i = int(idx) + offset;
+    return uint((i % int(N) + int(N)) % int(N));
+}
+
+/** Get neighbor index with periodic boundary (2D) */
+inline uint lattice_neighbor_2d(uint idx, int dx, int dy, uint Nx, uint Ny) {
+    int x = int(idx % Nx) + dx;
+    int y = int(idx / Nx) + dy;
+    x = (x % int(Nx) + int(Nx)) % int(Nx);
+    y = (y % int(Ny) + int(Ny)) % int(Ny);
+    return uint(y * int(Nx) + x);
+}
+
+/** Get neighbor index with periodic boundary (3D) */
+inline uint lattice_neighbor_3d(uint idx, int dx, int dy, int dz, uint Nx, uint Ny, uint Nz) {
+    int x = int(idx % Nx) + dx;
+    int y = int((idx / Nx) % Ny) + dy;
+    int z = int(idx / (Nx * Ny)) + dz;
+    x = (x % int(Nx) + int(Nx)) % int(Nx);
+    y = (y % int(Ny) + int(Ny)) % int(Ny);
+    z = (z % int(Nz) + int(Nz)) % int(Nz);
+    return uint(z * int(Ny) * int(Nx) + y * int(Nx) + x);
+}
+
+/* ==========================================================================
+ * KERNEL: Lattice Presence Step (DET v6.3)
+ * P = a*sigma / (1+F) / (1+H)
+ * Delta_tau = P * dt
+ * ========================================================================== */
+
+kernel void lattice_presence_step(
+    device float* node_F [[buffer(0)]],
+    device float* node_a [[buffer(1)]],
+    device float* node_sigma [[buffer(2)]],
+    device float* node_P [[buffer(3)]],
+    device float* phi [[buffer(4)]],
+    device float* Delta_tau [[buffer(5)]],
+    constant LatticeConfig& config [[buffer(6)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    float F = node_F[node_id];
+    float a = node_a[node_id];
+    float sigma = node_sigma[node_id];
+    float H = abs(phi[node_id]);  /* Local curvature */
+
+    /* DET v6.3 presence formula */
+    float P = a * sigma / (1.0f + F) / (1.0f + H);
+    node_P[node_id] = P;
+    Delta_tau[node_id] = P * config.dt;
+}
+
+/* ==========================================================================
+ * KERNEL: Lattice Flux Computation (1D)
+ * Computes diffusive + momentum + gravity flux
+ * ========================================================================== */
+
+kernel void lattice_flux_1d(
+    device float* node_F [[buffer(0)]],
+    device float* bond_C [[buffer(1)]],
+    device float* bond_pi [[buffer(2)]],
+    device float* phi [[buffer(3)]],
+    device float* J_R [[buffer(4)]],      /* Flux to +x neighbor */
+    device float* J_L [[buffer(5)]],      /* Flux to -x neighbor */
+    device float* grad_phi [[buffer(6)]],
+    constant LatticeConfig& config [[buffer(7)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    uint N = config.shape[0];
+    float dx = config.dx;
+    float g = 1.0f / (dx * dx);
+
+    /* Get neighbors */
+    uint ip = lattice_neighbor_1d(node_id, 1, N);
+    uint im = lattice_neighbor_1d(node_id, -1, N);
+
+    float F_i = node_F[node_id];
+    float F_ip = node_F[ip];
+    float F_im = node_F[im];
+
+    /* Bond indices (in 1D, bond i connects node i to node i+1) */
+    uint bond_R = node_id;
+    uint bond_L = (node_id + N - 1) % N;
+
+    float C_R = bond_C[bond_R];
+    float C_L = bond_C[bond_L];
+    float pi_R = bond_pi[bond_R];
+    float pi_L = bond_pi[bond_L];
+
+    /* Compute gradient phi */
+    float phi_ip = phi[ip];
+    float phi_im = phi[im];
+    float grad = (phi_ip - phi_im) / (2.0f * dx);
+    grad_phi[node_id] = grad;
+
+    /* ---- Diffusive flux (to +x neighbor) ---- */
+    float grad_R = F_i - F_ip;
+    float sqrt_C_R = sqrt(max(C_R, 0.01f));
+    float drive_R = (1.0f - sqrt_C_R) * grad_R;
+    float cond_R = config.sigma * (C_R + 1e-4f);
+    float J_diff_R = g * cond_R * drive_R;
+
+    /* Momentum flux */
+    float J_mom_R = g * pi_R;
+
+    /* Gravity flux */
+    float J_grav_R = 0.0f;
+    if (config.gravity_enabled) {
+        J_grav_R = -g * F_i * grad;
+    }
+
+    J_R[node_id] = J_diff_R + J_mom_R + J_grav_R;
+
+    /* ---- Diffusive flux (to -x neighbor) ---- */
+    float grad_L = F_i - F_im;
+    float sqrt_C_L = sqrt(max(C_L, 0.01f));
+    float drive_L = (1.0f - sqrt_C_L) * grad_L;
+    float cond_L = config.sigma * (C_L + 1e-4f);
+    float J_diff_L = g * cond_L * drive_L;
+
+    /* Momentum flux (negative direction) */
+    float J_mom_L = -g * pi_L;
+
+    /* Gravity flux (negative direction) */
+    float J_grav_L = 0.0f;
+    if (config.gravity_enabled) {
+        J_grav_L = g * F_i * grad;
+    }
+
+    J_L[node_id] = J_diff_L + J_mom_L + J_grav_L;
+}
+
+/* ==========================================================================
+ * KERNEL: Conservative Limiter
+ * Limits outflow to preserve mass conservation
+ * ========================================================================== */
+
+kernel void lattice_limiter_1d(
+    device float* node_F [[buffer(0)]],
+    device float* Delta_tau [[buffer(1)]],
+    device float* J_R [[buffer(2)]],
+    device float* J_L [[buffer(3)]],
+    device float* scale [[buffer(4)]],
+    constant LatticeConfig& config [[buffer(5)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    /* Compute total outflow */
+    float out_R = max(0.0f, J_R[node_id]);
+    float out_L = max(0.0f, J_L[node_id]);
+    float total_out = out_R + out_L;
+
+    /* Max allowed outflow */
+    float F = node_F[node_id];
+    float dt = Delta_tau[node_id];
+    float max_out = config.outflow_limit * F / (dt + 1e-9f);
+
+    /* Scale factor */
+    float s = min(1.0f, max_out / (total_out + 1e-9f));
+    scale[node_id] = s;
+
+    /* Apply limiter to positive fluxes */
+    if (J_R[node_id] > 0) J_R[node_id] *= s;
+    if (J_L[node_id] > 0) J_L[node_id] *= s;
+}
+
+/* ==========================================================================
+ * KERNEL: Apply Flux Divergence (Update F)
+ * ========================================================================== */
+
+kernel void lattice_apply_flux_1d(
+    device float* node_F [[buffer(0)]],
+    device float* Delta_tau [[buffer(1)]],
+    device float* J_R [[buffer(2)]],
+    device float* J_L [[buffer(3)]],
+    device atomic_float* dissipation [[buffer(4)]],
+    constant LatticeConfig& config [[buffer(5)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    uint N = config.shape[0];
+    float dt = Delta_tau[node_id];
+
+    /* Get neighbors */
+    uint ip = lattice_neighbor_1d(node_id, 1, N);
+    uint im = lattice_neighbor_1d(node_id, -1, N);
+
+    /* Incoming from neighbors */
+    float in_from_m = max(0.0f, J_R[im]);    /* -x neighbor's +flux to us */
+    float in_from_p = max(0.0f, J_L[ip]);    /* +x neighbor's -flux to us */
+
+    /* Outgoing from us */
+    float out_to_p = max(0.0f, J_R[node_id]);
+    float out_to_m = max(0.0f, J_L[node_id]);
+
+    /* Net change */
+    float dF = (in_from_m + in_from_p - out_to_p - out_to_m) * dt;
+    float F_new = node_F[node_id] + dF;
+
+    /* Handle negative (dissipation) */
+    if (F_new < 0) {
+        atomic_fetch_add_explicit(dissipation, -F_new, memory_order_relaxed);
+        F_new = 0.0f;
+    }
+
+    node_F[node_id] = F_new;
+}
+
+/* ==========================================================================
+ * KERNEL: Update Momentum
+ * pi += alpha_pi * J_diff - lambda_pi * pi + beta_g * grad_phi
+ * ========================================================================== */
+
+kernel void lattice_momentum_1d(
+    device float* bond_pi [[buffer(0)]],
+    device float* J_R [[buffer(1)]],
+    device float* grad_phi [[buffer(2)]],
+    device float* Delta_tau [[buffer(3)]],
+    constant LatticeConfig& config [[buffer(4)]],
+    uint bond_id [[thread_position_in_grid]]
+) {
+    if (bond_id >= config.num_nodes) return;  /* In 1D, num_bonds = num_nodes */
+
+    float pi = bond_pi[bond_id];
+    float J = J_R[bond_id];
+    float grad = grad_phi[bond_id];
+    float dt = Delta_tau[bond_id];
+
+    /* Momentum update */
+    float pi_new = pi
+                 + config.alpha_pi * J * dt
+                 - config.lambda_pi * pi * dt
+                 + config.beta_g * grad * dt;
+
+    bond_pi[bond_id] = pi_new;
+}
+
+/* ==========================================================================
+ * KERNEL: Update Coherence
+ * C = clamp(C + alpha_C * |J| - lambda_C * C, C_init, 1)
+ * ========================================================================== */
+
+kernel void lattice_coherence_1d(
+    device float* bond_C [[buffer(0)]],
+    device float* J_R [[buffer(1)]],
+    device float* Delta_tau [[buffer(2)]],
+    constant LatticeConfig& config [[buffer(3)]],
+    uint bond_id [[thread_position_in_grid]]
+) {
+    if (bond_id >= config.num_nodes) return;
+
+    float C = bond_C[bond_id];
+    float J = abs(J_R[bond_id]);
+    float dt = Delta_tau[bond_id];
+
+    /* Coherence update */
+    float C_new = C
+                + config.alpha_C * J * dt
+                - config.lambda_C * C * dt;
+
+    bond_C[bond_id] = clamp(C_new, config.C_init, 1.0f);
+}
+
+/* ==========================================================================
+ * KERNEL: Update Structure (q)
+ * q = clamp(q + alpha_q * outflow - gamma_q * q, 0, 1)
+ * ========================================================================== */
+
+kernel void lattice_structure_1d(
+    device float* node_q [[buffer(0)]],
+    device float* J_R [[buffer(1)]],
+    device float* J_L [[buffer(2)]],
+    device float* Delta_tau [[buffer(3)]],
+    constant LatticeConfig& config [[buffer(4)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    float q = node_q[node_id];
+    float dt = Delta_tau[node_id];
+
+    /* Net outflow */
+    float outflow = max(0.0f, J_R[node_id]) + max(0.0f, J_L[node_id]);
+
+    /* Structure update */
+    float alpha_q = 0.05f;  /* TODO: add to config */
+    float gamma_q = 0.01f;
+    float q_new = q + alpha_q * outflow * dt - gamma_q * q * dt;
+
+    node_q[node_id] = clamp(q_new, 0.0f, 1.0f);
+}
+
+/* ==========================================================================
+ * KERNEL: Update Agency (v6.4 structural ceiling)
+ * a = clamp(a + (a_target - a) * kappa_a, 0, 1)
+ * where a_target = min(1-q, a_mean_neighbors)
+ * ========================================================================== */
+
+kernel void lattice_agency_1d(
+    device float* node_a [[buffer(0)]],
+    device float* node_q [[buffer(1)]],
+    device float* Delta_tau [[buffer(2)]],
+    constant LatticeConfig& config [[buffer(3)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    uint N = config.shape[0];
+    float a = node_a[node_id];
+    float q = node_q[node_id];
+    float dt = Delta_tau[node_id];
+
+    /* Structural ceiling */
+    float ceiling = 1.0f - q;
+
+    /* Neighbor mean */
+    uint ip = lattice_neighbor_1d(node_id, 1, N);
+    uint im = lattice_neighbor_1d(node_id, -1, N);
+    float a_mean = (node_a[ip] + node_a[im]) / 2.0f;
+
+    /* Target */
+    float a_target = min(ceiling, a_mean);
+
+    /* Relaxation */
+    float kappa_a = 0.1f;
+    float a_new = a + (a_target - a) * kappa_a * dt;
+
+    node_a[node_id] = clamp(a_new, 0.0f, 1.0f);
+}
+
+/* ==========================================================================
+ * KERNEL: Grace Injection
+ * Inject emergency resource from dissipation pool to depleted nodes
+ * ========================================================================== */
+
+kernel void lattice_grace(
+    device float* node_F [[buffer(0)]],
+    device float* node_a [[buffer(1)]],
+    device float* node_q [[buffer(2)]],
+    device atomic_float* dissipation [[buffer(3)]],
+    constant LatticeConfig& config [[buffer(4)]],
+    constant float& F_MIN [[buffer(5)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    float F = node_F[node_id];
+    float a = node_a[node_id];
+
+    /* Calculate need */
+    float need = max(0.0f, F_MIN - F);
+    if (need < 1e-6f) return;
+
+    /* Weighted need */
+    float w = a * need;
+
+    /* Get share of dissipation pool (simplified: proportional) */
+    float pool = atomic_load_explicit(dissipation, memory_order_relaxed);
+    if (pool < 1e-6f) return;
+
+    /* Very simple grace: each needy node takes a small share */
+    float grace = min(need, pool / float(config.num_nodes));
+
+    /* Apply */
+    node_F[node_id] += grace;
+    node_q[node_id] = max(0.0f, node_q[node_id] - grace * 0.1f);
+
+    atomic_fetch_sub_explicit(dissipation, grace, memory_order_relaxed);
+}
+
+/* ==========================================================================
+ * KERNEL: Gravity Solver (Jacobi Iteration)
+ * For FFT-based solver, use Metal Performance Shaders externally
+ * This is a simple iterative fallback
+ * ========================================================================== */
+
+kernel void lattice_gravity_jacobi_1d(
+    device float* phi [[buffer(0)]],
+    device float* phi_new [[buffer(1)]],
+    device float* node_q [[buffer(2)]],
+    constant LatticeConfig& config [[buffer(3)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= config.num_nodes) return;
+
+    uint N = config.shape[0];
+    float dx = config.dx;
+
+    uint ip = lattice_neighbor_1d(node_id, 1, N);
+    uint im = lattice_neighbor_1d(node_id, -1, N);
+
+    float phi_ip = phi[ip];
+    float phi_im = phi[im];
+    float q = node_q[node_id];
+
+    /* Poisson: nabla^2 phi = -mu * q */
+    /* Jacobi: phi_new = (phi_ip + phi_im + mu*q*dx^2) / 2 */
+    float source = -config.mu_grav * q * dx * dx;
+    phi_new[node_id] = (phi_ip + phi_im + source) / 2.0f;
+}
+
+/* ==========================================================================
+ * KERNEL: Statistics - Total Mass
+ * ========================================================================== */
+
+kernel void lattice_sum_mass(
+    device float* node_F [[buffer(0)]],
+    device atomic_float* total [[buffer(1)]],
+    constant uint& num_nodes [[buffer(2)]],
+    uint node_id [[thread_position_in_grid]]
+) {
+    if (node_id >= num_nodes) return;
+    atomic_fetch_add_explicit(total, node_F[node_id], memory_order_relaxed);
+}
