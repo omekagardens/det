@@ -172,6 +172,17 @@ class ConditionalExpr(Expression):
     else_value: Expression
 
 
+@dataclass(kw_only=True)
+class PrimitiveCallExpr(Expression):
+    """Primitive call expression: primitive("name", arg1, arg2, ...).
+
+    Calls external I/O functions (llm_call, exec, file_read, etc.)
+    that are provided by the substrate layer.
+    """
+    primitive_name: str
+    arguments: list[Expression] = field(default_factory=list)
+
+
 # ==============================================================================
 # Statements
 # ==============================================================================

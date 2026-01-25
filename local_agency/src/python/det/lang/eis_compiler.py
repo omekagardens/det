@@ -82,6 +82,7 @@ Proposal = _ast_nodes.Proposal
 PhaseBlock = _ast_nodes.PhaseBlock
 Law = _ast_nodes.Law
 ASTVisitor = _ast_nodes.ASTVisitor
+PrimitiveCallExpr = _ast_nodes.PrimitiveCallExpr
 
 # Load EIS modules directly
 if "det.eis.types" not in sys.modules:
@@ -382,6 +383,16 @@ class CompiledCreature:
     grace_code: bytes = b''
     participate_code: bytes = b''
     init_code: bytes = b''
+    kernels: Dict[str, 'CompiledKernel'] = field(default_factory=dict)
+
+
+@dataclass
+class CompiledPort:
+    """A compiled kernel port with register assignment."""
+    name: str
+    direction: str  # "in" or "out"
+    port_type: str  # "Register" or "TokenReg"
+    reg_index: int  # Allocated register index
 
 
 @dataclass
@@ -390,6 +401,7 @@ class CompiledKernel:
     name: str
     code: bytes = b''
     port_count: int = 0
+    ports: List[CompiledPort] = field(default_factory=list)
 
 
 @dataclass
@@ -497,8 +509,74 @@ class EISCompiler(ASTVisitor):
             self._compile_block(creature.participate.body)
             compiled.participate_code = self._finalize_bytecode()
 
+        # Compile nested kernels
+        if hasattr(creature, 'nested_kernels'):
+            for kernel in creature.nested_kernels:
+                self._compile_kernel_for_creature(kernel, compiled)
+
         self.output.creatures[creature.name] = compiled
         self.current_creature = None
+
+    def _compile_kernel_for_creature(self, kernel: Kernel, compiled_creature: CompiledCreature):
+        """Compile a kernel and add it to the creature's kernel dict."""
+        self.current_kernel = kernel.name
+        self._reset_compilation()
+
+        # Push kernel-level scope for ports (preserved across phases)
+        self.regs.push_scope(f"kernel:{kernel.name}")
+
+        # Allocate registers for ports and record port info
+        compiled_ports = []
+        for port in kernel.ports:
+            if port.type_annotation:
+                # Get direction as string (in/out/inout)
+                if hasattr(port, 'direction') and port.direction:
+                    direction = port.direction.name.lower()  # IN -> "in", OUT -> "out"
+                else:
+                    direction = "in"
+
+                if port.type_annotation.kind == TypeKind.REGISTER:
+                    reg_idx = self.regs.alloc_scalar(port.name)
+                    compiled_ports.append(CompiledPort(
+                        name=port.name,
+                        direction=direction,
+                        port_type="Register",
+                        reg_index=reg_idx
+                    ))
+                elif port.type_annotation.kind == TypeKind.TOKEN_REG:
+                    reg_idx = self.regs.alloc_token(port.name)
+                    compiled_ports.append(CompiledPort(
+                        name=port.name,
+                        direction=direction,
+                        port_type="TokenReg",
+                        reg_index=reg_idx
+                    ))
+
+        # Compile kernel phases
+        for phase_block in kernel.phases:
+            self._compile_phase_block(phase_block)
+
+        # RET instruction
+        self._emit(Instruction(Opcode.RET))
+
+        # Pop kernel scope
+        self.regs.pop_scope()
+
+        compiled_kernel = CompiledKernel(
+            name=kernel.name,
+            code=self._finalize_bytecode(),
+            port_count=len(kernel.ports),
+            ports=compiled_ports
+        )
+
+        # Add to creature's kernels
+        compiled_creature.kernels[kernel.name] = compiled_kernel
+
+        # Also add to global kernels for backward compatibility
+        full_name = f"{self.current_creature}.{kernel.name}"
+        self.output.kernels[full_name] = compiled_kernel
+
+        self.current_kernel = None
 
     # ==========================================================================
     # Kernel Compilation
@@ -512,13 +590,32 @@ class EISCompiler(ASTVisitor):
         # Push kernel-level scope for ports (preserved across phases)
         self.regs.push_scope(f"kernel:{kernel.name}")
 
-        # Allocate registers for ports
+        # Allocate registers for ports and record port info
+        compiled_ports = []
         for port in kernel.ports:
             if port.type_annotation:
+                # Get direction as string (in/out/inout)
+                if hasattr(port, 'direction') and port.direction:
+                    direction = port.direction.name.lower()  # IN -> "in", OUT -> "out"
+                else:
+                    direction = "in"
+
                 if port.type_annotation.kind == TypeKind.REGISTER:
-                    self.regs.alloc_scalar(port.name)
+                    reg_idx = self.regs.alloc_scalar(port.name)
+                    compiled_ports.append(CompiledPort(
+                        name=port.name,
+                        direction=direction,
+                        port_type="Register",
+                        reg_index=reg_idx
+                    ))
                 elif port.type_annotation.kind == TypeKind.TOKEN_REG:
-                    self.regs.alloc_token(port.name)
+                    reg_idx = self.regs.alloc_token(port.name)
+                    compiled_ports.append(CompiledPort(
+                        name=port.name,
+                        direction=direction,
+                        port_type="TokenReg",
+                        reg_index=reg_idx
+                    ))
 
         # Compile kernel phases
         for phase_block in kernel.phases:
@@ -533,7 +630,8 @@ class EISCompiler(ASTVisitor):
         compiled = CompiledKernel(
             name=kernel.name,
             code=self._finalize_bytecode(),
-            port_count=len(kernel.ports)
+            port_count=len(kernel.ports),
+            ports=compiled_ports
         )
         self.output.kernels[kernel.name] = compiled
         self.current_kernel = None
@@ -1030,6 +1128,8 @@ class EISCompiler(ASTVisitor):
             if expr.elements:
                 return self._compile_expression(expr.elements[0])
             return self.regs.alloc_scalar()
+        elif isinstance(expr, PrimitiveCallExpr):
+            return self._compile_primitive_call(expr)
         else:
             # Unknown expression type
             return self.regs.alloc_scalar()
@@ -1325,6 +1425,52 @@ class EISCompiler(ASTVisitor):
         ref_reg = self.regs.alloc_ref()
         self._emit(Instruction(Opcode.GETSELF, dst=ref_reg))
         return ref_reg
+
+    def _compile_primitive_call(self, prim: 'PrimitiveCallExpr') -> int:
+        """
+        Compile primitive("name", args...) expression.
+
+        Primitives are external I/O functions provided by the substrate.
+        At runtime, the VM will dispatch to the primitive registry.
+
+        Encoding:
+        - V2_PRIM opcode with primitive name index in ext field
+        - Arguments passed in R0-R7
+        - Result returned in dst register
+        - imm = arg_count
+        """
+        result_reg = self.regs.alloc_scalar()
+
+        # Map primitive name to index for compact encoding
+        # Well-known primitives get stable indices
+        PRIM_NAMES = {
+            'llm_call': 0, 'llm_chat': 1,
+            'exec': 2, 'exec_safe': 3,
+            'file_read': 4, 'file_write': 5, 'file_exists': 6, 'file_list': 7,
+            'now': 8, 'now_iso': 9, 'sleep': 10,
+            'random': 11, 'random_int': 12, 'random_seed': 13,
+            'print': 14, 'log': 15,
+            'hash_sha256': 16,
+            # Terminal primitives (Phase 19)
+            'terminal_read': 17, 'terminal_write': 18, 'terminal_prompt': 19,
+            'terminal_clear': 20, 'terminal_color': 21,
+        }
+        name_id = PRIM_NAMES.get(prim.primitive_name, hash(prim.primitive_name) & 0xFFFF)
+
+        # Compile arguments and place in registers R0-R7
+        for i, arg in enumerate(prim.arguments[:8]):  # Max 8 args
+            arg_reg = self._compile_expression(arg)
+            if arg_reg != i:
+                # Move to argument register
+                self._emit(Instruction(Opcode.ADD, dst=i, src0=arg_reg, src1=0))
+                self.regs.free_scalar(arg_reg)
+
+        # Emit V2_PRIM instruction
+        # Format: V2_PRIM dst, arg_count, ext=name_id
+        arg_count = len(prim.arguments)
+        self._emit(Instruction(Opcode.V2_PRIM, dst=result_reg, imm=arg_count, ext=name_id))
+
+        return result_reg
 
     # ==========================================================================
     # Helper Methods

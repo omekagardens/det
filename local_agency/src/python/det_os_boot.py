@@ -1,0 +1,1051 @@
+#!/usr/bin/env python3
+"""
+DET-OS Bootstrap Loader
+=======================
+
+Minimal bootstrap to start the DET-native operating system.
+Loads creatures from Existence-Lang and connects them via bonds.
+
+Architecture:
+    TerminalCreature <--bond--> LLMCreature
+    TerminalCreature <--bond--> ToolCreature
+
+All creature logic is in pure Existence-Lang. This bootstrap only:
+1. Compiles .ex files to bytecode
+2. Spawns creature instances
+3. Creates bonds between creatures
+4. Runs the REPL loop dispatching via bonds
+
+Usage:
+    python det_os_boot.py
+    python det_os_boot.py -v  # verbose mode
+
+Author: DET Local Agency Project
+"""
+
+import os
+import sys
+import argparse
+import time
+from pathlib import Path
+from typing import Dict, Optional
+
+# Add parent to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from det.lang.bytecode_cache import BytecodeCache, load_creature as cache_load_creature
+from det.eis.creature_runner import CreatureRunner, CompiledCreatureData, CreatureState
+from det.eis.primitives import get_registry
+
+# Optional GPU backend
+try:
+    from det.metal import MetalBackend, NodeArraysHelper, BondArraysHelper
+    GPU_AVAILABLE = MetalBackend.is_available()
+except ImportError:
+    GPU_AVAILABLE = False
+    MetalBackend = None
+    NodeArraysHelper = None
+    BondArraysHelper = None
+
+
+# Base directory for creature source files
+EXISTENCE_DIR = Path(__file__).parent.parent / "existence"
+
+# Global bytecode cache
+_cache = BytecodeCache()
+
+
+def load_and_compile(path: Path, verbose: bool = False, force_recompile: bool = False) -> Dict[str, CompiledCreatureData]:
+    """
+    Load creature from .ex file, using cached .exb if available.
+
+    Uses BytecodeCache for fast loading from precompiled bytecode.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Creature file not found: {path}")
+
+    start = time.perf_counter()
+
+    # Check if .exb exists and is valid
+    exb_path = path.with_suffix('.exb')
+    cache_hit = _cache.is_cache_valid(path) and not force_recompile
+
+    # Load using cache (auto-compiles if needed)
+    data = _cache.load(path, force_recompile=force_recompile)
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    if verbose:
+        source = "cache" if cache_hit else "compiled"
+        for name, creature in data.items():
+            print(f"  Loaded {name} from {source}: {len(creature.kernels)} kernels ({elapsed_ms:.2f}ms)")
+
+    return data
+
+
+class DETRuntime:
+    """
+    DET-OS Runtime Manager.
+
+    Manages creature lifecycle and bond-based communication.
+    Supports optional GPU acceleration via Metal compute shaders.
+    """
+
+    def __init__(self, verbose: bool = False, use_gpu: bool = False):
+        self.runner = CreatureRunner()
+        self.verbose = verbose
+
+        # Creature registry: name -> (cid, compiled_data)
+        self.creatures: Dict[str, tuple] = {}
+
+        # Creature IDs (shortcuts for core creatures)
+        self.terminal_cid: Optional[int] = None
+        self.llm_cid: Optional[int] = None
+        self.tool_cid: Optional[int] = None
+
+        # Bond channel IDs
+        self.terminal_llm_bond: Optional[int] = None
+        self.terminal_tool_bond: Optional[int] = None
+
+        # Available creature files (discovered)
+        self.available_creatures: Dict[str, Path] = {}
+
+        # GPU Backend (optional)
+        self.gpu_enabled = False
+        self.gpu_backend: Optional['MetalBackend'] = None
+        self.gpu_nodes: Optional['NodeArraysHelper'] = None
+        self.gpu_bonds: Optional['BondArraysHelper'] = None
+
+        if use_gpu and GPU_AVAILABLE:
+            self._init_gpu()
+
+    def _init_gpu(self, max_nodes: int = 1024, max_bonds: int = 4096):
+        """Initialize GPU backend for accelerated substrate execution."""
+        if not GPU_AVAILABLE:
+            print("GPU not available")
+            return False
+
+        try:
+            self.gpu_backend = MetalBackend()
+            self.gpu_nodes = NodeArraysHelper(max_nodes)
+            self.gpu_bonds = BondArraysHelper(max_bonds)
+            self.gpu_enabled = True
+
+            if self.verbose:
+                print(f"  GPU initialized: {self.gpu_backend.device_name}")
+                print(f"    Max nodes: {max_nodes}, Max bonds: {max_bonds}")
+                print(f"    Memory: {self.gpu_backend.memory_usage / 1024 / 1024:.1f} MB")
+            return True
+        except Exception as e:
+            print(f"GPU initialization failed: {e}")
+            self.gpu_enabled = False
+            return False
+
+    def gpu_sync_to_device(self):
+        """Sync creature state from Python to GPU."""
+        if not self.gpu_enabled:
+            return
+
+        # Map creature IDs to node indices
+        for name, (cid, compiled) in self.creatures.items():
+            creature = self.runner.creatures.get(cid)
+            if creature and cid < self.gpu_nodes.num_nodes:
+                self.gpu_nodes.F[cid] = creature.F
+                self.gpu_nodes.a[cid] = creature.a
+                self.gpu_nodes.q[cid] = creature.q
+                self.gpu_nodes.sigma[cid] = 1.0  # Default processing rate
+
+        # Sync bonds
+        bond_idx = 0
+        for channel_id, channel in self.runner.channels.items():
+            if bond_idx < self.gpu_bonds.num_bonds:
+                self.gpu_bonds.connect(bond_idx, channel.creature_a, channel.creature_b)
+                self.gpu_bonds.C[bond_idx] = channel.coherence
+                bond_idx += 1
+
+        # Upload to GPU
+        num_creatures = len(self.creatures)
+        num_bonds = len(self.runner.channels)
+        self.gpu_backend.upload_nodes(self.gpu_nodes.as_ctypes(), num_creatures)
+        self.gpu_backend.upload_bonds(self.gpu_bonds.as_ctypes(), num_bonds)
+
+    def gpu_sync_from_device(self):
+        """Sync creature state from GPU back to Python."""
+        if not self.gpu_enabled:
+            return
+
+        num_creatures = len(self.creatures)
+        self.gpu_backend.download_nodes(self.gpu_nodes.as_ctypes(), num_creatures)
+
+        # Update creature state from GPU results
+        for name, (cid, compiled) in self.creatures.items():
+            creature = self.runner.creatures.get(cid)
+            if creature and cid < self.gpu_nodes.num_nodes:
+                creature.F = self.gpu_nodes.F[cid]
+                creature.a = self.gpu_nodes.a[cid]
+                creature.q = self.gpu_nodes.q[cid]
+
+    def gpu_execute_ticks(self, num_ticks: int = 1) -> float:
+        """
+        Execute substrate ticks on GPU.
+
+        Returns execution time in milliseconds.
+        """
+        if not self.gpu_enabled:
+            return 0.0
+
+        self.gpu_sync_to_device()
+
+        num_lanes = len(self.creatures)
+        start = time.perf_counter()
+        self.gpu_backend.execute_ticks(num_lanes, num_ticks)
+        self.gpu_backend.synchronize()
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        self.gpu_sync_from_device()
+        return elapsed_ms
+
+    def gpu_benchmark(self, num_nodes: int = 1000, num_bonds: int = 2000, num_ticks: int = 1000):
+        """Run GPU benchmark with synthetic data."""
+        if not GPU_AVAILABLE:
+            print("GPU not available for benchmarking")
+            return
+
+        print(f"\n\033[33mGPU Benchmark\033[0m")
+        print(f"  Device: {MetalBackend().device_name if GPU_AVAILABLE else 'N/A'}")
+        print(f"  Configuration: {num_nodes} nodes, {num_bonds} bonds, {num_ticks} ticks")
+        print()
+
+        # Create test arrays
+        nodes = NodeArraysHelper(num_nodes)
+        bonds = BondArraysHelper(num_bonds)
+
+        # Initialize with test data
+        import random
+        for i in range(num_nodes):
+            nodes.F[i] = random.uniform(1.0, 100.0)
+            nodes.a[i] = random.uniform(0.5, 1.0)
+            nodes.sigma[i] = random.uniform(0.1, 1.0)
+
+        for b in range(num_bonds):
+            bonds.connect(b, b % num_nodes, (b + 1) % num_nodes)
+            bonds.C[b] = random.uniform(0.5, 1.0)
+
+        # GPU execution
+        backend = MetalBackend()
+        backend.upload_nodes(nodes.as_ctypes(), num_nodes)
+        backend.upload_bonds(bonds.as_ctypes(), num_bonds)
+
+        start = time.perf_counter()
+        backend.execute_ticks(num_nodes, num_ticks)
+        backend.synchronize()
+        gpu_time = (time.perf_counter() - start) * 1000
+
+        backend.download_nodes(nodes.as_ctypes(), num_nodes)
+
+        # Results
+        ticks_per_sec = num_ticks / (gpu_time / 1000)
+        print(f"  GPU Time: {gpu_time:.2f}ms")
+        print(f"  Rate: {ticks_per_sec:.0f} ticks/sec")
+        print(f"  Memory: {backend.memory_usage / 1024 / 1024:.1f} MB")
+        print()
+
+        # Sample output
+        print(f"  Sample node[0]: F={nodes.F[0]:.4f}, tau={nodes.tau[0]:.4f}")
+        print()
+
+    def discover_creatures(self):
+        """Discover available creature files."""
+        self.available_creatures = {}
+        if EXISTENCE_DIR.exists():
+            for ex_file in EXISTENCE_DIR.glob("*.ex"):
+                # Skip non-creature files
+                if ex_file.name in ["kernel.ex", "physics.ex"]:
+                    continue
+                name = ex_file.stem
+                self.available_creatures[name] = ex_file
+
+    def bootstrap(self):
+        """
+        Bootstrap the DET-OS by loading all core creatures and bonding them.
+        """
+        gpu_status = f" [GPU: {self.gpu_backend.device_name}]" if self.gpu_enabled else ""
+        print(f"Bootstrapping DET-OS...{gpu_status}")
+
+        # Discover available creatures
+        self.discover_creatures()
+
+        # Load and compile core creatures
+        core_creatures = [
+            ("terminal", "terminal.ex", "TerminalCreature", 100.0, 0.8),
+            ("llm", "llm.ex", "LLMCreature", 100.0, 0.7),
+            ("tool", "tool.ex", "ToolCreature", 50.0, 0.6),
+        ]
+
+        for short_name, filename, class_name, initial_f, initial_a in core_creatures:
+            path = EXISTENCE_DIR / filename
+            if path.exists():
+                if self.verbose:
+                    print(f"Loading {filename}...")
+                try:
+                    data = load_and_compile(path, self.verbose)
+                    if class_name in data:
+                        compiled = data[class_name]
+                        cid = self.runner.spawn(compiled, initial_f=initial_f, initial_a=initial_a)
+                        self.creatures[short_name] = (cid, compiled)
+
+                        # Set shortcuts for core creatures
+                        if short_name == "terminal":
+                            self.terminal_cid = cid
+                        elif short_name == "llm":
+                            self.llm_cid = cid
+                        elif short_name == "tool":
+                            self.tool_cid = cid
+
+                        if self.verbose:
+                            print(f"  Spawned {class_name} (cid={cid})")
+                    else:
+                        print(f"  Warning: {class_name} not found in {filename}")
+                except Exception as e:
+                    print(f"  Error loading {filename}: {e}")
+            else:
+                print(f"  Warning: {filename} not found")
+
+        # Create bonds between terminal and other creatures
+        if self.terminal_cid and self.llm_cid:
+            self.terminal_llm_bond = self.runner.bond(
+                self.terminal_cid,
+                self.llm_cid,
+                coherence=1.0
+            )
+            if self.verbose:
+                print(f"  Bonded Terminal <-> LLM (channel={self.terminal_llm_bond})")
+
+        if self.terminal_cid and self.tool_cid:
+            self.terminal_tool_bond = self.runner.bond(
+                self.terminal_cid,
+                self.tool_cid,
+                coherence=1.0
+            )
+            if self.verbose:
+                print(f"  Bonded Terminal <-> Tool (channel={self.terminal_tool_bond})")
+
+        print("Bootstrap complete.")
+        print()
+
+    def load_creature(self, name: str, initial_f: float = 50.0, initial_a: float = 0.5) -> Optional[int]:
+        """
+        Load a creature from an .ex file.
+
+        Returns creature ID if successful, None otherwise.
+        """
+        # Check if already loaded
+        if name in self.creatures:
+            print(f"Creature '{name}' is already loaded (cid={self.creatures[name][0]})")
+            return self.creatures[name][0]
+
+        # Find the file
+        if name in self.available_creatures:
+            path = self.available_creatures[name]
+        else:
+            path = EXISTENCE_DIR / f"{name}.ex"
+
+        if not path.exists():
+            print(f"Creature file not found: {path}")
+            return None
+
+        try:
+            data = load_and_compile(path, self.verbose)
+            # Find the creature class (usually CamelCase of filename)
+            class_name = None
+            for cname in data.keys():
+                if cname.lower().replace("creature", "") == name.lower().replace("creature", ""):
+                    class_name = cname
+                    break
+            if not class_name:
+                class_name = list(data.keys())[0] if data else None
+
+            if not class_name:
+                print(f"No creature found in {path}")
+                return None
+
+            compiled = data[class_name]
+            cid = self.runner.spawn(compiled, initial_f=initial_f, initial_a=initial_a)
+            self.creatures[name] = (cid, compiled)
+            print(f"Loaded {class_name} as '{name}' (cid={cid}, F={initial_f}, a={initial_a})")
+            return cid
+
+        except Exception as e:
+            print(f"Error loading creature: {e}")
+            return None
+
+    def unload_creature(self, name: str) -> bool:
+        """
+        Unload a creature.
+
+        Returns True if successful.
+        """
+        if name not in self.creatures:
+            print(f"Creature '{name}' is not loaded")
+            return False
+
+        # Don't allow unloading terminal
+        if name == "terminal":
+            print("Cannot unload terminal creature")
+            return False
+
+        cid, _ = self.creatures[name]
+
+        # Remove from runner (mark as dead)
+        if cid in self.runner.creatures:
+            self.runner.creatures[cid].state = CreatureState.DEAD
+            del self.runner.creatures[cid]
+
+        del self.creatures[name]
+
+        # Clear shortcuts if applicable
+        if cid == self.llm_cid:
+            self.llm_cid = None
+            self.terminal_llm_bond = None
+        elif cid == self.tool_cid:
+            self.tool_cid = None
+            self.terminal_tool_bond = None
+
+        print(f"Unloaded creature '{name}' (cid={cid})")
+        return True
+
+    def bond_creature(self, name_a: str, name_b: str = None) -> Optional[int]:
+        """
+        Create a bond between two creatures.
+
+        If only name_a is provided, bonds terminal to name_a.
+        If both provided, bonds name_a to name_b.
+        """
+        # Single arg: bond terminal to creature
+        if name_b is None:
+            if name_a not in self.creatures:
+                print(f"Creature '{name_a}' is not loaded")
+                return None
+
+            if not self.terminal_cid:
+                print("Terminal creature not available")
+                return None
+
+            cid, _ = self.creatures[name_a]
+
+            # Check if already bonded
+            terminal = self.runner.creatures.get(self.terminal_cid)
+            if terminal and cid in terminal.bonds:
+                print(f"Already bonded to '{name_a}'")
+                return terminal.bonds[cid]
+
+            channel_id = self.runner.bond(self.terminal_cid, cid, coherence=1.0)
+            print(f"Created bond Terminal <-> {name_a} (channel={channel_id})")
+            return channel_id
+
+        # Two args: bond creature to creature
+        if name_a not in self.creatures:
+            print(f"Creature '{name_a}' is not loaded")
+            return None
+        if name_b not in self.creatures:
+            print(f"Creature '{name_b}' is not loaded")
+            return None
+
+        cid_a, _ = self.creatures[name_a]
+        cid_b, _ = self.creatures[name_b]
+
+        # Check if already bonded
+        creature_a = self.runner.creatures.get(cid_a)
+        if creature_a and cid_b in creature_a.bonds:
+            print(f"Already bonded: {name_a} <-> {name_b}")
+            return creature_a.bonds[cid_b]
+
+        channel_id = self.runner.bond(cid_a, cid_b, coherence=1.0)
+        print(f"Created bond {name_a} <-> {name_b} (channel={channel_id})")
+        return channel_id
+
+    def use_creature(self, name: str, initial_f: float = 50.0, initial_a: float = 0.5) -> Optional[int]:
+        """
+        Load a creature and bond it to terminal in one step.
+
+        Returns creature ID if successful.
+        """
+        # Load if not already loaded
+        if name not in self.creatures:
+            cid = self.load_creature(name, initial_f=initial_f, initial_a=initial_a)
+            if not cid:
+                return None
+        else:
+            cid, _ = self.creatures[name]
+            print(f"Creature '{name}' already loaded (cid={cid})")
+
+        # Bond to terminal
+        self.bond_creature(name)
+        return cid
+
+    def send_to_llm(self, prompt: str) -> Optional[str]:
+        """Send a message to LLM creature via bond and get response."""
+        if not self.terminal_cid or not self.llm_cid:
+            return None
+
+        # Send request via bond
+        self.runner.send(self.terminal_cid, self.llm_cid, {
+            "type": "primitive",
+            "name": "llm_call",
+            "args": [prompt]
+        })
+
+        # Process messages on LLM creature
+        self.runner.process_messages(self.llm_cid)
+
+        # Receive response
+        response = self.runner.receive(self.terminal_cid, self.llm_cid)
+        if response and response.get("type") == "primitive_result":
+            if response.get("success"):
+                return response.get("result", "")
+            else:
+                return f"[Error: {response.get('result_code', 'unknown')}]"
+
+        return None
+
+    def send_to_tool(self, command: str, safe: bool = True) -> Optional[str]:
+        """Send a command to Tool creature via bond and get response."""
+        if not self.terminal_cid or not self.tool_cid:
+            return None
+
+        prim_name = "exec_safe" if safe else "exec"
+
+        # Send request via bond
+        self.runner.send(self.terminal_cid, self.tool_cid, {
+            "type": "primitive",
+            "name": prim_name,
+            "args": [command]
+        })
+
+        # Process messages on Tool creature
+        self.runner.process_messages(self.tool_cid)
+
+        # Receive response
+        response = self.runner.receive(self.terminal_cid, self.tool_cid)
+        if response and response.get("type") == "primitive_result":
+            if response.get("success"):
+                return response.get("result", "")
+            else:
+                return f"[Error: {response.get('result_code', 'unknown')}]"
+
+        return None
+
+    def run_repl(self):
+        """Run the terminal REPL with bond-based dispatch."""
+        if not self.terminal_cid:
+            print("Error: Terminal creature not spawned")
+            return
+
+        print("=" * 60)
+        print("DET-OS Terminal (Bond-Based Dispatch)")
+        print("=" * 60)
+        print("Type 'help' for commands, 'quit' to exit.")
+        print()
+
+        running = True
+        while running:
+            try:
+                # Read user input directly (kernel-based input not yet fully working)
+                try:
+                    user_input = input("det> ")
+                except EOFError:
+                    running = False
+                    continue
+
+                user_input = user_input.strip()
+                if not user_input:
+                    continue
+
+                cmd_lower = user_input.lower()
+
+                # Built-in commands
+                if cmd_lower in ("quit", "exit"):
+                    running = False
+                    continue
+
+                elif cmd_lower == "help":
+                    self._show_help()
+                    continue
+
+                elif cmd_lower == "status":
+                    self._show_status()
+                    continue
+
+                elif cmd_lower == "bonds":
+                    self._show_bonds()
+                    continue
+
+                elif cmd_lower == "list" or cmd_lower == "ls":
+                    self._list_creatures()
+                    continue
+
+                elif cmd_lower.startswith("load "):
+                    args = user_input[5:].strip().split()
+                    if args:
+                        name = args[0]
+                        f = float(args[1]) if len(args) > 1 else 50.0
+                        a = float(args[2]) if len(args) > 2 else 0.5
+                        self.load_creature(name, initial_f=f, initial_a=a)
+                    else:
+                        print("Usage: load <name> [F] [a]")
+                    continue
+
+                elif cmd_lower.startswith("unload "):
+                    name = user_input[7:].strip()
+                    if name:
+                        self.unload_creature(name)
+                    else:
+                        print("Usage: unload <name>")
+                    continue
+
+                elif cmd_lower.startswith("bond "):
+                    args = user_input[5:].strip().split()
+                    if len(args) == 1:
+                        # bond <name> - bond terminal to creature
+                        self.bond_creature(args[0])
+                    elif len(args) == 2:
+                        # bond <a> <b> - bond two creatures
+                        self.bond_creature(args[0], args[1])
+                    else:
+                        print("Usage: bond <name>  OR  bond <creature1> <creature2>")
+                    continue
+
+                elif cmd_lower.startswith("use "):
+                    args = user_input[4:].strip().split()
+                    if args:
+                        name = args[0]
+                        f = float(args[1]) if len(args) > 1 else 50.0
+                        a = float(args[2]) if len(args) > 2 else 0.5
+                        self.use_creature(name, initial_f=f, initial_a=a)
+                    else:
+                        print("Usage: use <name> [F] [a]")
+                    continue
+
+                elif cmd_lower.startswith("recompile "):
+                    name = user_input[10:].strip()
+                    if name:
+                        self._recompile_creature(name)
+                    else:
+                        print("Usage: recompile <name>")
+                    continue
+
+                elif cmd_lower == "recompile" or cmd_lower == "recompile all":
+                    self._recompile_all()
+                    continue
+
+                elif cmd_lower.startswith("send "):
+                    # Send primitive to any bonded creature: send <creature> <primitive> <args...>
+                    parts = user_input[5:].strip().split(None, 2)
+                    if len(parts) >= 2:
+                        target, prim = parts[0], parts[1]
+                        if len(parts) > 2:
+                            # Strip surrounding quotes from argument if present
+                            arg = parts[2]
+                            if (arg.startswith('"') and arg.endswith('"')) or \
+                               (arg.startswith("'") and arg.endswith("'")):
+                                arg = arg[1:-1]
+                            args = [arg]
+                        else:
+                            args = []
+                        self._send_to_creature(target, prim, args)
+                    else:
+                        print("Usage: send <creature> <primitive> [args...]")
+                    continue
+
+                # Bond-based dispatch
+                elif cmd_lower.startswith("ask "):
+                    query = user_input[4:].strip()
+                    print(f"\033[33m[Sending to LLM via bond...]\033[0m")
+                    response = self.send_to_llm(query)
+                    if response:
+                        print(f"\033[32m{response}\033[0m")
+                    else:
+                        print("\033[31m[No response from LLM]\033[0m")
+
+                elif cmd_lower.startswith("run "):
+                    command = user_input[4:].strip()
+                    print(f"\033[33m[Sending to Tool via bond...]\033[0m")
+                    response = self.send_to_tool(command, safe=True)
+                    if response:
+                        print(f"\033[36m{response}\033[0m")
+                    else:
+                        print("\033[31m[No response from Tool]\033[0m")
+
+                elif cmd_lower.startswith("exec "):
+                    # Unsafe execution (requires higher agency)
+                    command = user_input[5:].strip()
+                    print(f"\033[33m[Sending to Tool (unsafe) via bond...]\033[0m")
+                    response = self.send_to_tool(command, safe=False)
+                    if response:
+                        print(f"\033[36m{response}\033[0m")
+                    else:
+                        print("\033[31m[No response from Tool]\033[0m")
+
+                elif cmd_lower.startswith("calc "):
+                    # Calculator shortcut
+                    expr = user_input[5:].strip()
+                    self._calculate(expr)
+                    continue
+
+                elif cmd_lower == "gpu" or cmd_lower == "gpu status":
+                    self._show_gpu_status()
+                    continue
+
+                elif cmd_lower == "gpu enable":
+                    if not self.gpu_enabled:
+                        if self._init_gpu():
+                            print("GPU acceleration enabled")
+                        else:
+                            print("Failed to enable GPU")
+                    else:
+                        print("GPU already enabled")
+                    continue
+
+                elif cmd_lower == "gpu disable":
+                    if self.gpu_enabled:
+                        self.gpu_enabled = False
+                        self.gpu_backend = None
+                        print("GPU acceleration disabled")
+                    else:
+                        print("GPU not enabled")
+                    continue
+
+                elif cmd_lower.startswith("gpu benchmark"):
+                    # Parse optional args: gpu benchmark [nodes] [bonds] [ticks]
+                    args = user_input[13:].strip().split()
+                    nodes = int(args[0]) if len(args) > 0 else 1000
+                    bonds = int(args[1]) if len(args) > 1 else nodes * 2
+                    ticks = int(args[2]) if len(args) > 2 else 1000
+                    self.gpu_benchmark(nodes, bonds, ticks)
+                    continue
+
+                elif cmd_lower.startswith("gpu tick"):
+                    # Execute ticks on GPU: gpu tick [count]
+                    args = user_input[8:].strip().split()
+                    num_ticks = int(args[0]) if args else 1
+                    if self.gpu_enabled:
+                        elapsed = self.gpu_execute_ticks(num_ticks)
+                        print(f"Executed {num_ticks} GPU ticks in {elapsed:.2f}ms")
+                    else:
+                        print("GPU not enabled. Use 'gpu enable' first.")
+                    continue
+
+                else:
+                    # Default: send to LLM
+                    print(f"\033[33m[Sending to LLM via bond...]\033[0m")
+                    response = self.send_to_llm(user_input)
+                    if response:
+                        print(f"\033[32m{response}\033[0m")
+                    else:
+                        print("\033[31m[No response from LLM]\033[0m")
+
+            except KeyboardInterrupt:
+                print("\n")
+                running = False
+
+            except EOFError:
+                print("\n")
+                running = False
+
+        print("\nDET-OS terminated.")
+
+    def _show_help(self):
+        """Display help information."""
+        print("""
+\033[33mDET Terminal Commands:\033[0m
+  help              Show this help
+  status            Show creature status
+  bonds             Show bond connections
+  quit              Exit the terminal
+
+\033[33mCreature Management:\033[0m
+  list              List available and loaded creatures
+  load <name> [F] [a]   Load a creature (default F=50, a=0.5)
+  use <name> [F] [a]    Load AND bond creature to terminal
+  unload <name>     Unload a creature
+  bond <name>       Bond terminal to a creature
+  bond <a> <b>      Bond two creatures together
+  recompile <name>  Recompile creature from source
+  recompile all     Recompile all creatures
+
+\033[33mBond-Based Dispatch:\033[0m
+  ask <query>       Send to LLM creature via bond
+  run <cmd>         Execute via Tool creature (safe mode)
+  exec <cmd>        Execute via Tool creature (unsafe mode)
+  calc <expr>       Evaluate math expression (auto-loads calculator)
+  send <creature> <primitive> [args]  Send primitive to creature
+
+\033[33mGPU Acceleration:\033[0m
+  gpu               Show GPU status
+  gpu enable        Enable GPU acceleration
+  gpu disable       Disable GPU acceleration
+  gpu tick [N]      Execute N substrate ticks on GPU
+  gpu benchmark [nodes] [bonds] [ticks]  Run GPU benchmark
+
+\033[33mArchitecture:\033[0m
+  All commands dispatch through DET bonds.
+  Creatures communicate via message passing, not direct calls.
+  Bytecode is cached in .exb files for fast loading.
+  GPU accelerates substrate (node/bond state) for large-scale simulations.
+""")
+
+    def _show_status(self):
+        """Display creature status."""
+        print("\n\033[33mCreature Status:\033[0m")
+
+        for name, cid in [("Terminal", self.terminal_cid),
+                          ("LLM", self.llm_cid),
+                          ("Tool", self.tool_cid)]:
+            if cid:
+                state = self.runner.get_creature_state(cid)
+                if state:
+                    print(f"  {name} (cid={cid}):")
+                    print(f"    F={state['F']:.1f}, a={state['a']:.2f}")
+                    print(f"    Kernels executed: {state['kernels_executed']}")
+                    print(f"    Messages: {state['messages_sent']} sent, {state['messages_received']} received")
+            else:
+                print(f"  {name}: not spawned")
+
+        # GPU status summary
+        if GPU_AVAILABLE:
+            if self.gpu_enabled:
+                print(f"\n  \033[32mGPU: {self.gpu_backend.device_name} (enabled)\033[0m")
+            else:
+                print(f"\n  \033[90mGPU: Available (disabled)\033[0m")
+        print()
+
+    def _show_bonds(self):
+        """Display all bond connections."""
+        print("\n\033[33mBond Connections:\033[0m")
+
+        # Collect all unique bonds (avoid duplicates since bonds are bidirectional)
+        shown_bonds = set()
+
+        for name, (cid, _) in self.creatures.items():
+            creature = self.runner.creatures.get(cid)
+            if creature and creature.bonds:
+                for peer_cid, channel_id in creature.bonds.items():
+                    # Create a canonical bond identifier (smaller cid first)
+                    bond_key = (min(cid, peer_cid), max(cid, peer_cid), channel_id)
+                    if bond_key in shown_bonds:
+                        continue
+                    shown_bonds.add(bond_key)
+
+                    # Find peer name
+                    peer_name = "unknown"
+                    for pname, (pcid, _) in self.creatures.items():
+                        if pcid == peer_cid:
+                            peer_name = pname
+                            break
+
+                    print(f"  {name} <-> {peer_name} (channel={channel_id})")
+
+        if not shown_bonds:
+            print("  No bonds established")
+        print()
+
+    def _list_creatures(self):
+        """List available and loaded creatures."""
+        print("\n\033[33mLoaded Creatures:\033[0m")
+        if self.creatures:
+            for name, (cid, compiled) in self.creatures.items():
+                state = self.runner.get_creature_state(cid)
+                if state:
+                    kernels = len(compiled.kernels)
+                    print(f"  [{cid}] {name}: F={state['F']:.1f}, a={state['a']:.2f}, {kernels} kernels")
+        else:
+            print("  (none)")
+
+        print("\n\033[33mAvailable Creatures:\033[0m")
+        # Refresh available list
+        self.discover_creatures()
+        loaded_names = set(self.creatures.keys())
+        available_unloaded = [n for n in self.available_creatures.keys() if n not in loaded_names]
+
+        if available_unloaded:
+            for name in sorted(available_unloaded):
+                path = self.available_creatures[name]
+                exb_path = path.with_suffix('.exb')
+                cache_status = "\033[32m[cached]\033[0m" if exb_path.exists() else "\033[90m[no cache]\033[0m"
+                print(f"  {name}.ex  {cache_status}")
+        else:
+            print("  (all creatures loaded)")
+
+        # Show cache stats
+        stats = _cache.stats
+        print(f"\n\033[33mCache Stats:\033[0m hits={stats['hits']}, misses={stats['misses']}, recompiles={stats['recompiles']}")
+        print()
+
+    def _recompile_creature(self, name: str):
+        """Recompile a single creature from source."""
+        # Find the file
+        if name in self.available_creatures:
+            path = self.available_creatures[name]
+        else:
+            path = EXISTENCE_DIR / f"{name}.ex"
+
+        if not path.exists():
+            print(f"Creature file not found: {path}")
+            return
+
+        try:
+            print(f"Recompiling {path.name}...")
+            start = time.perf_counter()
+            _cache.compile(path, force=True)
+            elapsed = (time.perf_counter() - start) * 1000
+            exb_path = path.with_suffix('.exb')
+            print(f"  Created {exb_path.name} ({exb_path.stat().st_size:,} bytes, {elapsed:.2f}ms)")
+        except Exception as e:
+            print(f"  Error: {e}")
+
+    def _recompile_all(self):
+        """Recompile all available creatures."""
+        self.discover_creatures()
+        print(f"Recompiling {len(self.available_creatures)} creatures...")
+        for name, path in sorted(self.available_creatures.items()):
+            self._recompile_creature(name)
+
+    def _calculate(self, expr: str):
+        """Evaluate a math expression using calculator creature."""
+        # Auto-load and bond calculator if needed
+        if 'calculator' not in self.creatures:
+            print("\033[90m[Loading calculator...]\033[0m")
+            cid = self.load_creature('calculator', initial_f=50.0, initial_a=0.5)
+            if not cid:
+                print("\033[31m[Failed to load calculator]\033[0m")
+                return
+
+        calc_cid, _ = self.creatures['calculator']
+
+        # Auto-bond if needed
+        if self.terminal_cid:
+            terminal = self.runner.creatures.get(self.terminal_cid)
+            if terminal and calc_cid not in terminal.bonds:
+                print("\033[90m[Bonding to calculator...]\033[0m")
+                self.bond_creature('calculator')
+
+        # Send eval_math primitive
+        self.runner.send(self.terminal_cid, calc_cid, {
+            'type': 'primitive',
+            'name': 'eval_math',
+            'args': [expr]
+        })
+        self.runner.process_messages(calc_cid)
+        response = self.runner.receive(self.terminal_cid, calc_cid)
+
+        if response and response.get('success'):
+            result = response.get('result', '')
+            print(f"\033[32m{expr} = {result}\033[0m")
+        else:
+            error = response.get('result', 'unknown error') if response else 'no response'
+            print(f"\033[31m{expr} = Error: {error}\033[0m")
+
+    def _show_gpu_status(self):
+        """Display GPU backend status."""
+        print("\n\033[33mGPU Status:\033[0m")
+        print(f"  Available: {GPU_AVAILABLE}")
+
+        if GPU_AVAILABLE:
+            if self.gpu_enabled and self.gpu_backend:
+                print(f"  Enabled: Yes")
+                print(f"  Device: {self.gpu_backend.device_name}")
+                print(f"  Memory: {self.gpu_backend.memory_usage / 1024 / 1024:.1f} MB")
+                print(f"  Max nodes: {self.gpu_nodes.num_nodes if self.gpu_nodes else 0}")
+                print(f"  Max bonds: {self.gpu_bonds.num_bonds if self.gpu_bonds else 0}")
+            else:
+                print(f"  Enabled: No")
+                try:
+                    backend = MetalBackend()
+                    print(f"  Device: {backend.device_name} (ready)")
+                except Exception as e:
+                    print(f"  Device: Error - {e}")
+        else:
+            print("  Metal GPU backend not available on this system")
+        print()
+
+    def _send_to_creature(self, target: str, primitive: str, args: list):
+        """Send a primitive call to a creature via bond."""
+        if target not in self.creatures:
+            print(f"Creature '{target}' not loaded")
+            return
+
+        target_cid, _ = self.creatures[target]
+
+        # Check if bonded
+        if self.terminal_cid:
+            terminal = self.runner.creatures.get(self.terminal_cid)
+            if terminal and target_cid not in terminal.bonds:
+                print(f"Not bonded to '{target}'. Use 'bond {target}' first.")
+                return
+
+        # Send primitive request
+        self.runner.send(self.terminal_cid, target_cid, {
+            "type": "primitive",
+            "name": primitive,
+            "args": args
+        })
+
+        # Process
+        self.runner.process_messages(target_cid)
+
+        # Get response
+        response = self.runner.receive(self.terminal_cid, target_cid)
+        if response and response.get("type") == "primitive_result":
+            if response.get("success"):
+                result = response.get("result", "")
+                print(f"\033[32m{result}\033[0m")
+            else:
+                print(f"\033[31m[Error: {response.get('result_code', 'unknown')}]\033[0m")
+        else:
+            print("\033[31m[No response]\033[0m")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="DET-OS Bootstrap - Start the DET-native operating system"
+    )
+    parser.add_argument(
+        "--no-repl",
+        action="store_true",
+        help="Don't start REPL, just bootstrap and exit"
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose output"
+    )
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Enable GPU acceleration via Metal"
+    )
+
+    args = parser.parse_args()
+
+    # Create runtime and bootstrap
+    runtime = DETRuntime(verbose=args.verbose, use_gpu=args.gpu)
+
+    try:
+        runtime.bootstrap()
+    except Exception as e:
+        print(f"Bootstrap error: {e}", file=sys.stderr)
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+    if args.no_repl:
+        print("Bootstrap complete. Use --no-repl=false to start REPL.")
+        return
+
+    # Run REPL
+    runtime.run_repl()
+
+
+if __name__ == "__main__":
+    main()

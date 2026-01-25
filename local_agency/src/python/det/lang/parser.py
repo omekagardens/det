@@ -16,7 +16,7 @@ from .ast_nodes import (
     Literal, Identifier, BinaryOp, UnaryOp, Call, FieldAccess, IndexAccess,
     Distinct, WitnessToken, This, Compare, Choose, TupleExpr, ConditionalExpr,
     ArrayLiteral, TypeAnnotation, TypeKind, PortDecl, PortDirection, ParamDecl,
-    Proposal, PhaseBlock, ChoiceDecl,
+    Proposal, PhaseBlock, ChoiceDecl, PrimitiveCallExpr,
     SensorDecl, ActuatorDecl, ParticipateBlock, AgencyBlock, GraceBlock,
     ParamsBlock, CreaturesBlock, BondsBlock, InitBlock, TickBlock, Law
 )
@@ -26,40 +26,55 @@ from .errors import ParseError, ErrorReporter
 class Parser:
     """Recursive descent parser for Existence-Lang."""
 
+    __slots__ = ('lexer', 'tokens', 'tokens_len', 'pos', 'reporter', 'eof_token')
+
     def __init__(self, source: str, filename: str = "<input>"):
         self.lexer = Lexer(source, filename)
         self.tokens = self.lexer.tokenize()
+        self.tokens_len = len(self.tokens)  # Cache length
         self.pos = 0
         self.reporter = ErrorReporter(filename)
+        self.eof_token = self.tokens[-1] if self.tokens else Token(TokenType.EOF, '', 0, 0)
 
     def current(self) -> Token:
         """Get current token."""
-        if self.pos < len(self.tokens):
+        if self.pos < self.tokens_len:
             return self.tokens[self.pos]
-        return self.tokens[-1]  # EOF
+        return self.eof_token
 
     def peek(self, offset: int = 0) -> Token:
         """Peek at token at current position + offset."""
         idx = self.pos + offset
-        if idx < len(self.tokens):
+        if idx < self.tokens_len:
             return self.tokens[idx]
-        return self.tokens[-1]
+        return self.eof_token
 
     def advance(self) -> Token:
         """Advance and return current token."""
-        tok = self.current()
-        if self.pos < len(self.tokens) - 1:
-            self.pos += 1
-        return tok
+        pos = self.pos
+        if pos < self.tokens_len:
+            tok = self.tokens[pos]
+            if pos < self.tokens_len - 1:
+                self.pos = pos + 1
+            return tok
+        return self.eof_token
 
     def check(self, *types: TokenType) -> bool:
         """Check if current token is one of the given types."""
-        return self.current().type in types
+        pos = self.pos
+        if pos < self.tokens_len:
+            return self.tokens[pos].type in types
+        return self.eof_token.type in types
 
     def match(self, *types: TokenType) -> Optional[Token]:
         """If current token matches, consume and return it."""
-        if self.check(*types):
-            return self.advance()
+        pos = self.pos
+        if pos < self.tokens_len:
+            tok = self.tokens[pos]
+            if tok.type in types:
+                if pos < self.tokens_len - 1:
+                    self.pos = pos + 1
+                return tok
         return None
 
     def expect(self, token_type: TokenType, message: str = "") -> Token:
@@ -931,6 +946,25 @@ class Parser:
                 condition=condition,
                 then_value=then_value,
                 else_value=else_value,
+                line=tok.line,
+                column=tok.column
+            )
+
+        # Primitive call: primitive("name", arg1, arg2, ...)
+        if self.match(TokenType.PRIMITIVE):
+            self.expect(TokenType.LPAREN)
+            # First argument is the primitive name (string)
+            name_tok = self.expect(TokenType.STRING, "Expected primitive name as string")
+            primitive_name = name_tok.value
+            args = []
+            while self.match(TokenType.COMMA):
+                if self.check(TokenType.RPAREN):  # Allow trailing comma
+                    break
+                args.append(self.parse_expression())
+            self.expect(TokenType.RPAREN)
+            return PrimitiveCallExpr(
+                primitive_name=primitive_name,
+                arguments=args,
                 line=tok.line,
                 column=tok.column
             )

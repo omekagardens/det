@@ -27,6 +27,7 @@ from .memory import (
     Effect, EffectType, Proposal,
 )
 from .phases import Phase, PhaseController, phase_to_name
+from .primitives import get_registry, PrimitiveResult
 
 
 class ExecutionState(IntEnum):
@@ -499,8 +500,138 @@ class EISVM:
             if self.trace_execution:
                 print(f"TRACE[{lane.lane_id}]: imm={instr.imm}")
 
+        # === V2 Primitive Call ===
+        elif op == Opcode.V2_PRIM:
+            # V2_PRIM dst, arg_count, ext=name_id
+            # Execute substrate primitive and store result
+            self._execute_primitive(lane, regs, instr)
+
+        # === V2 Phase Control (pass-through for now) ===
+        elif op in (Opcode.V2_PHASE_R, Opcode.V2_PHASE_P,
+                    Opcode.V2_PHASE_C, Opcode.V2_PHASE_X):
+            # Phase transitions handled by phase controller
+            phase_map = {
+                Opcode.V2_PHASE_R: Phase.READ,
+                Opcode.V2_PHASE_P: Phase.PROPOSE,
+                Opcode.V2_PHASE_C: Phase.CHOOSE,
+                Opcode.V2_PHASE_X: Phase.COMMIT,
+            }
+            self.phases.set_phase(phase_map.get(op, Phase.READ))
+
+        # === V2 Proposal Operations (stub) ===
+        elif op == Opcode.V2_PROP_NEW:
+            # Create new proposal
+            if lane.current_proposal is None:
+                lane.current_proposal = Proposal(proposal_id=len(lane.proposals.proposals))
+            lane.proposals.add_proposal(lane.current_proposal)
+            # Store ref in dst
+            if 16 <= instr.dst < 24:
+                lane.registers._refs[instr.dst - 16] = PropRef(lane.current_proposal.proposal_id)
+
+        elif op == Opcode.V2_PROP_SCORE:
+            if lane.current_proposal:
+                lane.current_proposal.score = regs.read(instr.src0)
+
+        elif op == Opcode.V2_PROP_END:
+            lane.current_proposal = None
+
+        elif op == Opcode.V2_CHOOSE:
+            # Select best proposal
+            lane.proposals.select()
+
+        elif op == Opcode.V2_COMMIT:
+            # Apply selected proposal's effects
+            selected = lane.proposals.get_selected()
+            if selected:
+                self._apply_effects(lane, selected.effects)
+
         else:
-            raise RuntimeError(f"Unimplemented opcode: {op.name}")
+            # Unknown opcode - check if it's a raw integer (for forward compatibility)
+            if isinstance(op, int):
+                if self.trace_execution:
+                    print(f"Unknown opcode: 0x{op:02X}")
+            else:
+                raise RuntimeError(f"Unimplemented opcode: {op.name}")
+
+    def _execute_primitive(self, lane: Lane, regs: RegisterFile, instr: Instruction):
+        """
+        Execute a substrate primitive call.
+
+        V2_PRIM format:
+        - dst: result register
+        - imm: argument count
+        - ext: primitive name ID
+
+        Arguments are passed in R0-R7.
+        Result is stored in dst register.
+        """
+        # Primitive name lookup (reverse of compiler's PRIM_NAMES)
+        PRIM_ID_TO_NAME = {
+            0: 'llm_call', 1: 'llm_chat',
+            2: 'exec', 3: 'exec_safe',
+            4: 'file_read', 5: 'file_write', 6: 'file_exists', 7: 'file_list',
+            8: 'now', 9: 'now_iso', 10: 'sleep',
+            11: 'random', 12: 'random_int', 13: 'random_seed',
+            14: 'print', 15: 'log',
+            16: 'hash_sha256',
+            # Terminal primitives (Phase 19)
+            17: 'terminal_read', 18: 'terminal_write', 19: 'terminal_prompt',
+            20: 'terminal_clear', 21: 'terminal_color',
+        }
+
+        name_id = instr.ext if instr.ext is not None else 0
+        arg_count = instr.imm
+        dst_reg = instr.dst
+
+        # Get primitive name
+        prim_name = PRIM_ID_TO_NAME.get(name_id)
+        if prim_name is None:
+            # Unknown primitive ID - store error result
+            regs.write(dst_reg, 0.0)
+            return
+
+        # Collect arguments from R0-R7
+        args = []
+        for i in range(min(arg_count, 8)):
+            args.append(regs.read(i))
+
+        # Get creature's F and agency from lane's self node
+        node_ref = regs.get_self_node()
+        if node_ref:
+            available_f = self.trace.read_node(node_ref, NodeField.F)
+            agency = self.trace.read_node(node_ref, NodeField.A)
+        else:
+            available_f = 10.0
+            agency = 0.5
+
+        # Call primitive via registry
+        registry = get_registry()
+        call = registry.call(prim_name, args, available_f, agency)
+
+        # Store result
+        if call.result_code == PrimitiveResult.OK:
+            # Deduct cost from F
+            if node_ref:
+                new_f = available_f - call.cost
+                self.trace.write_node(node_ref, NodeField.F, new_f)
+
+            # Store result based on type
+            if isinstance(call.result, (int, float)):
+                regs.write(dst_reg, float(call.result))
+            elif isinstance(call.result, bool):
+                regs.write(dst_reg, 1.0 if call.result else 0.0)
+            elif isinstance(call.result, str):
+                # String results stored as hash/token for now
+                # Full string handling requires TokenReg extension
+                regs.write(dst_reg, float(len(call.result)))
+            else:
+                regs.write(dst_reg, 1.0)  # Success indicator
+        else:
+            # Error - store 0
+            regs.write(dst_reg, 0.0)
+
+        if self.trace_execution:
+            print(f"PRIM[{lane.lane_id}]: {prim_name}({args}) -> {call.result_code.name}")
 
     def _apply_effects(self, lane: Lane, effects: List[Effect]):
         """Apply a list of effects during COMMIT."""

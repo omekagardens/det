@@ -19,6 +19,7 @@ from .memory import MemoryCreature, MemoryType, MemoryEntry, spawn_memory_creatu
 from .tool import ToolCreature, ExecutionResult, spawn_tool_creature
 from .reasoner import ReasonerCreature, ReasoningChain, ReasoningStep, spawn_reasoner_creature
 from .planner import PlannerCreature, Plan, PlanStep, spawn_planner_creature
+from .loader import CreatureLoader, LoadMode, CreatureSpec, LoadedCreature, create_loader
 
 __all__ = [
     # Base
@@ -46,4 +47,11 @@ __all__ = [
     'Plan',
     'PlanStep',
     'spawn_planner_creature',
+
+    # Loader
+    'CreatureLoader',
+    'LoadMode',
+    'CreatureSpec',
+    'LoadedCreature',
+    'create_loader',
 ]

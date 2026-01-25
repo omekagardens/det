@@ -617,6 +617,133 @@ def test_planner_plan():
     print("PASS")
 
 
+# =============================================================================
+# Creature Loader Tests
+# =============================================================================
+
+def test_loader_list_available():
+    """Test loader lists available creatures."""
+    print("  test_loader_list_available...", end=" ")
+
+    from det.os.creatures.loader import CreatureLoader
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    loader = CreatureLoader(bootstrap.runtime)
+
+    available = loader.list_available()
+
+    # Should have at least the 4 built-in creatures
+    assert len(available) >= 4
+    names = [c["name"] for c in available]
+    assert "memory" in names
+    assert "tool" in names
+    assert "reasoner" in names
+    assert "planner" in names
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_loader_load_builtin():
+    """Test loader loads built-in creatures."""
+    print("  test_loader_load_builtin...", end=" ")
+
+    from det.os.creatures.loader import CreatureLoader, LoadMode
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    loader = CreatureLoader(bootstrap.runtime)
+
+    # Load memory creature
+    memory = loader.load("memory")
+    assert memory.cid > 0
+    assert memory.F == 50.0  # Default for memory
+
+    # Load tool creature
+    tool = loader.load("tool")
+    assert tool.cid > 0
+    assert tool.F == 30.0  # Default for tool
+
+    # Check loaded list
+    loaded = loader.list_loaded()
+    assert len(loaded) == 2
+    names = [c["name"] for c in loaded]
+    assert "memory" in names
+    assert "tool" in names
+
+    # Check load mode
+    assert loader.loaded["memory"].load_mode == LoadMode.BUILTIN
+    assert loader.loaded["tool"].load_mode == LoadMode.BUILTIN
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_loader_unload():
+    """Test loader unloads creatures."""
+    print("  test_loader_unload...", end=" ")
+
+    from det.os.creatures.loader import CreatureLoader
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    loader = CreatureLoader(bootstrap.runtime)
+
+    # Load and unload
+    loader.load("memory")
+    loader.load("tool")
+    assert len(loader.list_loaded()) == 2
+
+    result = loader.unload("tool")
+    assert result is True
+    assert len(loader.list_loaded()) == 1
+
+    result = loader.unload("nonexistent")
+    assert result is False
+
+    bootstrap.halt()
+    print("PASS")
+
+
+def test_loader_bond_to():
+    """Test loader creates bonds between creatures."""
+    print("  test_loader_bond_to...", end=" ")
+
+    from det.os.creatures.loader import CreatureLoader
+    from det.os.creatures.base import CreatureWrapper
+
+    config = BootConfig(total_F=100000.0)
+    bootstrap = DETOSBootstrap(config=config)
+    bootstrap.boot()
+
+    loader = CreatureLoader(bootstrap.runtime)
+
+    # Load memory creature
+    memory = loader.load("memory")
+
+    # Create another creature to bond with
+    cid = bootstrap.spawn("peer", initial_f=10.0, initial_a=0.5)
+    peer = CreatureWrapper(bootstrap.runtime, cid)
+
+    # Bond them
+    channel_id = loader.bond_to("memory", peer, coherence=1.0)
+    assert channel_id >= 0  # 0 is a valid channel ID
+
+    # Check that bond exists
+    assert peer.cid in memory.bonds
+    assert memory.cid in peer.bonds
+
+    bootstrap.halt()
+    print("PASS")
+
+
 def run_tests():
     """Run all tests."""
     print("\n" + "=" * 60)
@@ -657,6 +784,12 @@ def run_tests():
     print("\nPlanner Creature Tests:")
     test_planner_creature_spawn()
     test_planner_plan()
+
+    print("\nCreature Loader Tests:")
+    test_loader_list_available()
+    test_loader_load_builtin()
+    test_loader_unload()
+    test_loader_bond_to()
 
     print("\nLLM Creature Tests:")
     test_llm_creature()

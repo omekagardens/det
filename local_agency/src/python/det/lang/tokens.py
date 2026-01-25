@@ -91,6 +91,7 @@ class TokenType(Enum):
     TRUE = auto()           # true
     FALSE = auto()          # false
     VOID = auto()           # void
+    PRIMITIVE = auto()      # primitive (external I/O call)
 
     # Keywords - Somatic
     SOMA_READ = auto()      # soma_read
@@ -255,6 +256,7 @@ KEYWORDS = {
     "true": TokenType.TRUE,
     "false": TokenType.FALSE,
     "void": TokenType.VOID,
+    "primitive": TokenType.PRIMITIVE,
 
     # Somatic
     "soma_read": TokenType.SOMA_READ,
@@ -276,8 +278,11 @@ KEYWORDS = {
 class Lexer:
     """Tokenizer for Existence-Lang."""
 
+    __slots__ = ('source', 'source_len', 'filename', 'pos', 'line', 'column', 'reporter')
+
     def __init__(self, source: str, filename: str = "<input>"):
         self.source = source
+        self.source_len = len(source)  # Cache length - never changes
         self.filename = filename
         self.pos = 0
         self.line = 1
@@ -287,13 +292,13 @@ class Lexer:
     def peek(self, offset: int = 0) -> str:
         """Peek at character at current position + offset."""
         idx = self.pos + offset
-        if idx >= len(self.source):
+        if idx >= self.source_len:
             return '\0'
         return self.source[idx]
 
     def advance(self) -> str:
         """Advance and return current character."""
-        if self.pos >= len(self.source):
+        if self.pos >= self.source_len:
             return '\0'
         ch = self.source[self.pos]
         self.pos += 1
@@ -306,8 +311,18 @@ class Lexer:
 
     def skip_whitespace(self):
         """Skip whitespace (not newlines for now)."""
-        while self.peek() in ' \t\r':
-            self.advance()
+        # Inline peek/advance for hot path - avoid method call overhead
+        source = self.source
+        source_len = self.source_len
+        pos = self.pos
+        while pos < source_len:
+            ch = source[pos]
+            if ch == ' ' or ch == '\t' or ch == '\r':
+                pos += 1
+                self.column += 1
+            else:
+                break
+        self.pos = pos
 
     def skip_comment(self) -> Optional[Token]:
         """Skip single-line or multi-line comment."""
@@ -372,53 +387,61 @@ class Lexer:
         """Read a number literal (integer or float)."""
         start_line = self.line
         start_col = self.column
+        start_pos = self.pos
 
-        chars = []
+        source = self.source
+        source_len = self.source_len
+        pos = self.pos
         has_dot = False
         has_exp = False
-        is_hex = False
 
         # Handle negative sign
-        if self.peek() == '-':
-            chars.append(self.advance())
+        if pos < source_len and source[pos] == '-':
+            pos += 1
 
         # Check for hex prefix 0x
-        if self.peek() == '0' and self.peek(1) in 'xX':
-            chars.append(self.advance())  # 0
-            chars.append(self.advance())  # x
-            is_hex = True
-            while True:
-                ch = self.peek()
-                if ch.isdigit() or ch in 'abcdefABCDEF':
-                    chars.append(self.advance())
+        if pos < source_len and source[pos] == '0' and pos + 1 < source_len and source[pos + 1] in 'xX':
+            pos += 2  # Skip 0x
+            while pos < source_len:
+                ch = source[pos]
+                if ('0' <= ch <= '9') or ('a' <= ch <= 'f') or ('A' <= ch <= 'F'):
+                    pos += 1
                 elif ch == '_':
-                    self.advance()  # Skip underscores
+                    pos += 1  # Skip underscores
                 else:
                     break
-            value = ''.join(chars)
+            # Build value without underscores
+            value = source[start_pos:pos].replace('_', '')
+            self.pos = pos
+            self.column = start_col + (pos - start_pos)
             return Token(TokenType.INTEGER, value, start_line, start_col)
 
-        while True:
-            ch = self.peek()
-            if ch.isdigit():
-                chars.append(self.advance())
+        # Regular decimal number
+        while pos < source_len:
+            ch = source[pos]
+            if '0' <= ch <= '9':
+                pos += 1
             elif ch == '.' and not has_dot and not has_exp:
-                if self.peek(1).isdigit():
+                if pos + 1 < source_len and '0' <= source[pos + 1] <= '9':
                     has_dot = True
-                    chars.append(self.advance())
+                    pos += 1
                 else:
                     break
             elif ch in 'eE' and not has_exp:
                 has_exp = True
-                chars.append(self.advance())
-                if self.peek() in '+-':
-                    chars.append(self.advance())
+                pos += 1
+                if pos < source_len and source[pos] in '+-':
+                    pos += 1
             elif ch == '_':
-                self.advance()  # Skip underscores in numbers
+                pos += 1  # Skip underscores
             else:
                 break
 
-        value = ''.join(chars)
+        # Build value without underscores
+        value = source[start_pos:pos].replace('_', '')
+        self.pos = pos
+        self.column = start_col + (pos - start_pos)
+
         if has_dot or has_exp:
             return Token(TokenType.FLOAT, value, start_line, start_col)
         return Token(TokenType.INTEGER, value, start_line, start_col)
@@ -427,14 +450,30 @@ class Lexer:
         """Read an identifier or keyword."""
         start_line = self.line
         start_col = self.column
+        start_pos = self.pos
 
-        chars = []
-        while self.peek().isalnum() or self.peek() == '_':
-            chars.append(self.advance())
+        # Fast scan using direct string access
+        source = self.source
+        source_len = self.source_len
+        pos = self.pos
 
-        value = ''.join(chars)
+        while pos < source_len:
+            ch = source[pos]
+            # Check if alphanumeric or underscore (common chars first)
+            if ch == '_' or ('a' <= ch <= 'z') or ('A' <= ch <= 'Z') or ('0' <= ch <= '9'):
+                pos += 1
+            else:
+                break
+
+        # Extract identifier directly from source slice
+        value = source[start_pos:pos]
+        length = pos - start_pos
+
+        # Update position tracking
+        self.pos = pos
+        self.column = start_col + length
+
         token_type = KEYWORDS.get(value, TokenType.IDENTIFIER)
-
         return Token(token_type, value, start_line, start_col)
 
     def next_token(self) -> Token:

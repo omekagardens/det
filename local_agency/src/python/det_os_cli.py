@@ -31,6 +31,7 @@ from det.os.existence.bootstrap import DETOSBootstrap, BootConfig, BootState
 from det.os.existence.runtime import CreatureState
 from det.os.creatures.base import CreatureWrapper
 from det.os.creatures.memory import MemoryCreature, MemoryType, spawn_memory_creature
+from det.os.creatures.loader import CreatureLoader, LoadMode
 
 
 class LLMCreature(CreatureWrapper):
@@ -404,6 +405,23 @@ def run_cli(
     channel_id = llm.bond_to_memory(memory, coherence=1.0)
     print(f"  Bond created: LLM <--[ch:{channel_id}, C:1.0]--> Memory")
 
+    # Initialize creature loader for loading additional creatures
+    loader = CreatureLoader(bootstrap.runtime)
+    # Register the already-spawned memory creature in the loader's registry
+    from det.os.creatures.loader import LoadedCreature, CreatureSpec
+    loader.loaded["memory"] = LoadedCreature(
+        spec=CreatureSpec(
+            name="memory",
+            creature_type="memory",
+            initial_f=50.0,
+            initial_a=0.5,
+            description="Store and recall memories via bonds",
+            protocols=["store", "recall", "get_instructions"]
+        ),
+        wrapper=memory,
+        load_mode=LoadMode.BUILTIN
+    )
+
     # Check Ollama
     print(f"Connecting to Ollama ({ollama_url})...", end=" ")
     if llm.client and llm.client.is_available():
@@ -429,6 +447,11 @@ def run_cli(
     print("  /inject f   - Inject F resource into LLM creature")
     print("  /list       - List all creatures")
     print("  /bonds      - Show bonds between creatures")
+    print("  /creatures  - List available/loaded creatures")
+    print("  /load <n>   - Load a creature (name or path to .ex/.exb)")
+    print("  /unload <n> - Unload a creature")
+    print("  /bond <n>   - Bond loaded creature with LLM")
+    print("  /compile <p>- Compile .ex to .exb bytecode")
     print("  /help       - Show this help")
     print("  /quit       - Exit")
     print("\nMemory types: fact, preference, instruction, context, episode")
@@ -645,6 +668,100 @@ def run_cli(
                         name_b = c_b.name if c_b else f"#{ch.creature_b}"
                         print(f"  [{ch_id}] {name_a} <--[C:{ch.coherence:.2f}]--> {name_b}")
 
+                elif cmd == "creatures":
+                    # List available and loaded creatures
+                    available = loader.list_available()
+                    loaded = loader.list_loaded()
+
+                    print("\nAvailable creatures:")
+                    for c in available:
+                        status = "\033[92m[loaded]\033[0m" if c.get("loaded") else ""
+                        ctype = c.get("type", "?")
+                        desc = c.get("description", "")[:40]
+                        print(f"  {c['name']:12} ({ctype:8}) {desc} {status}")
+
+                    if loaded:
+                        print("\nLoaded creatures:")
+                        for c in loaded:
+                            print(f"  {c['name']:12} cid={c['cid']:2} F={c['F']:.1f} a={c['a']:.2f} mode={c['mode']}")
+
+                elif cmd == "load":
+                    if not args:
+                        print("Usage: /load <name|path>")
+                        print("  Load a creature by name (memory, tool, reasoner, planner)")
+                        print("  Or by path to .ex (JIT) or .exb (bytecode) file")
+                        print("  Example: /load tool")
+                        print("  Example: /load /path/to/custom.ex")
+                        continue
+
+                    try:
+                        wrapper = loader.load(args)
+                        lc = loader.loaded.get(args.split('/')[-1].replace('.ex', '').replace('.exb', ''))
+                        if lc:
+                            print(f"Loaded '{lc.spec.name}' (cid={wrapper.cid}, mode={lc.load_mode.value})")
+                            print(f"  F={wrapper.F:.1f} a={wrapper.a:.2f}")
+                            if lc.spec.protocols:
+                                print(f"  Protocols: {', '.join(lc.spec.protocols)}")
+
+                            # Ask if user wants to bond with LLM
+                            print(f"  Use '/bond {lc.spec.name}' to create a bond with LLM")
+                        else:
+                            print(f"Loaded creature (cid={wrapper.cid})")
+                    except Exception as e:
+                        print(f"Failed to load creature: {e}")
+
+                elif cmd == "unload":
+                    if not args:
+                        print("Usage: /unload <name>")
+                        continue
+
+                    if args == "memory":
+                        print("Cannot unload the primary memory creature")
+                        continue
+
+                    if loader.unload(args):
+                        print(f"Unloaded '{args}'")
+                    else:
+                        print(f"Creature not loaded: {args}")
+
+                elif cmd == "compile":
+                    if not args:
+                        print("Usage: /compile <path.ex> [output.exb]")
+                        print("  Compile an Existence-Lang file to bytecode")
+                        continue
+
+                    parts = args.split()
+                    source_path = parts[0]
+                    output_path = parts[1] if len(parts) > 1 else None
+
+                    try:
+                        result = loader.compile_to_bytecode(source_path, output_path)
+                        print(f"Compiled to: {result}")
+                    except Exception as e:
+                        print(f"Compilation failed: {e}")
+
+                elif cmd == "bond":
+                    # Bond a loaded creature with LLM
+                    if not args:
+                        print("Usage: /bond <creature_name> [coherence]")
+                        print("  Create a bond between a loaded creature and LLM")
+                        continue
+
+                    parts = args.split()
+                    creature_name = parts[0]
+                    coherence = float(parts[1]) if len(parts) > 1 else 1.0
+
+                    if creature_name not in loader.loaded:
+                        print(f"Creature not loaded: {creature_name}")
+                        print("  Use /creatures to see loaded creatures")
+                        continue
+
+                    try:
+                        channel_id = loader.bond_to(creature_name, llm, coherence)
+                        print(f"Bond created: LLM <--[ch:{channel_id}, C:{coherence}]--> {creature_name}")
+                    except Exception as e:
+                        print(f"Failed to create bond: {e}")
+
                 elif cmd == "help":
                     print("\nCommands:")
                     print("  /state      - Show LLM creature state")
@@ -656,11 +773,18 @@ def run_cli(
                     print("  /recall     - Recall memories (/recall query)")
                     print("  /tick [n]   - Advance kernel by n ticks")
                     print("  /inject f   - Inject F resource into LLM creature")
-                    print("  /list       - List all creatures")
+                    print("  /list       - List all creatures in kernel")
                     print("  /bonds      - Show bonds between creatures")
-                    print("  /quit       - Exit")
+                    print("\nCreature Loading:")
+                    print("  /creatures  - List available/loaded creatures")
+                    print("  /load <n>   - Load creature (name or path to .ex/.exb)")
+                    print("  /unload <n> - Unload a creature")
+                    print("  /bond <n>   - Bond loaded creature with LLM (/bond name [coherence])")
+                    print("  /compile <p>- Compile .ex to .exb bytecode")
+                    print("\n  /quit       - Exit")
                     print("\nMemory types: fact, preference, instruction, context, episode")
                     print("Importance: 1-10 (higher = more important to remember)")
+                    print("Creature types: memory, tool, reasoner, planner")
 
                 else:
                     print(f"Unknown command: /{cmd}")

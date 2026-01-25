@@ -2,7 +2,7 @@
 
 **Project**: DET Local Agency
 **Start Date**: 2026-01-17
-**Current Phase**: Phase 14 - GPU Backend with Metal Compute Shaders (Complete)
+**Current Phase**: Phase 14 Complete (GPU Metal Backend)
 
 ---
 
@@ -993,19 +993,562 @@
 
 - **Tests**: 23/23 passing (7 new creature tests)
 
+### Creature Loading System ✅
+- **Files Created**:
+  - `src/python/det/os/creatures/loader.py` (~630 lines)
+
+- **Architecture**:
+  - `CreatureLoader` - Central loader for managing creature lifecycle
+  - `LoadMode` - Enum: BUILTIN, JIT, BYTECODE
+  - `CreatureSpec` - Metadata for loadable creatures
+  - `LoadedCreature` - Registry entry for loaded creatures
+
+- **Loading Methods**:
+  1. **Built-in** (`/load memory`): Python wrapper creatures
+  2. **JIT** (`/load /path/to/custom.ex`): Compile .ex at runtime
+  3. **Bytecode** (`/load /path/to/creature.exb`): Pre-compiled bytecode
+
+- **Bytecode Format (.exb)**:
+  - Header: MAGIC (DETC) + VERSION + FLAGS + METADATA_LEN + CODE_LEN
+  - Metadata: JSON blob with creature spec
+  - Code: EIS bytecode instructions
+  - Supports caching of JIT-compiled creatures
+
+- **CLI Commands**:
+  - `/creatures` - List available and loaded creatures
+  - `/load <name|path>` - Load by name or .ex/.exb path
+  - `/unload <name>` - Unload a creature
+  - `/bond <name>` - Bond loaded creature with LLM
+  - `/compile <path>` - Compile .ex to .exb bytecode
+
+- **Features**:
+  - Automatic creature discovery from search paths
+  - Source hash-based cache invalidation
+  - Creature registry with load mode tracking
+  - Bidirectional bond creation
+
+### Phase 15: EIS Interpreter & Kernel Execution ✅
+- **Status**: Complete
+- **Files Created/Modified**:
+  - `src/python/det/eis/creature_runner.py` (NEW - ~300 lines)
+  - `src/python/det/lang/eis_compiler.py` (Modified - kernel compilation)
+
+- **EIS VM** (already existed in `det/eis/`):
+  - Full instruction decoder for 4-byte EIS instructions
+  - Register file: R0-R63 (scalar), H0-H31 (ref), T0-T31 (token)
+  - Phase execution: READ → PROPOSE → CHOOSE → COMMIT
+  - TraceStore for node/bond state
+
+- **Kernel Compilation**:
+  - Compiler now generates bytecode for nested kernels in creatures
+  - `CompiledCreature.kernels` dict holds kernel bytecode
+  - Kernel phases compile to proper EIS opcodes
+
+- **Creature Runner**:
+  - `CreatureRunner` - Executes compiled creatures via EIS VM
+  - `spawn()` - Create creature instance from compiled code
+  - `bond()` - Create bond between creatures
+  - `send()/receive()` - Message passing via bonds
+  - `invoke_kernel()` - Execute kernel bytecode
+  - `process_messages()` - Dispatch "invoke" messages to kernels
+
+- **Bond Protocol**:
+  ```python
+  # Send kernel invocation
+  runner.send(cid1, cid2, {
+      "type": "invoke",
+      "kernel": "Greet",
+      "inputs": {"name": "World"}
+  })
+
+  # Receive result
+  response = runner.receive(cid1, cid2)
+  # {"type": "result", "kernel": "Greet", "success": True, ...}
+  ```
+
+- **Tests**: 27/27 passing (existing tests still work)
+
+---
+
+## Phase 17: Substrate Primitives ✅
+
+**Status**: Complete
+**Date**: 2026-01-24
+
+### 17.1 Primitive Interface ✅
+- Added `PRIMITIVE` token type to lexer
+- Added `PrimitiveCallExpr` AST node
+- Parser handles `primitive("name", arg1, arg2, ...)` syntax
+- Compiler emits `V2_PRIM` instruction with name ID and argument count
+
+### 17.2 Core Primitives ✅
+Implemented 17 primitives in `det/eis/primitives.py`:
+
+| Primitive | Base Cost | Min Agency | Description |
+|-----------|-----------|------------|-------------|
+| `llm_call` | 1.0 | 0.3 | Call LLM with prompt |
+| `llm_chat` | 1.5 | 0.3 | Chat with message history |
+| `exec` | 0.5 | 0.5 | Execute shell command |
+| `exec_safe` | 0.2 | 0.3 | Safe read-only commands |
+| `file_read` | 0.1 | 0.2 | Read file contents |
+| `file_write` | 0.2 | 0.5 | Write to file |
+| `file_exists` | 0.01 | 0.1 | Check file exists |
+| `file_list` | 0.05 | 0.2 | List directory |
+| `now` | 0.001 | 0.0 | Unix timestamp |
+| `now_iso` | 0.001 | 0.0 | ISO time string |
+| `sleep` | 0.01 | 0.1 | Sleep milliseconds |
+| `random` | 0.001 | 0.0 | Random [0,1) |
+| `random_int` | 0.001 | 0.0 | Random integer |
+| `random_seed` | 0.001 | 0.0 | Set random seed |
+| `print` | 0.001 | 0.0 | Debug output |
+| `log` | 0.001 | 0.0 | Log with level |
+| `hash_sha256` | 0.01 | 0.0 | SHA256 hash |
+
+### 17.3 Primitive Registry ✅
+- `PrimitiveRegistry` class manages primitives
+- F/agency checking before execution
+- Cost tracking (base + per-unit)
+- Call history for debugging
+
+### 17.4 VM Integration ✅
+- Added `V2_PRIM` opcode (0x84)
+- VM dispatches to primitive registry
+- F deducted on successful call
+- Result returned in destination register
+
+### 17.5 Creature Runner Integration ✅
+- `call_primitive()` method on CreatureRunner
+- Bond-based primitive calling via `{"type": "primitive", ...}` messages
+
+### Files Created/Modified
+- `det/lang/tokens.py` - Added PRIMITIVE token
+- `det/lang/ast_nodes.py` - Added PrimitiveCallExpr
+- `det/lang/parser.py` - Parse primitive() calls
+- `det/lang/eis_compiler.py` - Compile to V2_PRIM
+- `det/eis/encoding.py` - Added V2_PRIM opcode
+- `det/eis/primitives.py` - NEW: Full primitive system
+- `det/eis/vm.py` - Execute V2_PRIM instructions
+- `det/eis/creature_runner.py` - Primitive integration
+- `det/eis/__init__.py` - Export primitive classes
+
+---
+
+## Phase 18: Pure EL Creatures ✅
+
+**Status**: Complete
+**Date**: 2026-01-24
+
+### 18.1 LLMCreature.ex ✅
+- Think kernel using `primitive("llm_call", prompt)`
+- Chat kernel for multi-turn conversations
+- Temperature modulation by agency
+- Token cost accounting in F
+
+### 18.2 ToolCreature.ex ✅
+- ExecSafe kernel using `primitive("exec_safe", command)`
+- Exec kernel for full command execution (agency-gated)
+- FileRead/FileWrite kernels using file primitives
+- Agency-gated execution levels
+
+### 18.3 MemoryCreature.ex ✅
+- Store kernel with importance-weighted cost
+- Recall kernel with matching
+- Prune kernel for memory management
+- Pure EL (uses `primitive("now")` for timestamps)
+
+### 18.4 ReasonerCreature.ex ✅
+- Reason kernel with chain-of-thought
+- Optional LLM assistance based on agency
+- Analyze kernel for statement analysis
+- Configurable reasoning depth
+
+### 18.5 PlannerCreature.ex ✅
+- Plan kernel for task planning
+- Decompose kernel for subtask generation
+- Estimate kernel for resource estimation
+- Active plan tracking
+
+### Compilation Results
+| Creature | Kernels | Init (bytes) | Kernel Code (bytes) |
+|----------|---------|--------------|---------------------|
+| LLMCreature | 3 | 84 | 340 |
+| ToolCreature | 5 | 108 | 820 |
+| MemoryCreature | 4 | 168 | 1008 |
+| ReasonerCreature | 3 | 96 | 540 |
+| PlannerCreature | 5 | 104 | 904 |
+
+### Files Created
+- `src/existence/llm.ex` - LLM creature (~150 lines)
+- `src/existence/tool.ex` - Tool creature (~250 lines)
+- `src/existence/memory.ex` - Memory creature (~250 lines)
+- `src/existence/reasoner.ex` - Reasoner creature (~180 lines)
+- `src/existence/planner.ex` - Planner creature (~250 lines)
+
+---
+
+## Phase 19: Terminal Creature 🔄
+
+**Status**: In Progress
+**Date**: 2026-01-24
+
+### 19.1 Terminal Primitives ✅
+Added 5 terminal port primitives to the substrate:
+- `terminal_read()` - Read line of user input
+- `terminal_write(msg)` - Write output to terminal
+- `terminal_prompt(prompt)` - Display prompt and read input
+- `terminal_clear()` - Clear terminal screen
+- `terminal_color(color)` - Set terminal text color (reset, red, green, yellow, blue, cyan, etc.)
+
+### 19.2 TerminalCreature.ex ✅
+Created the CLI as a pure Existence-Lang creature with 9 kernels:
+- **Init**: Display welcome message and setup
+- **ReadInput**: Read user input via terminal_prompt primitive
+- **WriteOutput**: Write output with color support
+- **Dispatch**: Route commands to LLM or Tool creatures
+- **Help**: Display help information
+- **Status**: Show creature state (F, agency, stats)
+- **Quit**: Gracefully stop the terminal
+- **BondLLM**: Create bond to LLM creature
+- **BondTool**: Create bond to Tool creature
+
+### 19.3 Bootstrap Loader ✅
+Created minimal Python bootstrap (`det_os_boot.py`):
+- Loads and compiles TerminalCreature from .ex source
+- Spawns creature instance via CreatureRunner
+- Provides REPL loop for command dispatch
+- Command-line options for verbose mode and custom creatures
+
+### Compilation Results
+| Creature | Kernels | Init (bytes) | Total Kernel (bytes) |
+|----------|---------|--------------|----------------------|
+| TerminalCreature | 9 | 112 | 1,660 |
+
+### Files Created/Modified
+- `src/existence/terminal.ex` - Terminal creature (~450 lines)
+- `src/python/det_os_boot.py` - Bootstrap loader (~220 lines)
+- `src/python/det/eis/primitives.py` - Added terminal primitives
+- `src/python/det/lang/eis_compiler.py` - Added primitive ID mappings
+- `src/python/det/eis/vm.py` - Added primitive ID mappings
+
+### Remaining Work
+- [x] Proper input/output port mapping in invoke_kernel ✅
+- [ ] Bond-based dispatch to LLM/Tool creatures
+- [ ] Command history and line editing
+
+### 19.4 I/O Port Mapping ✅
+**Date**: 2026-01-24
+
+Updated compiler and runtime to properly track and use kernel port information:
+
+**Compiler Changes (`eis_compiler.py`)**:
+- Added `CompiledPort` dataclass with name, direction, type, and register index
+- `CompiledKernel` now includes `ports: List[CompiledPort]`
+- Port allocation captures direction (in/out) and register assignment
+
+**Runtime Changes (`creature_runner.py`)**:
+- Added `KernelPort` dataclass for runtime port representation
+- `invoke_kernel` now maps input values to correct registers
+- Output values are collected from correct registers by port name
+
+**Example port mapping for WriteOutput kernel**:
+```
+  in    message: TokenReg @ reg 0
+  in    color: TokenReg @ reg 1
+  out   success: Register @ reg 0
+```
+
+### 19.5 Bond-Based Dispatch ✅
+**Date**: 2026-01-24
+
+Implemented proper DET bond-based dispatch between creatures:
+
+**Architecture**:
+```
+TerminalCreature <--bond--> LLMCreature (channel 0)
+TerminalCreature <--bond--> ToolCreature (channel 1)
+```
+
+**Bootstrap Process (`det_os_boot.py`)**:
+1. Compile all three creatures (terminal.ex, llm.ex, tool.ex)
+2. Spawn creature instances with initial F/a values
+3. Create bonds between Terminal and LLM/Tool
+4. Run REPL with bond-based command dispatch
+
+**Message Flow**:
+```
+User Input -> Terminal -> [bond message] -> LLM/Tool
+                      <- [bond response] <-
+                 -> Display Output
+```
+
+**Commands**:
+- `ask <query>` - Sends via bond to LLMCreature
+- `run <cmd>` - Sends via bond to ToolCreature (safe mode)
+- `exec <cmd>` - Sends via bond to ToolCreature (full mode)
+- `status` - Shows creature F, messages sent/received
+- `bonds` - Shows bond connections
+
+**Test Results**:
+```
+Terminal: F=100.0, msgs_sent=4, msgs_recv=4
+LLM:      F=100.0, msgs_sent=1, msgs_recv=1
+Tool:     F=49.3,  msgs_sent=3, msgs_recv=3
+```
+
+**Files Modified**:
+- `src/python/det_os_boot.py` - Rewrote as DETRuntime class with bond dispatch (~400 lines)
+
+---
+
+## Phase 20: Full Integration 🔄
+
+**Status**: In Progress
+**Date**: 2026-01-24
+
+### 20.1 Deprecate Python Wrappers ✅
+Updated CreatureLoader to prefer pure Existence-Lang creatures over Python wrappers:
+
+**Changes to `det/os/creatures/loader.py`:**
+- `load()` now searches for .ex files BEFORE checking built-in wrappers
+- Added `force_builtin=True` parameter to force deprecated Python wrappers
+- Added `EL_CREATURES` mapping for name-to-file resolution
+- `list_available()` now shows creature type (existence-lang vs builtin-deprecated)
+- Added deprecation warnings when Python wrappers are used
+
+**Available EL Creatures:**
+| Creature | File | Has Deprecated Wrapper |
+|----------|------|------------------------|
+| llm | llm.ex | No |
+| tool | tool.ex | Yes |
+| memory | memory.ex | Yes |
+| reasoner | reasoner.ex | Yes |
+| planner | planner.ex | Yes |
+| terminal | terminal.ex | No |
+
+### Files Modified
+- `src/python/det/os/creatures/loader.py` - Prefer EL over Python wrappers
+
+### 20.2 Performance Optimization ✅
+
+Profiled and optimized the Existence-Lang compilation pipeline.
+
+**Problem Analysis:**
+Profiling revealed the tokenizer and parser were the main bottlenecks:
+- `len(self.source)` called 833K times in tokenizer (never changes, should be cached)
+- `peek()` called 525K times, `advance()` called 308K times
+- Parser's `current()`, `check()`, `match()` calling `len()` on every invocation
+
+**Tokenizer Optimizations (`det/lang/tokens.py`):**
+- Added `__slots__` to Lexer class
+- Cached `self.source_len = len(source)` in `__init__`
+- Optimized `skip_whitespace()` with inlined loop (avoids method calls)
+- Optimized `read_identifier()` with direct string slicing
+- Optimized `read_number()` with direct string access
+
+**Parser Optimizations (`det/lang/parser.py`):**
+- Added `__slots__` to Parser class
+- Cached `self.tokens_len = len(self.tokens)` in `__init__`
+- Cached `self.eof_token` to avoid repeated construction
+- Optimized `current()`, `peek()`, `advance()`, `check()`, `match()` to use cached values
+- Eliminated redundant method calls in hot paths
+
+**Performance Results:**
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Tokenization (terminal.ex) | 6.79ms | 5.06ms | 25% faster |
+| Parse time (all .ex files) | 57.10ms | 51.34ms | 10% faster |
+| Total compile time | 62.50ms | 56.81ms | 9% faster |
+| Rate | 57,438 lines/sec | 63,197 lines/sec | 10% faster |
+
+**Files Modified:**
+- `src/python/det/lang/tokens.py` - Tokenizer optimizations
+- `src/python/det/lang/parser.py` - Parser optimizations
+
+### 20.3 Bytecode Caching ✅
+
+Implemented `.exb` bytecode cache for fast creature loading.
+
+**File Format (.exb):**
+- 32-byte header with magic, version, source mtime, size, CRC32 hash
+- Pickled CompiledCreatureData payload
+
+**New Files:**
+- `det/lang/bytecode_cache.py` - BytecodeCache class (~250 lines)
+- `det/lang/excompile.py` - CLI compiler tool
+
+**Updated Files:**
+- `det_os_boot.py` - Uses BytecodeCache for loading
+
+**Performance Results:**
+
+| Scenario | JIT | Cached | Speedup |
+|----------|-----|--------|---------|
+| Bootstrap (3 creatures) | 17.44ms | 2.55ms | **6.8x** |
+| Single creature load | 7.75ms | 0.16ms | **48x** |
+
+**CLI Commands:**
+```bash
+# Precompile all creatures
+python -m det.lang.excompile --all
+
+# Compile single file
+python -m det.lang.excompile terminal.ex
+
+# Show bytecode info
+python -m det.lang.excompile --info terminal.exb
+
+# Clean cache
+python -m det.lang.excompile --clean ../existence/
+```
+
+**REPL Commands:**
+- `list` - Shows cache status for each creature
+- `recompile <name>` - Force recompile from source
+- `recompile all` - Recompile all creatures
+
+### Remaining Work
+- [ ] Consider removing Python wrappers entirely
+- [x] GPU acceleration (Phase 14 - complete)
+- [ ] Consider Cython/C interpreter for further speedup
+
+---
+
+## Phase 14: GPU Backend with Metal Compute Shaders ✅
+
+### 14.1 Metal Compute Shaders ✅
+- **Status**: Complete (verified 2026-01-24)
+- **Files**:
+  - `src/substrate/metal/substrate_shaders.metal` (1,138 lines)
+  - `src/substrate/metal/metal_backend.m` (855 lines)
+  - `src/substrate/include/substrate_metal.h` (C API header)
+  - `src/substrate/src/substrate_metal.c` (C wrapper)
+  - `src/python/det/metal.py` (~600 lines Python bindings)
+
+### 14.2 Features Implemented
+- **Phase-based kernel dispatch**: READ → PROPOSE → CHOOSE → COMMIT
+- **Structure-of-Arrays layout**: GPU-optimized memory access
+- **Lane ownership model**: Parallel-safe effect deduplication
+- **Atomic operations**: XFER_F, DIFFUSE for parallel safety
+- **Full instruction set**: 46 opcodes implemented in Metal
+
+### 14.3 Performance Results
+
+**C Test Suite**: 9/9 tests passing
+
+| Configuration | Ticks/sec |
+|--------------|-----------|
+| 100 nodes, 200 bonds | 4,249 |
+| 1,000 nodes, 2,000 bonds | 4,608 |
+| 10,000 nodes, 20,000 bonds | 4,145 |
+
+**Python Integration**:
+
+| Configuration | Ticks/sec |
+|--------------|-----------|
+| 1,000 nodes, 2,000 bonds | 1,115 |
+| 10,000 nodes, 20,000 bonds | 1,065 |
+
+**Key Metrics**:
+- Device: Apple M1 Max
+- GPU Memory: ~61 MB allocated
+- Near-constant tick rate regardless of graph size (parallel scaling)
+
+### 14.4 Build Instructions
+```bash
+cd local_agency/src/substrate/build
+cmake .. -DENABLE_METAL=ON
+make -j4
+
+# Run Metal tests
+./metal/test_metal
+
+# Python verification
+cd ../../python
+python -c "from det.metal import MetalBackend; print(f'Metal: {MetalBackend.is_available()}')"
+```
+
+### 14.5 Python API Usage
+```python
+from det.metal import MetalBackend, NodeArraysHelper, BondArraysHelper
+
+# Create backend
+metal = MetalBackend()
+print(f"Device: {metal.device_name}")
+
+# Create and initialize arrays
+nodes = NodeArraysHelper(1000)
+bonds = BondArraysHelper(2000)
+for i in range(2000):
+    bonds.connect(i, i % 1000, (i + 1) % 1000)
+
+# Upload, execute, download
+metal.upload_nodes(nodes.as_ctypes(), 1000)
+metal.upload_bonds(bonds.as_ctypes(), 2000)
+metal.execute_ticks(1000, num_ticks=100)
+metal.synchronize()
+metal.download_nodes(nodes.as_ctypes(), 1000)
+```
+
+### 14.6 DET-OS GPU Integration ✅
+- **Status**: Complete (2026-01-24)
+- **Files Modified**:
+  - `det_os_boot.py` - Added GPU backend integration
+
+**Features**:
+- `--gpu` flag for GPU-enabled startup
+- GPU commands in REPL:
+  - `gpu` / `gpu status` - Show GPU status
+  - `gpu enable` / `gpu disable` - Toggle GPU acceleration
+  - `gpu tick [N]` - Execute N substrate ticks on GPU
+  - `gpu benchmark [nodes] [bonds] [ticks]` - Run performance benchmark
+- Automatic creature state sync between Python and GPU
+- GPU status in `status` command output
+
+**REPL Usage**:
+```
+det> gpu
+GPU Status:
+  Available: True
+  Enabled: No
+  Device: Apple M1 Max (ready)
+
+det> gpu enable
+GPU acceleration enabled
+
+det> gpu tick 100
+Executed 100 GPU ticks in 85.85ms
+
+det> gpu benchmark 10000 20000 1000
+GPU Benchmark
+  Device: Apple M1 Max
+  Configuration: 10000 nodes, 20000 bonds, 1000 ticks
+  GPU Time: 957.25ms
+  Rate: 1045 ticks/sec
+```
+
+**Architecture Notes**:
+- GPU accelerates substrate-level operations (node/bond state updates)
+- High-level message passing and primitives remain in Python
+- Best for large-scale simulations (100+ nodes)
+- For 3-4 creatures, Python VM is sufficient (GPU overhead not worthwhile)
+
 ---
 
 ## Next Steps
 
-1. **Phase 15: CUDA Backend**:
-   - [ ] CUDA compute kernels for NVIDIA GPUs
-   - [ ] Unified backend interface
-   - [ ] Performance comparison
+See `ROADMAP_V2.md` for detailed roadmap.
 
-2. **Phase 16: DET-Native Hardware**:
-   - [ ] FPGA prototype design
-   - [ ] Custom silicon specification
-   - [ ] Direct substrate execution
+1. **Phase 20: Full Integration** (remaining):
+   - [x] Performance profiling and optimization (20.2 complete)
+   - [x] GPU acceleration (Phase 14 complete)
+   - [ ] Remove deprecated Python wrappers (optional)
+   - [ ] Consider Cython/C interpreter for further speedup
+
+2. **Future Work**:
+   - [ ] Integrate Metal backend into det_os_boot for GPU-accelerated creature execution
+   - [ ] Cross-platform GPU support (Vulkan compute for Linux/Windows)
+   - [ ] Remote presence networking
 
 ---
 
@@ -1063,4 +1606,4 @@ python det_cli.py --model llama3.2:3b
 
 ---
 
-*Last Updated: 2026-01-24 (DET-OS CLI Integration + Bond Coherence Fix)*
+*Last Updated: 2026-01-24 (Phase 17: Substrate Primitives Complete)*

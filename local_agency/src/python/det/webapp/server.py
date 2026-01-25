@@ -20,6 +20,14 @@ try:
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
+    # Stub types for when FastAPI is not installed
+    FastAPI = Any
+    WebSocket = Any
+    WebSocketDisconnect = Exception
+    Request = Any
+    StaticFiles = Any
+    Jinja2Templates = Any
+    HTMLResponse = Any
 
 from ..core import DETCore
 from ..harness import HarnessController, HarnessEvent, create_harness

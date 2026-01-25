@@ -175,6 +175,7 @@ class Opcode(IntEnum):
     V2_OUT = 0x81       # Write to channel: io[imm] = src0
     V2_EMIT = 0x82      # Emit byte to buffer
     V2_POLL = 0x83      # Poll channel ready
+    V2_PRIM = 0x84      # Primitive call: dst = primitive(name_id, args) - ext has name_id
 
     # === Reference/Handle Ops (0x80-0x8F) ===
     MKNODE = 0x80       # Make node ref: MKNODE dst, nodeId
@@ -348,6 +349,7 @@ OPCODE_FORMAT = {
     Opcode.V2_OUT: InstructionFormat.RRI,     # src, channel
     Opcode.V2_EMIT: InstructionFormat.R,      # buf_ref, byte_src
     Opcode.V2_POLL: InstructionFormat.RI,     # dst, channel
+    Opcode.V2_PRIM: InstructionFormat.EXT,    # dst, arg_count + ext word has name_id
 
     # System (v2)
     Opcode.V2_RAND: InstructionFormat.RR,     # dst

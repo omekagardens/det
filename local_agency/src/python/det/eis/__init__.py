@@ -67,6 +67,16 @@ from .assembler import (
     Assembler, assemble, disassemble,
 )
 
+from .creature_runner import (
+    CreatureRunner, CreatureInstance, CreatureState,
+    CompiledCreatureData, Channel, compile_creature_for_runner,
+)
+
+from .primitives import (
+    PrimitiveRegistry, PrimitiveSpec, PrimitiveCall, PrimitiveResult,
+    get_registry, call_primitive, list_primitives,
+)
+
 __version__ = "0.1.0"
 
 __all__ = [
@@ -91,4 +101,10 @@ __all__ = [
     "EISVM", "Lane", "ExecutionState",
     # Assembler
     "Assembler", "assemble", "disassemble",
+    # Creature Runner
+    "CreatureRunner", "CreatureInstance", "CreatureState",
+    "CompiledCreatureData", "Channel", "compile_creature_for_runner",
+    # Primitives
+    "PrimitiveRegistry", "PrimitiveSpec", "PrimitiveCall", "PrimitiveResult",
+    "get_registry", "call_primitive", "list_primitives",
 ]
