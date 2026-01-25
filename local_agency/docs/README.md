@@ -11,7 +11,6 @@ DET Local Agency is a DET-native operating system where all logic runs as **Exis
 | [EXISTENCE_LANG.md](EXISTENCE_LANG.md) | Existence-Lang language reference |
 | [ARCHITECTURE_V2.md](ARCHITECTURE_V2.md) | System architecture with EIS VM and creature model |
 | [SUBSTRATE_SPEC.md](SUBSTRATE_SPEC.md) | Substrate v2 specification (phases, effects, opcodes) |
-| [ROADMAP_V2.md](ROADMAP_V2.md) | Project roadmap and completed phases |
 
 ## Root-Level Documentation
 
