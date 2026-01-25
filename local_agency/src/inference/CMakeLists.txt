@@ -6,7 +6,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(det_inference VERSION 0.1.0 LANGUAGES C)
+project(det_inference VERSION 0.1.0 LANGUAGES C OBJC)
 
 # =============================================================================
 # Configuration
@@ -34,7 +34,18 @@ set(INFERENCE_HEADERS
     include/det_gguf.h
     include/det_tokenizer.h
     include/det_model.h
+    include/det_tensor_metal.h
 )
+
+# Metal sources (Apple only)
+if(APPLE AND DET_INFERENCE_USE_METAL)
+    set(METAL_SOURCES
+        metal/tensor_metal.m
+    )
+    set(METAL_SHADERS
+        metal/tensor_shaders.metal
+    )
+endif()
 
 # =============================================================================
 # Platform Detection
@@ -70,7 +81,7 @@ endif()
 # =============================================================================
 
 # Shared library
-add_library(det_inference SHARED ${INFERENCE_SOURCES})
+add_library(det_inference SHARED ${INFERENCE_SOURCES} ${METAL_SOURCES})
 target_include_directories(det_inference PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
@@ -78,12 +89,27 @@ target_include_directories(det_inference PUBLIC
 target_link_libraries(det_inference PRIVATE ${PLATFORM_LIBS} m)
 
 # Static library
-add_library(det_inference_static STATIC ${INFERENCE_SOURCES})
+add_library(det_inference_static STATIC ${INFERENCE_SOURCES} ${METAL_SOURCES})
 target_include_directories(det_inference_static PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(det_inference_static PRIVATE ${PLATFORM_LIBS} m)
+
+# Objective-C settings for Metal
+if(APPLE AND DET_INFERENCE_USE_METAL)
+    set_source_files_properties(${METAL_SOURCES} PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
+
+    # Copy Metal shaders to build directory
+    add_custom_command(TARGET det_inference POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                ${CMAKE_CURRENT_SOURCE_DIR}/metal/tensor_shaders.metal
+                $<TARGET_FILE_DIR:det_inference>/tensor_shaders.metal
+        COMMENT "Copying Metal shaders"
+    )
+endif()
 
 # Compiler options
 target_compile_options(det_inference PRIVATE -Wall -Wextra -O2)

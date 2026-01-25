@@ -2105,3 +2105,109 @@ python det_cli.py --model llama3.2:3b
 ---
 
 *Last Updated: 2026-01-25 (Substrate v2 Fixes: 14-point fix list implemented)*
+
+---
+
+## Phase 26: Native Model Inference (2026-01-25)
+
+### Overview
+Implementing DET-native LLM inference to replace Ollama dependency. The approach: C primitives for heavy compute (matmul, attention), with Existence-Lang creatures controlling when/why they run.
+
+### 26.1 Foundation Primitives ✅ COMPLETE
+
+**Files Created** (`src/inference/`):
+- `include/det_tensor.h` (426 lines) - Tensor API
+- `src/det_tensor.c` (1240 lines) - CPU implementation with Accelerate BLAS
+- `tests/test_tensor.c` (671 lines) - 18 tests, all passing
+
+**Primitives Implemented**:
+| Primitive | Description | Status |
+|-----------|-------------|--------|
+| `det_tensor_create` | Create tensor with shape/dtype | ✅ |
+| `det_tensor_mmap` | Memory-mapped tensor from file | ✅ |
+| `det_tensor_clone` | Deep copy tensor | ✅ |
+| `det_matmul` | Matrix multiplication (BLAS) | ✅ |
+| `det_matvec` | Matrix-vector multiply | ✅ |
+| `det_add`, `det_mul` | Element-wise ops | ✅ |
+| `det_div_scalar` | Scalar division | ✅ |
+| `det_silu` | SiLU activation | ✅ |
+| `det_gelu` | GELU activation | ✅ |
+| `det_relu` | ReLU activation | ✅ |
+| `det_rmsnorm` | RMS normalization | ✅ |
+| `det_softmax` | Softmax with temperature | ✅ |
+| `det_sample_greedy` | Argmax sampling | ✅ |
+| `det_sample_top_k` | Top-k sampling | ✅ |
+| `det_sample_top_p` | Nucleus sampling | ✅ |
+| `det_attention_scores` | Q·K^T/√d_k | ✅ |
+| `det_causal_mask` | Causal attention mask | ✅ |
+| `det_dequantize` | Q8_0/Q4_0/F16→F32 | ✅ |
+| `det_quantize` | F32→Q8_0 | ✅ |
+
+**Missing from 26.1**:
+- [ ] Metal matmul shader (GPU acceleration)
+
+### 26.2 GGUF Model Loading ✅ COMPLETE
+
+**Files Created**:
+- `include/det_gguf.h` (333 lines) - GGUF API
+- `src/det_gguf.c` (734 lines) - GGUF parser with mmap
+- `tests/test_gguf.c` (332 lines) - 7 tests, all passing
+
+**Features**:
+| Feature | Status |
+|---------|--------|
+| GGUF v2/v3 format parsing | ✅ |
+| Memory-mapped tensor data | ✅ |
+| Metadata key-value extraction | ✅ |
+| Tensor info parsing (name, shape, type, offset) | ✅ |
+| Quantization types (Q4_0, Q4_K, Q8_0, F16, BF16) | ✅ |
+| Architecture detection (LLaMA, Qwen2, Phi3, etc.) | ✅ |
+| Model parameter extraction (n_vocab, n_embd, etc.) | ✅ |
+
+### 26.3 Tokenizer ✅ COMPLETE
+
+**Files Created**:
+- `include/det_tokenizer.h` (244 lines) - Tokenizer API
+- `src/det_tokenizer.c` (534 lines) - BPE tokenizer
+
+**Features**:
+- Load vocabulary from GGUF metadata
+- BPE encoding (text → tokens)
+- Decoding (tokens → text)
+- Special token handling (BOS, EOS, PAD, UNK)
+- Hash table for O(1) token lookup
+
+### 26.4 C Inference Pipeline (Primitives Only)
+
+**Files Created**:
+- `include/det_model.h` (287 lines) - Model API
+- `src/det_model.c` (878 lines) - Forward pass implementation
+
+**Note**: This provides C primitives for inference, but **not yet wrapped as creatures**.
+The ROADMAP specifies creatures (EmbeddingCreature.ex, TransformerLayerCreature.ex, etc.)
+that call these primitives. This creature layer is still TODO.
+
+**C Primitives Available**:
+- `det_model_load(path)` - Load GGUF model
+- `det_model_forward(tokens)` - Forward pass → logits
+- `det_model_sample(logits)` - Sample next token
+- `det_choose_token(logits, temp, top_p, det_presence)` - DET-aware sampling
+
+### Build & Test Summary
+
+```
+Library:  4,676 lines (headers + sources)
+Tests:    1,003 lines (25 tests, all passing)
+Total:    5,679 lines of C code
+```
+
+### Next Steps for Phase 26
+
+1. **26.1 Completion**: Add Metal matmul shader for GPU acceleration
+2. **26.3 Creatures**: Create EL wrappers (EmbeddingCreature.ex, SamplerCreature.ex, etc.)
+3. **26.5 DET Sampler**: Wire det_choose_token to substrate agency/arousal
+4. **26.6 Truthfulness**: Implement T score computation
+5. **26.7 Metal Shaders**: GPU-accelerated attention and FFN
+6. **26.8 Integration**: Replace Ollama in LLMCreature.ex
+
+---

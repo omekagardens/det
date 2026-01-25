@@ -356,64 +356,100 @@ src/existence/
 
 **Critical Design**: The sampler is where you "stay DET" - `det_choose_token()` is the ur-choice that gets committed as past trace/witness.
 
-#### 26.1 Foundation Primitives (M1)
+#### 26.1 Foundation Primitives (M1) ✅ COMPLETE
 **Goal**: Basic tensor operations in substrate (C + Metal)
 
-- [ ] Memory-mapped tensor loading (`tensor_mmap`)
-- [ ] Basic matmul (CPU fallback with BLAS)
-- [ ] Metal matmul shader (GPU-accelerated)
-- [ ] RMSNorm primitive
-- [ ] SiLU activation primitive
-- [ ] Softmax with optional temperature
-- [ ] Element-wise ops (add, mul, div_scalar)
+- [x] Memory-mapped tensor loading (`tensor_mmap`)
+- [x] Basic matmul (CPU fallback with BLAS)
+- [x] Metal matmul shader (GPU-accelerated)
+- [x] RMSNorm primitive
+- [x] SiLU activation primitive
+- [x] Softmax with optional temperature
+- [x] Element-wise ops (add, mul, div_scalar)
+
+**Files**:
+- `src/inference/{det_tensor.h, det_tensor.c}` - CPU primitives (1,666 lines)
+- `src/inference/metal/{tensor_shaders.metal, tensor_metal.m}` - GPU backend (~600 lines)
+- `src/inference/include/det_tensor_metal.h` - Metal C API
+
+**Tests**: 18/18 passing
+
+**Metal GPU Operations**:
+- `tensor_metal_matmul` - Tiled matrix multiplication
+- `tensor_metal_silu` - SiLU activation
+- `tensor_metal_rmsnorm` - RMS normalization
+- `tensor_metal_softmax` - Softmax with temperature
 
 **Performance Notes** (from substrate_lattice.c learnings):
 - Keep buffers persistent (reuse across tokens)
 - Avoid per-step allocations
 - Profile hot paths early
 
-#### 26.2 GGUF Model Loading (M2)
+#### 26.2 GGUF Model Loading (M2) ✅ COMPLETE
 **Goal**: Parse GGUF format, extract weights
 
-- [ ] GGUF header parser (metadata extraction)
-- [ ] Weight tensor extraction
-- [ ] Quantization support (Q4_K_M minimum, Q8_0)
-- [ ] Memory-mapped weights (don't load full model into RAM)
-- [ ] ModelLoaderCreature.ex
+- [x] GGUF header parser (metadata extraction)
+- [x] Weight tensor extraction
+- [x] Quantization support (Q4_K_M minimum, Q8_0)
+- [x] Memory-mapped weights (don't load full model into RAM)
+- [ ] ModelLoaderCreature.ex ← TODO (creature wrapper)
 
-**Interim**: Use ollama.cpp as library for GGUF parsing during development
+**Files**: `src/inference/{det_gguf.h, det_gguf.c}` (1,067 lines)
+**Tests**: 7/7 passing
 
-#### 26.3 Inference Pipeline (M3)
+**Note**: C primitives complete. Creature wrapper still needed.
+
+#### 26.3 Inference Pipeline (M3) ⚠️ PRIMITIVES DONE, CREATURES TODO
 **Goal**: Single token generation via creatures
 
+**C Primitives** (in `src/inference/det_model.c`):
+- [x] Token embedding lookup
+- [x] Transformer layer forward pass (attention + FFN)
+- [x] RoPE position encoding
+- [x] KV cache management
+- [x] Logits projection
+
+**Tokenizer** (in `src/inference/det_tokenizer.c`):
+- [x] BPE encoding/decoding from GGUF vocabulary
+
+**Existence-Lang Creatures** (TODO):
 - [ ] EmbeddingCreature.ex (token → embedding)
 - [ ] TransformerLayerCreature.ex (coordinates attn + FFN)
 - [ ] AttentionHeadCreature.ex (attention as auditable effect)
 - [ ] FFNCreature.ex (feed-forward computation)
 - [ ] SamplerCreature.ex with `det_choose_token()`
 
+**Files**: `src/inference/{det_model.h, det_model.c, det_tokenizer.h, det_tokenizer.c}` (1,943 lines)
+
 **Architecture Decision**: Per-layer creatures (not per-head) for simplicity, with attention heads as internal structure.
 
-#### 26.4 KV Cache (M4)
+#### 26.4 KV Cache (M4) ✅ C PRIMITIVES COMPLETE
 **Goal**: Efficient multi-token generation
 
-- [ ] `kv_cache_create(layers, max_len, d)` primitive
-- [ ] `kv_cache_append(cache, k, v)` primitive
+- [x] `kv_cache_create(layers, max_len, d)` primitive (in DetModel struct)
+- [x] `kv_cache_append(cache, k, v)` primitive (in det_model_forward)
 - [ ] `kv_cache_slice(cache, start, end)` for sliding window
-- [ ] Cache management in ModelCreature
+- [ ] Cache management in ModelCreature ← TODO (creature wrapper)
 - [ ] Context window handling (truncation, summarization trigger)
+
+**Note**: Basic KV cache works in C. Creature wrapper and sliding window TODO.
 
 **Performance Critical**: KV cache correctness + efficiency is where decode speed lives.
 
-#### 26.5 DET-Native Sampler
+#### 26.5 DET-Native Sampler ⚠️ C PRIMITIVE DONE, DET INTEGRATION TODO
 **Goal**: The sacred DET integration point
 
-- [ ] `det_choose_token(logits, temperature, top_p, top_k)` primitive
-- [ ] DET agency modulates temperature (higher a → lower temp)
-- [ ] DET arousal modulates variability
-- [ ] Choice committed as witness/trace
-- [ ] Reproducible via deterministic RNG from trace state
-- [ ] Repetition penalty via context tokens
+- [x] `det_choose_token(logits, temperature, top_p, top_k)` primitive
+- [x] Repetition penalty via context tokens
+- [x] Reproducible via deterministic RNG (xorshift64)
+- [x] DET presence bias parameter (`det_presence` in API)
+- [ ] DET agency modulates temperature (higher a → lower temp) ← TODO
+- [ ] DET arousal modulates variability ← TODO
+- [ ] Choice committed as witness/trace ← TODO (substrate integration)
+
+**Note**: The C function `det_choose_token()` exists with a `det_presence` parameter
+for DET bias, but the substrate integration (reading agency/arousal, committing
+witnesses) is not yet implemented.
 
 **Key**: Even when using external sampling, wrap it in DET choose semantics.
 
@@ -532,4 +568,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-24* | *Phase 20.5 - Native DET Collider*
+*Last Updated: 2026-01-25* | *Phase 26 - Native Model Inference (in progress)*
