@@ -14,6 +14,12 @@
  *   - Token budget management (per-creature limits)
  *   - Temperature modulation by agency/arousal
  *   - Streaming callback support
+ *
+ * Phase 26 Enhancements:
+ *   - Native inference support (GGUF models, no Ollama dependency)
+ *   - DET-aware sampling via det_choose_token
+ *   - GPU acceleration via Metal (macOS)
+ *   - Switchable backend (use_native flag)
  */
 
 creature LLMCreature {
@@ -21,14 +27,21 @@ creature LLMCreature {
     var F: Register := 100.0;
     var a: float := 0.7;
     var q: float := 0.0;
+    var P: float := 1.0;             // Phase 26: Presence for DET sampling
     var arousal: float := 0.5;       // Phase 21: For temperature modulation
     var bondedness: float := 0.5;    // Phase 21: For temperature modulation
 
     // Model configuration (Phase 21: Multi-model support)
-    var model: string := "llama3.2:3b";      // Default model
+    var model: string := "llama3.2:3b";      // Default model (Ollama name)
     var model_reasoning: string := "deepseek-r1:1.5b";  // Reasoning specialist
     var model_coding: string := "qwen2.5-coder:1.5b";   // Code specialist
     var model_fast: string := "phi4-mini";              // Fast/efficient model
+
+    // Phase 26: Native inference configuration
+    var use_native: bool := false;           // Toggle: true=native, false=Ollama
+    var native_model_path: string := "";     // Path to GGUF model file
+    var native_model_loaded: bool := false;  // Is native model loaded?
+    var native_model_info: string := "";     // Model info string
 
     // Temperature configuration
     var base_temperature: float := 0.7;
@@ -52,9 +65,11 @@ creature LLMCreature {
     // Cost constants (per token, varies by model)
     var cost_per_token: float := 0.01;
     var base_call_cost: float := 1.0;
+    var native_load_cost: float := 0.5;     // Phase 26: Cost to load native model
 
     // =========================================================================
-    // THINK KERNEL - Generate response from prompt (Phase 21 enhanced)
+    // THINK KERNEL - Generate response from prompt (Phase 21 + Phase 26)
+    // Supports both Ollama (HTTP) and native inference (GGUF)
     // =========================================================================
 
     kernel Think {
@@ -66,6 +81,7 @@ creature LLMCreature {
         phase READ {
             current_F ::= witness(F);
             current_a ::= witness(a);
+            current_P ::= witness(P);
             current_arousal ::= witness(arousal);
             current_bondedness ::= witness(bondedness);
             current_budget ::= witness(tokens_remaining);
@@ -74,6 +90,8 @@ creature LLMCreature {
             current_model_reasoning ::= witness(model_reasoning);
             current_model_fast ::= witness(model_fast);
             current_base_temp ::= witness(base_temperature);
+            is_native ::= witness(use_native);
+            native_loaded ::= witness(native_model_loaded);
         }
 
         phase PROPOSE {
@@ -84,7 +102,7 @@ creature LLMCreature {
             bond_mod := (current_bondedness - 0.5) * 0.1;
             effective_temp := current_base_temp + agency_mod + arousal_mod - bond_mod;
 
-            // Select model based on intent (inline)
+            // Select model based on intent (inline) - for Ollama
             selected_model := current_model;
             if_past(intent == "code") { selected_model := current_model_coding; }
             if_past(intent == "debug") { selected_model := current_model_coding; }
@@ -96,10 +114,39 @@ creature LLMCreature {
 
             estimated_tokens := max_tokens;
 
-            proposal CALL_LLM {
+            // Phase 26: Native inference path (DET-aware)
+            proposal CALL_NATIVE {
+                native_ok := if_past(is_native == true) then 1.0 else 0.0;
+                loaded_ok := if_past(native_loaded == true) then 1.0 else 0.0;
                 budget_ok := if_past(current_budget >= estimated_tokens) then 1.0 else 0.0;
                 f_ok := if_past(current_F >= base_call_cost) then 1.0 else 0.0;
-                score = current_a * 0.9 * budget_ok * f_ok;
+                presence_ok := if_past(current_P >= 0.1) then 1.0 else 0.0;
+                score = current_a * 0.95 * native_ok * loaded_ok * budget_ok * f_ok * presence_ok;
+
+                effect {
+                    // Use DET-native inference with presence-aware sampling
+                    result := primitive("model_generate", prompt, max_tokens);
+                    response ::= witness(result);
+
+                    // Estimate tokens from response length
+                    actual_tokens := len(result) / 4;
+                    token_count := actual_tokens;
+
+                    // Update budget
+                    tokens_remaining := tokens_remaining - actual_tokens;
+                    tokens_generated := tokens_generated + actual_tokens;
+                    calls_made := calls_made + 1;
+                    F := F - base_call_cost;
+                    total_cost := total_cost + base_call_cost + (actual_tokens * cost_per_token);
+                }
+            }
+
+            // Ollama path (original)
+            proposal CALL_OLLAMA {
+                ollama_ok := if_past(is_native != true) then 1.0 else 0.0;
+                budget_ok := if_past(current_budget >= estimated_tokens) then 1.0 else 0.0;
+                f_ok := if_past(current_F >= base_call_cost) then 1.0 else 0.0;
+                score = current_a * 0.9 * ollama_ok * budget_ok * f_ok;
 
                 effect {
                     result := primitive("llm_call_v2", selected_model, prompt, effective_temp, max_tokens);
@@ -113,6 +160,28 @@ creature LLMCreature {
                     calls_made := calls_made + 1;
                     F := F - base_call_cost;
                     total_cost := total_cost + base_call_cost + (actual_tokens * cost_per_token);
+                }
+            }
+
+            proposal REFUSE_NATIVE_NOT_LOADED {
+                native_on := if_past(is_native == true) then 1.0 else 0.0;
+                not_loaded := if_past(native_loaded != true) then 1.0 else 0.0;
+                score = native_on * not_loaded * 0.98;
+
+                effect {
+                    response ::= witness("Native model not loaded - call LoadNativeModel first");
+                    token_count := 0.0;
+                }
+            }
+
+            proposal REFUSE_LOW_PRESENCE {
+                low_presence := if_past(current_P < 0.1) then 1.0 else 0.0;
+                native_on := if_past(is_native == true) then 1.0 else 0.0;
+                score = low_presence * native_on * 0.97;
+
+                effect {
+                    response ::= witness("Presence too low - entity fading");
+                    token_count := 0.0;
                 }
             }
 
@@ -136,7 +205,7 @@ creature LLMCreature {
         }
 
         phase CHOOSE {
-            choice := choose({CALL_LLM, REFUSE_LOW_BUDGET, REFUSE_LOW_F}, decisiveness = current_a);
+            choice := choose({CALL_NATIVE, CALL_OLLAMA, REFUSE_NATIVE_NOT_LOADED, REFUSE_LOW_PRESENCE, REFUSE_LOW_BUDGET, REFUSE_LOW_F}, decisiveness = current_a);
         }
 
         phase COMMIT {
@@ -634,6 +703,186 @@ creature LLMCreature {
 
         phase CHOOSE {
             choice := choose({APPLY_CONFIG});
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
+
+    // =========================================================================
+    // LOAD_NATIVE_MODEL KERNEL - Load GGUF model for native inference (Phase 26)
+    // =========================================================================
+
+    kernel LoadNativeModel {
+        in  model_path: TokenReg;    // Path to GGUF file
+        out success: Register;
+        out info: TokenReg;
+
+        phase READ {
+            current_F ::= witness(F);
+            current_a ::= witness(a);
+            already_loaded ::= witness(native_model_loaded);
+            current_path ::= witness(native_model_path);
+        }
+
+        phase PROPOSE {
+            proposal LOAD_MODEL {
+                f_ok := if_past(current_F >= native_load_cost) then 1.0 else 0.0;
+                score = current_a * 0.9 * f_ok;
+
+                effect {
+                    result := primitive("model_load", model_path);
+                    if_past(result == true) {
+                        native_model_loaded := true;
+                        native_model_path := model_path;
+                        model_info := primitive("model_info");
+                        native_model_info := model_info;
+                        info ::= witness(model_info);
+                        success := 1.0;
+                        F := F - native_load_cost;
+                        total_cost := total_cost + native_load_cost;
+                    }
+                    if_past(result != true) {
+                        info ::= witness("Failed to load model - check path");
+                        success := 0.0;
+                    }
+                }
+            }
+
+            proposal ALREADY_LOADED {
+                same_path := if_past(model_path == current_path) then 1.0 else 0.0;
+                is_loaded := if_past(already_loaded == true) then 1.0 else 0.0;
+                score = same_path * is_loaded * 0.95;
+
+                effect {
+                    info ::= witness(native_model_info);
+                    success := 1.0;
+                }
+            }
+
+            proposal REFUSE_LOW_F {
+                score = if_past(current_F < native_load_cost) then 1.0 else 0.0;
+
+                effect {
+                    info ::= witness("Insufficient F to load model");
+                    success := 0.0;
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({LOAD_MODEL, ALREADY_LOADED, REFUSE_LOW_F}, decisiveness = current_a);
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
+
+    // =========================================================================
+    // ENABLE_NATIVE KERNEL - Switch to native inference mode (Phase 26)
+    // =========================================================================
+
+    kernel EnableNative {
+        in  enable: Register;    // 1.0 = enable native, 0.0 = use Ollama
+        out success: Register;
+        out status: TokenReg;
+
+        phase READ {
+            current_native ::= witness(use_native);
+            is_loaded ::= witness(native_model_loaded);
+            current_path ::= witness(native_model_path);
+        }
+
+        phase PROPOSE {
+            proposal ENABLE_NATIVE_MODE {
+                wants_native := if_past(enable >= 1.0) then 1.0 else 0.0;
+                model_ready := if_past(is_loaded == true) then 1.0 else 0.0;
+                score = wants_native * model_ready;
+
+                effect {
+                    use_native := true;
+                    success := 1.0;
+                    status ::= witness("Native inference enabled");
+                }
+            }
+
+            proposal WARN_NOT_LOADED {
+                wants_native := if_past(enable >= 1.0) then 1.0 else 0.0;
+                not_loaded := if_past(is_loaded != true) then 1.0 else 0.0;
+                score = wants_native * not_loaded * 0.95;
+
+                effect {
+                    use_native := true;  // Set anyway, Think will handle error
+                    success := 0.5;
+                    status ::= witness("Warning: Native enabled but model not loaded");
+                }
+            }
+
+            proposal DISABLE_NATIVE_MODE {
+                wants_ollama := if_past(enable < 1.0) then 1.0 else 0.0;
+                score = wants_ollama;
+
+                effect {
+                    use_native := false;
+                    success := 1.0;
+                    status ::= witness("Ollama mode enabled");
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({ENABLE_NATIVE_MODE, WARN_NOT_LOADED, DISABLE_NATIVE_MODE});
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
+
+    // =========================================================================
+    // NATIVE_STATUS KERNEL - Report native inference status (Phase 26)
+    // =========================================================================
+
+    kernel NativeStatus {
+        out is_native: Register;
+        out is_loaded: Register;
+        out model_path: TokenReg;
+        out model_info: TokenReg;
+        out gpu_status: TokenReg;
+
+        phase READ {
+            current_native ::= witness(use_native);
+            current_loaded ::= witness(native_model_loaded);
+            current_path ::= witness(native_model_path);
+            current_info ::= witness(native_model_info);
+        }
+
+        phase PROPOSE {
+            proposal REPORT {
+                score = 1.0;
+
+                effect {
+                    is_native := if_past(current_native == true) then 1.0 else 0.0;
+                    is_loaded := if_past(current_loaded == true) then 1.0 else 0.0;
+                    model_path ::= witness(current_path);
+                    model_info ::= witness(current_info);
+
+                    // Get GPU status
+                    gpu_info := primitive("metal_status");
+                    if_past(gpu_info.available == true) {
+                        gpu_status ::= witness(gpu_info.device);
+                    }
+                    if_past(gpu_info.available != true) {
+                        gpu_status ::= witness("CPU only");
+                    }
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({REPORT});
         }
 
         phase COMMIT {
