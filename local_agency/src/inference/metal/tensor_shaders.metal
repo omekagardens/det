@@ -80,6 +80,39 @@ kernel void matmul_f32(
 }
 
 /**
+ * Matrix multiplication with transposed B: C = A @ B^T
+ *
+ * A: [M, K]
+ * B: [N, K]  (stored as [N, K], we treat it as B^T[K, N])
+ * C: [M, N]
+ *
+ * This is the key kernel for projection operations where weights are [out, in].
+ * C[i,j] = sum_k(A[i,k] * B[j,k])
+ *
+ * Simple non-tiled version for correctness.
+ */
+kernel void matmul_transposed_b_f32(
+    device const float* A [[buffer(0)]],
+    device const float* B [[buffer(1)]],
+    device float* C [[buffer(2)]],
+    constant uint& M [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint row = gid.y;
+    uint col = gid.x;
+
+    if (row >= M || col >= N) return;
+
+    float sum = 0.0f;
+    for (uint k = 0; k < K; k++) {
+        sum += A[row * K + k] * B[col * K + k];
+    }
+    C[row * N + col] = sum;
+}
+
+/**
  * Matrix-vector multiplication: y = A @ x
  *
  * A: [M, N]
@@ -157,6 +190,24 @@ kernel void silu_f32(
 {
     float val = x[gid];
     y[gid] = val / (1.0f + exp(-val));
+}
+
+/**
+ * Fused SiLU-multiply for SwiGLU FFN: out = SiLU(gate) * up
+ *
+ * gate: [n] - gate projection output
+ * up:   [n] - up projection output
+ * out:  [n] - result (can be same as gate for in-place)
+ */
+kernel void silu_mul_f32(
+    device const float* gate [[buffer(0)]],
+    device const float* up [[buffer(1)]],
+    device float* out [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    float g = gate[gid];
+    float silu_g = g / (1.0f + exp(-g));
+    out[gid] = silu_g * up[gid];
 }
 
 kernel void gelu_f32(

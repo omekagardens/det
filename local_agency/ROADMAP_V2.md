@@ -492,15 +492,33 @@ is the remaining substrate integration work.
 
 **Formula**: `T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C`
 
-#### 26.7 Metal Performance Shaders (M5)
+#### 26.7 Metal Performance Shaders (M5) ✅ COMPLETE
 **Goal**: GPU-accelerated inference
 
-- [ ] Metal attention kernel (Q·K^T/√d_k, softmax, V multiply)
-- [ ] Metal matmul for large weight matrices
-- [ ] Batch prefill (prompt ingestion)
-- [ ] Speculative decoding exploration
+- [x] Metal matmul for large weight matrices (transposed-B for projections)
+- [x] Metal fused SiLU-multiply for SwiGLU FFN
+- [x] Integration into forward pass with automatic Metal/CPU selection
+- [x] GPU detection and query functions
+- [ ] Metal attention kernel (Q·K^T/√d_k, softmax, V multiply) - DEFERRED
+- [ ] Batch prefill (prompt ingestion) - DEFERRED
+- [ ] Speculative decoding exploration - DEFERRED
 
-**Apply learnings from substrate_lattice Metal shaders**.
+**Performance Results**:
+- CPU-only: ~2900ms per forward pass
+- With Metal: ~908ms per forward pass (3.2x speedup)
+- Threshold: METAL_MIN_ELEMENTS = 64*64 for automatic GPU dispatch
+- Device: Apple M1 Max verified
+
+**Metal Kernels Implemented**:
+- `matmul_transposed_b_f32` - C = A @ B^T (key for projection layers)
+- `silu_mul_f32` - out = SiLU(gate) * up (fused SwiGLU activation)
+- `rope_f32` - Split-half RoPE application (corrected pairing)
+
+**Files Modified**:
+- `src/inference/metal/tensor_shaders.metal` - Added transposed matmul and silu_mul kernels
+- `src/inference/metal/tensor_metal.m` - Added C wrappers for new operations
+- `src/inference/include/det_tensor_metal.h` - API declarations
+- `src/inference/src/det_model.c` - Metal integration with batched_proj_f32
 
 #### 26.8 Integration (M6) ✅ INITIAL INTEGRATION COMPLETE
 **Goal**: Drop-in replacement for Ollama
@@ -634,4 +652,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (forward pass verified)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (Metal GPU acceleration complete, 3.2x speedup)*

@@ -42,9 +42,30 @@ int tensor_metal_matmul(const float *A, const float *B, float *C,
                         uint32_t M, uint32_t N, uint32_t K);
 
 /**
+ * GPU-accelerated matrix multiplication with transposed B: C = A @ B^T
+ *
+ * A: [M, K]
+ * B: [N, K] (stored as [N, K], treated as B^T)
+ * C: [M, N]
+ *
+ * This is the key operation for projection layers where weights are [out, in].
+ */
+int tensor_metal_matmul_transposed_b(const float *A, const float *B, float *C,
+                                      uint32_t M, uint32_t N, uint32_t K);
+
+/**
  * GPU-accelerated SiLU activation
  */
 int tensor_metal_silu(const float *x, float *y, uint32_t n);
+
+/**
+ * GPU-accelerated fused SiLU-multiply for SwiGLU: out = SiLU(gate) * up
+ *
+ * gate: [n] - gate projection output
+ * up:   [n] - up projection output
+ * out:  [n] - result
+ */
+int tensor_metal_silu_mul(const float *gate, const float *up, float *out, uint32_t n);
 
 /**
  * GPU-accelerated RMSNorm

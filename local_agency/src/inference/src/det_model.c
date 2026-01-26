@@ -21,7 +21,7 @@ static int g_metal_initialized = 0;
 static int g_metal_available = 0;
 
 /* Minimum matrix size to use Metal (avoid overhead for small matrices) */
-#define METAL_MIN_ELEMENTS (512 * 512)
+#define METAL_MIN_ELEMENTS (64 * 64)
 
 /* ==========================================================================
  * INTERNAL HELPERS
@@ -124,22 +124,17 @@ static void matvec_f32(float* y, const float* A, const float* x,
  * W is stored as [N,K] (row-major), we need hidden @ W^T
  * Which is: out[t,n] = sum_k(hidden[t,k] * W[n,k])
  *
- * Reshape as: out = hidden @ W^T where W^T[K,N]
+ * Uses Metal GPU acceleration when available and matrices are large enough.
  */
 static void batched_proj_f32(float* out, const float* hidden, const float* W,
                              int T, int K, int N) {
 #ifdef DET_USE_METAL
-    /* For vocab projection, this is huge: T * N * K operations
-     * Use Metal if available and matrix is large enough */
-    if (g_metal_available && T * N >= METAL_MIN_ELEMENTS) {
-        /* We need hidden[T,K] @ W^T[K,N] = out[T,N]
-         * Metal matmul expects C = A @ B, so:
-         * - A = hidden[T,K]
-         * - B = W^T[K,N]
-         * But W is stored as [N,K], so we need to transpose.
-         *
-         * Alternative: compute out = W @ hidden^T, then transpose result.
-         * For simplicity, use the row-by-row approach for now. */
+    /* Use Metal for large matrices where GPU overhead is amortized */
+    if (g_metal_available && (T * N >= METAL_MIN_ELEMENTS || N >= 4096)) {
+        if (tensor_metal_matmul_transposed_b(hidden, W, out, T, N, K) == 0) {
+            return;  /* Metal succeeded */
+        }
+        /* Fall through to CPU on failure */
     }
 #endif
 
@@ -665,10 +660,23 @@ DetTensor* det_model_forward(DetModel* model,
             /* Batched up projection: ffn_up[T,n_ff] = hidden[T,n_embd] @ W3^T */
             batched_proj_f32(ffn_up, hidden, w3, num_tokens, cfg->n_embd, cfg->n_ff);
 
-            /* SiLU(gate) * up - element-wise, always on CPU */
-            for (int i = 0; i < num_tokens * cfg->n_ff; i++) {
-                float g = ffn_gate[i];
-                ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+            /* SiLU(gate) * up - fused operation */
+            {
+                int ffn_total = num_tokens * cfg->n_ff;
+                int use_cpu = 1;
+#ifdef DET_USE_METAL
+                if (g_metal_available && ffn_total >= 4096) {
+                    if (tensor_metal_silu_mul(ffn_gate, ffn_up, ffn_gate, ffn_total) == 0) {
+                        use_cpu = 0;
+                    }
+                }
+#endif
+                if (use_cpu) {
+                    for (int i = 0; i < ffn_total; i++) {
+                        float g = ffn_gate[i];
+                        ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                    }
+                }
             }
 
             /* Batched down projection: hidden[T,n_embd] = ffn_gate[T,n_ff] @ W2^T */
