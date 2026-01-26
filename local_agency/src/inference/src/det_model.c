@@ -64,6 +64,13 @@ static DetTensor* get_layer_weight(GgufContext* gguf, int layer, const char* nam
     return gguf_get_tensor_f32(gguf, full_name);
 }
 
+/* Get layer bias by name pattern */
+static DetTensor* get_layer_bias(GgufContext* gguf, int layer, const char* name) {
+    char full_name[256];
+    snprintf(full_name, sizeof(full_name), "blk.%d.%s.bias", layer, name);
+    return gguf_get_tensor_f32(gguf, full_name);
+}
+
 DetModel* det_model_load(const char* path) {
     /* Open GGUF file */
     GgufContext* gguf = gguf_open(path);
@@ -97,7 +104,11 @@ DetModel* det_model_load(const char* path) {
     model->config.n_rot = head_dim;
 
     /* Get normalization epsilon based on architecture */
-    model->config.norm_eps = gguf_get_f32(gguf, "llama.attention.layer_norm_rms_epsilon", 1e-5f);
+    model->config.norm_eps = gguf_get_f32(gguf, "llama.attention.layer_norm_rms_epsilon", 0.0f);
+    if (model->config.norm_eps == 0.0f) {
+        /* Try Qwen2 format */
+        model->config.norm_eps = gguf_get_f32(gguf, "qwen2.attention.layer_norm_rms_epsilon", 1e-6f);
+    }
 
     /* Validate config */
     if (model->config.n_vocab == 0 || model->config.n_embd == 0 ||
@@ -143,6 +154,11 @@ DetModel* det_model_load(const char* path) {
         layer->wk = get_layer_weight(gguf, i, "attn_k");
         layer->wv = get_layer_weight(gguf, i, "attn_v");
         layer->wo = get_layer_weight(gguf, i, "attn_output");
+
+        /* QKV biases (Qwen2 uses these) */
+        layer->bq = get_layer_bias(gguf, i, "attn_q");
+        layer->bk = get_layer_bias(gguf, i, "attn_k");
+        layer->bv = get_layer_bias(gguf, i, "attn_v");
 
         layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
         layer->w1 = get_layer_weight(gguf, i, "ffn_gate");
@@ -197,6 +213,9 @@ void det_model_free(DetModel* model) {
             det_tensor_release(layer->wk);
             det_tensor_release(layer->wv);
             det_tensor_release(layer->wo);
+            det_tensor_release(layer->bq);
+            det_tensor_release(layer->bk);
+            det_tensor_release(layer->bv);
             det_tensor_release(layer->ffn_norm);
             det_tensor_release(layer->w1);
             det_tensor_release(layer->w2);
@@ -321,11 +340,18 @@ DetTensor* det_model_forward(DetModel* model,
             }
         }
 
-        /* QKV projections */
+        /* QKV projections
+         * GGUF stores weights as [out_features, in_features] with ne[0]=in_features
+         * For y = x @ W^T: y[i] = sum_j(x[j] * W[i * in_dim + j])
+         */
         if (lw->wq && lw->wq->dtype == DET_DTYPE_F32) {
             float* wq = (float*)lw->wq->data;
             float* wk = (float*)lw->wk->data;
             float* wv = (float*)lw->wv->data;
+            /* QKV biases (Qwen2 uses these) */
+            float* bq = lw->bq ? (float*)lw->bq->data : NULL;
+            float* bk = lw->bk ? (float*)lw->bk->data : NULL;
+            float* bv = lw->bv ? (float*)lw->bv->data : NULL;
 
             for (int t = 0; t < num_tokens; t++) {
                 float* h = hidden + t * cfg->n_embd;
@@ -333,38 +359,63 @@ DetTensor* det_model_forward(DetModel* model,
                 float* kt = k + t * kv_dim;
                 float* vt = v + t * kv_dim;
 
-                /* Q = h @ Wq */
+                /* Q = h @ Wq^T + bq
+                 * Wq shape: [n_embd out, n_embd in] */
                 for (int i = 0; i < cfg->n_embd; i++) {
-                    float sum = 0.0f;
+                    float sum = bq ? bq[i] : 0.0f;
                     for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += h[j] * wq[j * cfg->n_embd + i];
+                        sum += h[j] * wq[i * cfg->n_embd + j];
                     }
                     qt[i] = sum;
                 }
 
-                /* K = h @ Wk */
+                /* K = h @ Wk^T + bk
+                 * Wk shape: [kv_dim out, n_embd in] */
                 for (int i = 0; i < kv_dim; i++) {
-                    float sum = 0.0f;
+                    float sum = bk ? bk[i] : 0.0f;
                     for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += h[j] * wk[j * kv_dim + i];
+                        sum += h[j] * wk[i * cfg->n_embd + j];
                     }
                     kt[i] = sum;
                 }
 
-                /* V = h @ Wv */
+                /* V = h @ Wv^T + bv
+                 * Wv shape: [kv_dim out, n_embd in] */
                 for (int i = 0; i < kv_dim; i++) {
-                    float sum = 0.0f;
+                    float sum = bv ? bv[i] : 0.0f;
                     for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += h[j] * wv[j * kv_dim + i];
+                        sum += h[j] * wv[i * cfg->n_embd + j];
                     }
                     vt[i] = sum;
                 }
 
-                /* Apply RoPE to Q and K (per head) */
+                /* Apply RoPE to Q heads */
+                for (int head = 0; head < cfg->n_head; head++) {
+                    float* qh = qt + head * head_dim;
+                    for (int i = 0; i < head_dim; i += 2) {
+                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)i / head_dim);
+                        float angle = (pos + t) * freq;
+                        float cos_val = cosf(angle);
+                        float sin_val = sinf(angle);
+                        float q0 = qh[i];
+                        float q1 = qh[i + 1];
+                        qh[i]     = q0 * cos_val - q1 * sin_val;
+                        qh[i + 1] = q0 * sin_val + q1 * cos_val;
+                    }
+                }
+                /* Apply RoPE to K heads (once per KV head) */
                 for (int head = 0; head < cfg->n_head_kv; head++) {
-                    apply_rope(qt + head * head_dim,
-                               kt + head * head_dim,
-                               head_dim, pos + t, cfg->rope_freq_base);
+                    float* kh = kt + head * head_dim;
+                    for (int i = 0; i < head_dim; i += 2) {
+                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)i / head_dim);
+                        float angle = (pos + t) * freq;
+                        float cos_val = cosf(angle);
+                        float sin_val = sinf(angle);
+                        float k0 = kh[i];
+                        float k1 = kh[i + 1];
+                        kh[i]     = k0 * cos_val - k1 * sin_val;
+                        kh[i + 1] = k0 * sin_val + k1 * cos_val;
+                    }
                 }
             }
         }
@@ -435,7 +486,8 @@ DetTensor* det_model_forward(DetModel* model,
             }
         }
 
-        /* Output projection */
+        /* Output projection: out = attn @ Wo^T
+         * Wo shape: [n_embd out, n_embd in] */
         if (lw->wo && lw->wo->dtype == DET_DTYPE_F32) {
             float* wo = (float*)lw->wo->data;
             for (int t = 0; t < num_tokens; t++) {
@@ -446,7 +498,7 @@ DetTensor* det_model_forward(DetModel* model,
                 for (int i = 0; i < cfg->n_embd; i++) {
                     float sum = 0.0f;
                     for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += temp[j] * wo[j * cfg->n_embd + i];
+                        sum += temp[j] * wo[i * cfg->n_embd + j];
                     }
                     h[i] = sum;
                 }
@@ -477,7 +529,11 @@ DetTensor* det_model_forward(DetModel* model,
             }
         }
 
-        /* FFN (SwiGLU) */
+        /* FFN (SwiGLU)
+         * W1 (gate) shape: [n_ff out, n_embd in]
+         * W2 (down) shape: [n_embd out, n_ff in]
+         * W3 (up) shape: [n_ff out, n_embd in]
+         */
         if (lw->w1 && lw->w2 && lw->w3 &&
             lw->w1->dtype == DET_DTYPE_F32) {
             float* w1 = (float*)lw->w1->data;  /* gate */
@@ -489,20 +545,20 @@ DetTensor* det_model_forward(DetModel* model,
                 float* gate = ffn_gate + t * cfg->n_ff;
                 float* up = ffn_up + t * cfg->n_ff;
 
-                /* gate = h @ W1 */
+                /* gate = h @ W1^T */
                 for (int i = 0; i < cfg->n_ff; i++) {
                     float sum = 0.0f;
                     for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += h[j] * w1[j * cfg->n_ff + i];
+                        sum += h[j] * w1[i * cfg->n_embd + j];
                     }
                     gate[i] = sum;
                 }
 
-                /* up = h @ W3 */
+                /* up = h @ W3^T */
                 for (int i = 0; i < cfg->n_ff; i++) {
                     float sum = 0.0f;
                     for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += h[j] * w3[j * cfg->n_ff + i];
+                        sum += h[j] * w3[i * cfg->n_embd + j];
                     }
                     up[i] = sum;
                 }
@@ -513,11 +569,11 @@ DetTensor* det_model_forward(DetModel* model,
                     gate[i] = (g / (1.0f + expf(-g))) * up[i];
                 }
 
-                /* h = gate @ W2 */
+                /* h = gate @ W2^T */
                 for (int i = 0; i < cfg->n_embd; i++) {
                     float sum = 0.0f;
                     for (int j = 0; j < cfg->n_ff; j++) {
-                        sum += gate[j] * w2[j * cfg->n_embd + i];
+                        sum += gate[j] * w2[i * cfg->n_ff + j];
                     }
                     h[i] = sum;
                 }

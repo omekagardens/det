@@ -519,7 +519,32 @@ is the remaining substrate integration work.
 - Modified `Think` kernel with CALL_NATIVE and CALL_OLLAMA proposals
 - DET integration: Presence (P) gates native inference
 
-#### 26.9 Success Criteria
+#### 26.9 Forward Pass Debugging (IN PROGRESS)
+
+**Status**: Forward pass runs but produces incorrect logits. See `docs/MODEL_DEBUG_LOG.md` for details.
+
+**Issues Fixed**:
+- [x] Corrupted GGUF file - downloaded correct version from lmstudio-community
+- [x] Weight indexing convention - fixed to use `W[i * in_dim + j]` for GGUF row-major storage
+- [x] Missing QKV biases - Qwen2 uses biases, now loaded and applied
+- [x] RoPE double-application - separated Q and K RoPE loops
+- [x] Norm epsilon metadata - added Qwen2-prefixed key fallback
+
+**Components Verified Correct**:
+- [x] Embedding lookup (max diff 0.0001 from HF)
+- [x] RMSNorm (max diff 0.0003 from HF)
+- [x] QKV projections (max diff 0.01 from HF)
+
+**Remaining Issue**: Final logits don't match HF despite correct individual components.
+Hypothesis: quantization noise accumulates across 24 layers.
+
+**Next Steps**:
+- [ ] Add per-layer debug logging to trace divergence point
+- [ ] Test with FP16 GGUF to eliminate quantization variable
+- [ ] Compare attention scores with HF
+- [ ] Verify dequantization block alignment
+
+#### 26.10 Success Criteria
 
 **MVP**:
 - [ ] Load and run phi-2 (2.7B params) or qwen2-0.5B
@@ -536,7 +561,7 @@ is the remaining substrate integration work.
 - [ ] Truthfulness weighting on all outputs
 - [ ] Deprecate Ollama dependency
 
-#### 26.10 DET Physics Mapping
+#### 26.11 DET Physics Mapping
 
 | Transformer Concept | DET Concept |
 |---------------------|-------------|
@@ -547,7 +572,7 @@ is the remaining substrate integration work.
 | Model weights | Creature structure (q) |
 | KV cache | Creature memory state |
 
-#### 26.11 Anti-Hallucination Mechanisms
+#### 26.12 Anti-Hallucination Mechanisms
 
 | Pathology | DET Mechanism |
 |-----------|---------------|
@@ -604,4 +629,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-25* | *Phase 26 - Native Model Inference (in progress)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (debugging forward pass)*

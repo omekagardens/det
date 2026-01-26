@@ -58,6 +58,11 @@ typedef struct {
     DetTensor* wv;          /* Value projection [n_embd, n_head_kv * head_dim] */
     DetTensor* wo;          /* Output projection [n_embd, n_embd] */
 
+    /* Attention biases (Qwen2 uses these) */
+    DetTensor* bq;          /* Query bias [n_embd] */
+    DetTensor* bk;          /* Key bias [n_head_kv * head_dim] */
+    DetTensor* bv;          /* Value bias [n_head_kv * head_dim] */
+
     /* Attention normalization */
     DetTensor* attn_norm;   /* Pre-attention RMSNorm weights */
 
