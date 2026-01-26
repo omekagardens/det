@@ -504,8 +504,9 @@ is the remaining substrate integration work.
 - [ ] Speculative decoding exploration - DEFERRED
 
 **Performance Results**:
-- CPU-only: ~2900ms per forward pass
-- With Metal: ~908ms per forward pass (3.2x speedup)
+- CPU-only (naive loops): ~2900ms per forward pass
+- With Metal: ~375ms per forward pass
+- With Metal + Accelerate BLAS: ~353ms per forward pass
 - Threshold: METAL_MIN_ELEMENTS = 64*64 for automatic GPU dispatch
 - Device: Apple M1 Max verified
 
@@ -518,7 +519,7 @@ is the remaining substrate integration work.
 - `src/inference/metal/tensor_shaders.metal` - Added transposed matmul and silu_mul kernels
 - `src/inference/metal/tensor_metal.m` - Added C wrappers for new operations
 - `src/inference/include/det_tensor_metal.h` - API declarations
-- `src/inference/src/det_model.c` - Metal integration with batched_proj_f32
+- `src/inference/src/det_model.c` - Metal integration + Accelerate BLAS for CPU fallback
 
 #### 26.8 Integration (M6) ✅ INITIAL INTEGRATION COMPLETE
 **Goal**: Drop-in replacement for Ollama
