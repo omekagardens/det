@@ -62,11 +62,19 @@ class DetModelConfig(ctypes.Structure):
 
 def _find_library() -> Optional[Path]:
     """Find the det_inference library."""
+    # Get the base directory (local_agency/)
+    # __file__ is in src/python/det/inference.py
+    # Go up: det -> python -> src -> local_agency
+    base_dir = Path(__file__).parent.parent.parent.parent
+
     # Check common locations
     locations = [
-        # Build directory
-        Path(__file__).parent.parent.parent.parent / "inference" / "build" / "libdet_inference.dylib",
-        Path(__file__).parent.parent.parent.parent / "inference" / "build" / "libdet_inference.so",
+        # Build directory (src/inference/build/)
+        base_dir / "src" / "inference" / "build" / "libdet_inference.dylib",
+        base_dir / "src" / "inference" / "build" / "libdet_inference.so",
+        # Alternative: inference at root level
+        base_dir / "inference" / "build" / "libdet_inference.dylib",
+        base_dir / "inference" / "build" / "libdet_inference.so",
         # Installed location
         Path("/usr/local/lib/libdet_inference.dylib"),
         Path("/usr/local/lib/libdet_inference.so"),

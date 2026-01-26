@@ -375,6 +375,14 @@ GgufContext* gguf_open(const char* path) {
     ctx->n_vocab = gguf_get_u32(ctx, "llama.vocab_size", 0);
     if (ctx->n_vocab == 0) ctx->n_vocab = gguf_get_u32(ctx, "qwen2.vocab_size", 0);
 
+    /* Fallback: get vocab size from tokenizer.ggml.tokens array length */
+    if (ctx->n_vocab == 0) {
+        const GgufValue* tokens_val = gguf_get_metadata(ctx, "tokenizer.ggml.tokens");
+        if (tokens_val && tokens_val->type == GGUF_TYPE_ARRAY) {
+            ctx->n_vocab = (uint32_t)tokens_val->arr.count;
+        }
+    }
+
     ctx->n_ctx = gguf_get_u32(ctx, "llama.context_length", 2048);
     if (ctx->n_ctx == 2048) ctx->n_ctx = gguf_get_u32(ctx, "qwen2.context_length", 2048);
 
