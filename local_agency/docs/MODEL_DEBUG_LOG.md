@@ -185,29 +185,72 @@ HF:   [0.0358, 0.2107, -0.0466, -0.6665, -13.7124]
 
 ---
 
-## Remaining Issue
+### 6. Tokenizer Length Check Bug (FIXED)
 
-Despite all fixes, the final logits don't match HF output:
-- Our " Paris" rank: ~400, logit ~8.9
-- HF " Paris" rank: 1, logit ~17.2
+**Problem**: The tokenizer's BPE loop checked `search_start[len - 1] == '\0'` which reads garbage memory when len > strlen(search_start).
 
-### Hypothesis: Error Accumulation
+**Evidence**: Token " is" at end of string was tokenized as 285 ("is") instead of 374 ("Ġis").
 
-The QKV projections match within ~0.01 per element. Across 24 layers with attention, FFN, and residuals, these small errors compound.
+**Fix**: Changed to proper length check using `strlen()`:
+```c
+size_t search_len = strlen(search_start);
+for (int len = 16; len >= 1; len--) {
+    if ((size_t)len > search_len) continue;  // Proper bounds check
+    ...
+}
+```
 
-Quantization noise (Q8_0 vs FP32) contributes ~0.01 per operation. Over thousands of operations:
-- 24 layers × (attention + FFN) × residuals
-- Attention softmax amplifies small differences
-- Final logits span ~30 points, but "Paris" vs "the" is ~2 points apart
+---
 
-### Areas to Investigate
+### 7. RoPE Pairing Convention (FIXED)
 
-1. **Attention Score Computation**: Verify Q·K^T scaling and masking
-2. **Softmax Numerical Stability**: Check max subtraction is correct
-3. **Residual Connections**: Verify add vs overwrite
-4. **FFN Activation**: SiLU implementation matches
-5. **Dequantization**: Q8_0 block alignment and scale reading
-6. **Multi-token Context**: KV cache population across prompt tokens
+**Problem**: Our RoPE implementation paired element `i` with `i+1` (consecutive), but HF/Qwen2 pairs element `i` with `i+head_dim/2` (split-half).
+
+**Evidence**:
+```
+HF rotate_half pairs: element[i] with element[i + head_dim/2]
+Our C implementation: element[i] with element[i + 1]
+```
+
+**Fix**: Changed to split-half pairing like HF:
+```c
+int half_dim = head_dim / 2;
+for (int i = 0; i < half_dim; i++) {
+    float freq = 1.0f / powf(rope_base, (float)(2 * i) / head_dim);
+    float angle = pos * freq;
+    float cos_val = cosf(angle);
+    float sin_val = sinf(angle);
+    float x0 = qh[i];
+    float x1 = qh[i + half_dim];
+    qh[i]            = x0 * cos_val - x1 * sin_val;
+    qh[i + half_dim] = x1 * cos_val + x0 * sin_val;
+}
+```
+
+---
+
+## Final Results
+
+After all fixes, the model produces **correct predictions**:
+
+| Metric | Before | After |
+|--------|--------|-------|
+| " Paris" rank | ~400 | **1** ✅ |
+| " Paris" logit | ~8.9 | **17.26** |
+| Logits RMS diff | 4.27 | **0.08** |
+| Logits max diff | 15.28 | **0.48** |
+
+### Top 5 Predictions Comparison
+
+| Rank | HF (FP32) | DET (Q8_0) |
+|------|-----------|------------|
+| 1 | " Paris" (17.22) | " Paris" (17.26) ✅ |
+| 2 | " ______" (16.32) | " ______" (16.29) ✅ |
+| 3 | ":\n" (15.70) | ":\n" (15.69) ✅ |
+| 4 | ":\n\n" (15.57) | ":\n\n" (15.66) ✅ |
+| 5 | " __" (15.39) | " __" (15.33) ✅ |
+
+The small remaining differences (~0.05 logit) are expected from Q8_0 quantization noise.
 
 ---
 
@@ -215,9 +258,10 @@ Quantization noise (Q8_0 vs FP32) contributes ~0.01 per operation. Over thousand
 
 | File | Changes |
 |------|---------|
-| `src/inference/src/det_model.c` | Fixed weight indexing, added biases, fixed RoPE |
-| `src/inference/src/det_model.c` | Added norm_eps fallback for Qwen2 |
+| `src/inference/src/det_model.c` | Fixed weight indexing, added biases, fixed RoPE pairing convention |
+| `src/inference/src/det_tokenizer.c` | Fixed BPE tokenizer length check bug |
 | `src/inference/include/det_model.h` | (header already had bias fields) |
+| `src/python/det/inference.py` | Added `forward_logits` and `forward_logits_2d` methods |
 
 ---
 
@@ -232,26 +276,37 @@ python3 << 'EOF'
 import sys
 sys.path.insert(0, 'src/python')
 from det.inference import Model
+import numpy as np
 
 model = Model("models/Qwen2.5-0.5B-Instruct-Q8_0.gguf")
-tokens = model.tokenize("The capital of France is")
-# Remove BOS token (HF doesn't add one)
-tokens_no_bos = [t for t in tokens if t != 151643]
 model.reset()
-logits = model.forward(tokens_no_bos)
-# Check predictions...
+tokens = [785, 6722, 315, 9625, 374]  # "The capital of France is"
+logits = model.forward_logits_2d(tokens)
+last_logits = np.array(logits[-1])
+
+# Top prediction should be " Paris" (token 12095)
+top_idx = np.argmax(last_logits)
+print(f"Top prediction: token {top_idx}, logit {last_logits[top_idx]:.4f}")
+print(f"Paris rank: {np.sum(last_logits >= last_logits[12095])}")  # Should be 1
 EOF
 ```
 
 ---
 
-## Next Steps
+## Summary
 
-1. **Add Debug Logging**: Print layer-by-layer hidden state RMS to trace divergence
-2. **Compare Attention Scores**: Verify Q·K^T values match HF
-3. **Test Single Layer**: Run just layer 0 and compare output
-4. **Check Dequantization**: Verify Q8_0 block boundaries align correctly
-5. **Consider FP16 GGUF**: Use `qwen2.5-0.5b-instruct-fp16.gguf` to eliminate quantization as variable
+The native DET model inference is now **working correctly**:
+
+- ✅ Embedding lookup
+- ✅ RMSNorm
+- ✅ QKV projections with biases
+- ✅ RoPE (split-half pairing)
+- ✅ Attention (GQA with KV cache)
+- ✅ FFN (SwiGLU)
+- ✅ Output projection
+- ✅ BPE tokenization
+
+The small remaining logit differences (~0.05) between Q8_0 and FP32 are acceptable and expected from quantization.
 
 ---
 

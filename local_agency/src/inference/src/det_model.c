@@ -31,28 +31,6 @@ static float random_float(uint64_t* state) {
     return (float)(xorshift64(state) >> 11) / (float)(1ULL << 53);
 }
 
-/* RoPE application */
-static void apply_rope(float* q, float* k, int head_dim, int pos, float theta) {
-    for (int i = 0; i < head_dim; i += 2) {
-        float freq = 1.0f / powf(theta, (float)i / head_dim);
-        float angle = pos * freq;
-        float cos_val = cosf(angle);
-        float sin_val = sinf(angle);
-
-        /* Apply rotation to q */
-        float q0 = q[i];
-        float q1 = q[i + 1];
-        q[i]     = q0 * cos_val - q1 * sin_val;
-        q[i + 1] = q0 * sin_val + q1 * cos_val;
-
-        /* Apply rotation to k */
-        float k0 = k[i];
-        float k1 = k[i + 1];
-        k[i]     = k0 * cos_val - k1 * sin_val;
-        k[i + 1] = k0 * sin_val + k1 * cos_val;
-    }
-}
-
 /* ==========================================================================
  * MODEL LOADING
  * ========================================================================== */
@@ -389,32 +367,38 @@ DetTensor* det_model_forward(DetModel* model,
                     vt[i] = sum;
                 }
 
-                /* Apply RoPE to Q heads */
+                /* Apply RoPE to Q heads
+                 * HF-style: pairs element i with element i+half_dim
+                 * cos/sin are computed for first half then repeated */
+                int half_dim = head_dim / 2;
                 for (int head = 0; head < cfg->n_head; head++) {
                     float* qh = qt + head * head_dim;
-                    for (int i = 0; i < head_dim; i += 2) {
-                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)i / head_dim);
+                    /* Compute rotated values in-place
+                     * x_new[i] = x[i] * cos - x[i+half] * sin  (first half)
+                     * x_new[i+half] = x[i+half] * cos + x[i] * sin (second half) */
+                    for (int i = 0; i < half_dim; i++) {
+                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)(2 * i) / head_dim);
                         float angle = (pos + t) * freq;
                         float cos_val = cosf(angle);
                         float sin_val = sinf(angle);
-                        float q0 = qh[i];
-                        float q1 = qh[i + 1];
-                        qh[i]     = q0 * cos_val - q1 * sin_val;
-                        qh[i + 1] = q0 * sin_val + q1 * cos_val;
+                        float x0 = qh[i];
+                        float x1 = qh[i + half_dim];
+                        qh[i]            = x0 * cos_val - x1 * sin_val;
+                        qh[i + half_dim] = x1 * cos_val + x0 * sin_val;
                     }
                 }
                 /* Apply RoPE to K heads (once per KV head) */
                 for (int head = 0; head < cfg->n_head_kv; head++) {
                     float* kh = kt + head * head_dim;
-                    for (int i = 0; i < head_dim; i += 2) {
-                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)i / head_dim);
+                    for (int i = 0; i < half_dim; i++) {
+                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)(2 * i) / head_dim);
                         float angle = (pos + t) * freq;
                         float cos_val = cosf(angle);
                         float sin_val = sinf(angle);
-                        float k0 = kh[i];
-                        float k1 = kh[i + 1];
-                        kh[i]     = k0 * cos_val - k1 * sin_val;
-                        kh[i + 1] = k0 * sin_val + k1 * cos_val;
+                        float x0 = kh[i];
+                        float x1 = kh[i + half_dim];
+                        kh[i]            = x0 * cos_val - x1 * sin_val;
+                        kh[i + half_dim] = x1 * cos_val + x0 * sin_val;
                     }
                 }
             }

@@ -284,8 +284,10 @@ static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
         const char* search_start = space_prefix ? (p + 1) : p;
 
         /* Try different lengths, longest first */
+        size_t search_len = strlen(search_start);
         for (int len = 16; len >= 1; len--) {
-            if (search_start[len - 1] == '\0') continue;  /* Don't go past end */
+            /* Proper length check - don't try lengths beyond the string */
+            if ((size_t)len > search_len) continue;
 
             char buf[32];
             int buf_pos = 0;
@@ -310,8 +312,10 @@ static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
 
         /* If space-prefixed lookup failed, try without prefix */
         if (best_id < 0 && space_prefix) {
+            size_t p_len = strlen(p);
             for (int len = 16; len >= 1; len--) {
-                if (p[len - 1] == '\0') continue;
+                /* Proper length check */
+                if ((size_t)len > p_len) continue;
 
                 char buf[32];
                 if (len >= (int)sizeof(buf)) continue;

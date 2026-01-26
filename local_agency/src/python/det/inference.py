@@ -316,7 +316,7 @@ class Model:
         return result.decode('utf-8') if result else ""
 
     def forward(self, tokens: List[int]) -> 'ctypes.POINTER(DetTensor)':
-        """Run forward pass, return logits tensor."""
+        """Run forward pass, return logits tensor pointer."""
         token_array = (ctypes.c_int32 * len(tokens))(*tokens)
 
         logits = self._lib.det_model_forward(
@@ -330,6 +330,39 @@ class Model:
             raise RuntimeError("Forward pass failed")
 
         return logits
+
+    def forward_logits(self, tokens: List[int]) -> List[float]:
+        """Run forward pass, return logits as a flat Python list."""
+        logits_tensor = self.forward(tokens)
+        tensor = logits_tensor.contents
+
+        # Get shape: [num_tokens, vocab_size]
+        num_tokens = tensor.shape[0]
+        vocab_size = tensor.shape[1]
+        total_floats = num_tokens * vocab_size
+
+        # Cast data pointer to float array
+        float_ptr = ctypes.cast(tensor.data, ctypes.POINTER(ctypes.c_float))
+
+        # Extract as list
+        return [float_ptr[i] for i in range(total_floats)]
+
+    def forward_logits_2d(self, tokens: List[int]) -> List[List[float]]:
+        """Run forward pass, return logits as 2D list [num_tokens][vocab_size]."""
+        logits_tensor = self.forward(tokens)
+        tensor = logits_tensor.contents
+
+        num_tokens = tensor.shape[0]
+        vocab_size = tensor.shape[1]
+
+        float_ptr = ctypes.cast(tensor.data, ctypes.POINTER(ctypes.c_float))
+
+        result = []
+        for t in range(num_tokens):
+            offset = t * vocab_size
+            row = [float_ptr[offset + i] for i in range(vocab_size)]
+            result.append(row)
+        return result
 
     def sample(self, logits, params: SamplingParams = None) -> int:
         """Sample next token from logits."""

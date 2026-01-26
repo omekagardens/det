@@ -56,6 +56,8 @@ if(APPLE)
     if(ACCELERATE_FRAMEWORK)
         message(STATUS "DET Inference: Accelerate framework found")
         set(PLATFORM_LIBS ${ACCELERATE_FRAMEWORK})
+        # Use new Accelerate LAPACK API (ILP64)
+        add_definitions(-DACCELERATE_NEW_LAPACK)
     endif()
 
     if(DET_INFERENCE_USE_METAL)
