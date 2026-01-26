@@ -4,6 +4,7 @@
  *
  * LLM forward pass through transformer layers.
  * Supports Metal GPU acceleration when available.
+ * Uses Apple Accelerate BLAS for optimized CPU operations.
  */
 
 #include "det_model.h"
@@ -11,6 +12,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
+#ifdef __APPLE__
+#define ACCELERATE_NEW_LAPACK 1
+#include <Accelerate/Accelerate.h>
+#define USE_ACCELERATE 1
+#endif
 
 #ifdef DET_USE_METAL
 #include "det_tensor_metal.h"
@@ -124,7 +131,7 @@ static void matvec_f32(float* y, const float* A, const float* x,
  * W is stored as [N,K] (row-major), we need hidden @ W^T
  * Which is: out[t,n] = sum_k(hidden[t,k] * W[n,k])
  *
- * Uses Metal GPU acceleration when available and matrices are large enough.
+ * Uses Metal GPU acceleration when available, falls back to Accelerate BLAS.
  */
 static void batched_proj_f32(float* out, const float* hidden, const float* W,
                              int T, int K, int N) {
@@ -138,7 +145,18 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
     }
 #endif
 
-    /* CPU: compute row by row (more cache-friendly for W access) */
+#ifdef USE_ACCELERATE
+    /* Use Accelerate BLAS: C = A @ B^T
+     * A is hidden[T,K], B is W[N,K], Result is out[T,N] */
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                T, N, K,
+                1.0f,           /* alpha */
+                hidden, K,      /* A[T,K], lda=K */
+                W, K,           /* B[N,K], ldb=K (transposed) */
+                0.0f,           /* beta */
+                out, N);        /* C[T,N], ldc=N */
+#else
+    /* CPU fallback: compute row by row */
     for (int t = 0; t < T; t++) {
         const float* h = hidden + t * K;
         float* o = out + t * N;
@@ -151,6 +169,7 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
             o[n] = sum;
         }
     }
+#endif
 }
 
 /* ==========================================================================
