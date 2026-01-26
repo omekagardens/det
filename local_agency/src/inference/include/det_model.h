@@ -263,6 +263,11 @@ size_t det_model_memory_usage(const DetModel* model);
  */
 void det_model_print_config(const DetModel* model);
 
+/**
+ * Get tokenizer from model (for Python bindings)
+ */
+DetTokenizer* det_model_get_tokenizer(DetModel* model);
+
 /* ==========================================================================
  * ERROR CODES
  * ========================================================================== */

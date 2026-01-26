@@ -123,6 +123,10 @@ def _setup_bindings(lib: ctypes.CDLL):
     lib.det_model_reset.argtypes = [ctypes.c_void_p]
     lib.det_model_reset.restype = None
 
+    # det_model_get_tokenizer
+    lib.det_model_get_tokenizer.argtypes = [ctypes.c_void_p]
+    lib.det_model_get_tokenizer.restype = ctypes.c_void_p
+
     # det_model_forward
     lib.det_model_forward.argtypes = [
         ctypes.c_void_p,  # model
@@ -177,17 +181,17 @@ def _setup_bindings(lib: ctypes.CDLL):
     lib.det_token_to_text.argtypes = [ctypes.c_void_p, ctypes.c_int32]
     lib.det_token_to_text.restype = ctypes.c_char_p
 
-    # det_bos_token
-    lib.det_bos_token.argtypes = [ctypes.c_void_p]
-    lib.det_bos_token.restype = ctypes.c_int32
+    # det_bos_token_export (non-inline wrapper for ctypes)
+    lib.det_bos_token_export.argtypes = [ctypes.c_void_p]
+    lib.det_bos_token_export.restype = ctypes.c_int32
 
-    # det_eos_token
-    lib.det_eos_token.argtypes = [ctypes.c_void_p]
-    lib.det_eos_token.restype = ctypes.c_int32
+    # det_eos_token_export (non-inline wrapper for ctypes)
+    lib.det_eos_token_export.argtypes = [ctypes.c_void_p]
+    lib.det_eos_token_export.restype = ctypes.c_int32
 
-    # det_vocab_size
-    lib.det_vocab_size.argtypes = [ctypes.c_void_p]
-    lib.det_vocab_size.restype = ctypes.c_int32
+    # det_vocab_size_export (non-inline wrapper for ctypes)
+    lib.det_vocab_size_export.argtypes = [ctypes.c_void_p]
+    lib.det_vocab_size_export.restype = ctypes.c_int32
 
     # det_model_info
     lib.det_model_info.argtypes = [ctypes.c_void_p]
@@ -236,9 +240,10 @@ class Model:
         if not self._handle:
             raise RuntimeError(f"Failed to load model: {path}")
 
-        # Get tokenizer pointer (stored in model struct)
-        # For now, we use the model handle to access tokenizer functions
-        self._tokenizer = self._handle  # In C, model->tokenizer is accessed via model
+        # Get tokenizer pointer from model
+        self._tokenizer = self._lib.det_model_get_tokenizer(self._handle)
+        if not self._tokenizer:
+            raise RuntimeError("Failed to get tokenizer from model")
 
     def __del__(self):
         if hasattr(self, '_handle') and self._handle:
@@ -253,17 +258,17 @@ class Model:
     @property
     def vocab_size(self) -> int:
         """Get vocabulary size."""
-        return self._lib.det_vocab_size(self._tokenizer)
+        return self._lib.det_vocab_size_export(self._tokenizer)
 
     @property
     def bos_token(self) -> int:
         """Get BOS token ID."""
-        return self._lib.det_bos_token(self._tokenizer)
+        return self._lib.det_bos_token_export(self._tokenizer)
 
     @property
     def eos_token(self) -> int:
         """Get EOS token ID."""
-        return self._lib.det_eos_token(self._tokenizer)
+        return self._lib.det_eos_token_export(self._tokenizer)
 
     def reset(self):
         """Reset KV cache for new conversation."""

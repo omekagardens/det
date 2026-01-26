@@ -221,6 +221,11 @@ static inline int32_t det_vocab_size(const DetTokenizer* tok) {
 void det_print_tokens(const DetTokenizer* tok,
                       const int32_t* tokens, int32_t num_tokens);
 
+/* Non-inline wrappers for ctypes/FFI binding */
+int32_t det_bos_token_export(const DetTokenizer* tok);
+int32_t det_eos_token_export(const DetTokenizer* tok);
+int32_t det_vocab_size_export(const DetTokenizer* tok);
+
 /* ==========================================================================
  * ERROR CODES
  * ========================================================================== */

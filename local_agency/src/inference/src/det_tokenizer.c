@@ -279,20 +279,51 @@ static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
         int32_t best_id = -1;
         int best_len = 0;
 
+        /* GPT-2 style: spaces are represented as 'Ġ' (U+0120 = 0xC4 0xA0) prefix */
+        bool space_prefix = (*p == ' ');
+        const char* search_start = space_prefix ? (p + 1) : p;
+
         /* Try different lengths, longest first */
         for (int len = 16; len >= 1; len--) {
-            if (p[len - 1] == '\0') continue;  /* Don't go past end */
+            if (search_start[len - 1] == '\0') continue;  /* Don't go past end */
 
             char buf[32];
-            if (len >= (int)sizeof(buf)) continue;
-            strncpy(buf, p, len);
-            buf[len] = '\0';
+            int buf_pos = 0;
+
+            /* Add Ġ prefix for space-prefixed tokens */
+            if (space_prefix && len <= 14) {
+                buf[buf_pos++] = 0xC4;  /* UTF-8 for U+0120 */
+                buf[buf_pos++] = 0xA0;
+            }
+
+            if (buf_pos + len >= (int)sizeof(buf)) continue;
+            strncpy(buf + buf_pos, search_start, len);
+            buf[buf_pos + len] = '\0';
 
             int32_t id = hash_get(tok->token_to_id, buf, -1);
             if (id >= 0) {
                 best_id = id;
-                best_len = len;
+                best_len = len + (space_prefix ? 1 : 0);  /* Include space in consumed length */
                 break;
+            }
+        }
+
+        /* If space-prefixed lookup failed, try without prefix */
+        if (best_id < 0 && space_prefix) {
+            for (int len = 16; len >= 1; len--) {
+                if (p[len - 1] == '\0') continue;
+
+                char buf[32];
+                if (len >= (int)sizeof(buf)) continue;
+                strncpy(buf, p, len);
+                buf[len] = '\0';
+
+                int32_t id = hash_get(tok->token_to_id, buf, -1);
+                if (id >= 0) {
+                    best_id = id;
+                    best_len = len;
+                    break;
+                }
             }
         }
 
@@ -301,7 +332,6 @@ static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
             p += best_len;
         } else {
             /* Unknown character - use byte fallback or unknown token */
-            /* For simplicity, use the raw byte as a token if possible */
             char byte_token[8];
             snprintf(byte_token, sizeof(byte_token), "<0x%02X>", (uint8_t)*p);
             int32_t byte_id = hash_get(tok->token_to_id, byte_token, tok->special.unk_id);
@@ -531,4 +561,20 @@ const char* det_tokenizer_strerror(int err) {
         case DET_TOK_ERR_IO:      return "I/O error";
         default:                  return "Unknown error";
     }
+}
+
+/* ==========================================================================
+ * NON-INLINE WRAPPERS FOR CTYPES BINDING
+ * ========================================================================== */
+
+int32_t det_bos_token_export(const DetTokenizer* tok) {
+    return tok ? tok->special.bos_id : -1;
+}
+
+int32_t det_eos_token_export(const DetTokenizer* tok) {
+    return tok ? tok->special.eos_id : -1;
+}
+
+int32_t det_vocab_size_export(const DetTokenizer* tok) {
+    return tok ? tok->vocab_size : 0;
 }

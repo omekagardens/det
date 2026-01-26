@@ -57,11 +57,11 @@ static void apply_rope(float* q, float* k, int head_dim, int pos, float theta) {
  * MODEL LOADING
  * ========================================================================== */
 
-/* Get layer weight by name pattern */
+/* Get layer weight by name pattern (dequantized to F32) */
 static DetTensor* get_layer_weight(GgufContext* gguf, int layer, const char* name) {
     char full_name[256];
     snprintf(full_name, sizeof(full_name), "blk.%d.%s.weight", layer, name);
-    return gguf_get_tensor(gguf, full_name);
+    return gguf_get_tensor_f32(gguf, full_name);
 }
 
 DetModel* det_model_load(const char* path) {
@@ -107,20 +107,20 @@ DetModel* det_model_load(const char* path) {
         return NULL;
     }
 
-    /* Load embedding weights */
-    model->weights.tok_embd = gguf_get_tensor(gguf, "token_embd.weight");
+    /* Load embedding weights (dequantized to F32 for computation) */
+    model->weights.tok_embd = gguf_get_tensor_f32(gguf, "token_embd.weight");
     if (!model->weights.tok_embd) {
         /* Try alternative name */
-        model->weights.tok_embd = gguf_get_tensor(gguf, "model.embed_tokens.weight");
+        model->weights.tok_embd = gguf_get_tensor_f32(gguf, "model.embed_tokens.weight");
     }
 
-    /* Load output weights */
-    model->weights.output_norm = gguf_get_tensor(gguf, "output_norm.weight");
+    /* Load output weights (dequantized) */
+    model->weights.output_norm = gguf_get_tensor_f32(gguf, "output_norm.weight");
     if (!model->weights.output_norm) {
-        model->weights.output_norm = gguf_get_tensor(gguf, "model.norm.weight");
+        model->weights.output_norm = gguf_get_tensor_f32(gguf, "model.norm.weight");
     }
 
-    model->weights.output = gguf_get_tensor(gguf, "output.weight");
+    model->weights.output = gguf_get_tensor_f32(gguf, "output.weight");
     if (!model->weights.output) {
         /* May share weights with embedding */
         model->weights.output = model->weights.tok_embd;
@@ -546,7 +546,9 @@ DetTensor* det_model_forward(DetModel* model,
         }
     }
 
-    /* Output projection to logits */
+    /* Output projection to logits
+     * For tied embeddings, weight shape is (vocab_size, n_embd) stored row-major
+     * logits[i] = sum_j(hidden[j] * weight[i][j]) = sum_j(hidden[j] * weight[i * n_embd + j]) */
     float* logits_data = (float*)logits->data;
     if (model->weights.output && model->weights.output->dtype == DET_DTYPE_F32) {
         float* wo = (float*)model->weights.output->data;
@@ -556,7 +558,7 @@ DetTensor* det_model_forward(DetModel* model,
             for (int i = 0; i < cfg->n_vocab; i++) {
                 float sum = 0.0f;
                 for (int j = 0; j < cfg->n_embd; j++) {
-                    sum += h[j] * wo[j * cfg->n_vocab + i];
+                    sum += h[j] * wo[i * cfg->n_embd + j];  /* Note: row-major (vocab, embd) */
                 }
                 l[i] = sum;
             }
@@ -862,6 +864,10 @@ void det_model_print_config(const DetModel* model) {
     printf("  Layers: %d\n", model->config.n_layer);
     printf("  FFN: %d\n", model->config.n_ff);
     printf("  RoPE base: %.1f\n", model->config.rope_freq_base);
+}
+
+DetTokenizer* det_model_get_tokenizer(DetModel* model) {
+    return model ? model->tokenizer : NULL;
 }
 
 const char* det_model_strerror(int err) {

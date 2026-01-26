@@ -1088,17 +1088,42 @@ int det_dequantize(DetTensor* dst, const DetTensor* src) {
         }
 
         case DET_DTYPE_Q8_0: {
-            /* Q8_0: blocks of 32 int8 values with float scale */
+            /* Q8_0: blocks of 32 int8 values with fp16 scale
+             * Block layout: 2 bytes fp16 scale + 32 bytes int8 data = 34 bytes per block */
             const uint8_t* in = (const uint8_t*)src->data;
             size_t num_blocks = (n + Q8_0_BLOCK_SIZE - 1) / Q8_0_BLOCK_SIZE;
+            const size_t block_size_bytes = 2 + Q8_0_BLOCK_SIZE;  /* 2 byte scale + 32 int8 */
 
             for (size_t b = 0; b < num_blocks; b++) {
-                /* Read scale (4 bytes) */
+                /* Read scale (2 bytes as float16) */
+                uint16_t scale_h;
+                memcpy(&scale_h, in + b * block_size_bytes, 2);
+
+                /* Convert half to float */
                 float scale;
-                memcpy(&scale, in + b * (4 + Q8_0_BLOCK_SIZE), 4);
+                {
+                    uint32_t h = scale_h;
+                    uint32_t sign = (h & 0x8000) << 16;
+                    uint32_t exp = (h >> 10) & 0x1F;
+                    uint32_t mant = h & 0x3FF;
+
+                    if (exp == 0) {
+                        /* Subnormal or zero */
+                        uint32_t f = sign;
+                        memcpy(&scale, &f, 4);
+                    } else if (exp == 31) {
+                        /* Inf or NaN */
+                        uint32_t f = sign | 0x7F800000 | (mant << 13);
+                        memcpy(&scale, &f, 4);
+                    } else {
+                        /* Normal */
+                        uint32_t f = sign | ((exp + 112) << 23) | (mant << 13);
+                        memcpy(&scale, &f, 4);
+                    }
+                }
 
                 /* Dequantize block */
-                const int8_t* q = (const int8_t*)(in + b * (4 + Q8_0_BLOCK_SIZE) + 4);
+                const int8_t* q = (const int8_t*)(in + b * block_size_bytes + 2);
                 size_t base = b * Q8_0_BLOCK_SIZE;
                 size_t count = (base + Q8_0_BLOCK_SIZE > n) ? (n - base) : Q8_0_BLOCK_SIZE;
 
