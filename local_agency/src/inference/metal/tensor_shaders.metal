@@ -321,10 +321,14 @@ kernel void causal_mask_f32(
  * ========================================================================== */
 
 /**
- * Apply RoPE to a tensor
+ * Apply RoPE to a tensor (split-half pairing convention)
  *
  * x: [batch, seq, heads, head_dim]
  * Applies rotation based on position
+ *
+ * Uses HuggingFace-style split-half pairing:
+ *   element[i] pairs with element[i + head_dim/2]
+ * NOT consecutive pairing (i, i+1)
  */
 kernel void rope_f32(
     device float* x [[buffer(0)]],
@@ -342,22 +346,24 @@ kernel void rope_f32(
 
     if (b >= batch || s >= seq || h >= heads) return;
 
-    device float* head = x + b * seq * heads * head_dim +
-                            s * heads * head_dim +
-                            h * head_dim;
+    device float* head_ptr = x + b * seq * heads * head_dim +
+                                 s * heads * head_dim +
+                                 h * head_dim;
 
     uint pos = pos_offset + s;
+    uint half_dim = head_dim / 2;
 
-    for (uint i = 0; i < head_dim; i += 2) {
-        float freq = 1.0f / pow(theta, float(i) / float(head_dim));
+    // Split-half pairing: pair element[i] with element[i + half_dim]
+    for (uint i = 0; i < half_dim; i++) {
+        float freq = 1.0f / pow(theta, float(2 * i) / float(head_dim));
         float angle = float(pos) * freq;
         float cos_val = cos(angle);
         float sin_val = sin(angle);
 
-        float x0 = head[i];
-        float x1 = head[i + 1];
-        head[i]     = x0 * cos_val - x1 * sin_val;
-        head[i + 1] = x0 * sin_val + x1 * cos_val;
+        float x0 = head_ptr[i];
+        float x1 = head_ptr[i + half_dim];
+        head_ptr[i]            = x0 * cos_val - x1 * sin_val;
+        head_ptr[i + half_dim] = x1 * cos_val + x0 * sin_val;
     }
 }
 

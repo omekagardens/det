@@ -519,9 +519,9 @@ is the remaining substrate integration work.
 - Modified `Think` kernel with CALL_NATIVE and CALL_OLLAMA proposals
 - DET integration: Presence (P) gates native inference
 
-#### 26.9 Forward Pass Debugging (IN PROGRESS)
+#### 26.9 Forward Pass Debugging ✅ COMPLETE
 
-**Status**: Forward pass runs but produces incorrect logits. See `docs/MODEL_DEBUG_LOG.md` for details.
+**Status**: Forward pass produces correct logits matching HuggingFace. See `docs/MODEL_DEBUG_LOG.md` for full debugging trace.
 
 **Issues Fixed**:
 - [x] Corrupted GGUF file - downloaded correct version from lmstudio-community
@@ -529,25 +529,30 @@ is the remaining substrate integration work.
 - [x] Missing QKV biases - Qwen2 uses biases, now loaded and applied
 - [x] RoPE double-application - separated Q and K RoPE loops
 - [x] Norm epsilon metadata - added Qwen2-prefixed key fallback
+- [x] Tokenizer BPE length check - fixed memory read past string end
+- [x] RoPE pairing convention - fixed to split-half (i, i+head_dim/2) matching HuggingFace
 
 **Components Verified Correct**:
 - [x] Embedding lookup (max diff 0.0001 from HF)
 - [x] RMSNorm (max diff 0.0003 from HF)
 - [x] QKV projections (max diff 0.01 from HF)
+- [x] RoPE application (split-half pairing)
+- [x] Full forward pass (logits RMS diff 0.08 from HF)
 
-**Remaining Issue**: Final logits don't match HF despite correct individual components.
-Hypothesis: quantization noise accumulates across 24 layers.
+**Final Results**:
+| Metric | Value |
+|--------|-------|
+| " Paris" rank | **1** ✅ |
+| " Paris" logit | 17.26 (HF: 17.22) |
+| Logits RMS diff | 0.08 |
+| Logits max diff | 0.48 |
 
-**Next Steps**:
-- [ ] Add per-layer debug logging to trace divergence point
-- [ ] Test with FP16 GGUF to eliminate quantization variable
-- [ ] Compare attention scores with HF
-- [ ] Verify dequantization block alignment
+All top 5 predictions match HuggingFace. Small remaining differences are expected from Q8_0 quantization.
 
 #### 26.10 Success Criteria
 
 **MVP**:
-- [ ] Load and run phi-2 (2.7B params) or qwen2-0.5B
+- [x] Load and run phi-2 (2.7B params) or qwen2-0.5B ✅ (Qwen2.5-0.5B-Instruct-Q8_0.gguf verified)
 - [ ] Generate coherent text (same quality as Ollama)
 - [x] Track F expenditure per generation
 - [x] Integrate with existing LLMCreature.ex
@@ -629,4 +634,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (debugging forward pass)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (forward pass verified)*

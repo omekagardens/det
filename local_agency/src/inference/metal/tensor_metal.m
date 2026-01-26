@@ -67,6 +67,8 @@
 
 - (BOOL)loadShaders {
     NSError *error = nil;
+    NSString *shaderPath = nil;
+    NSString *source = nil;
 
     // Try to load precompiled metallib
     NSString *libPath = [[NSBundle mainBundle] pathForResource:@"tensor_shaders"
@@ -76,27 +78,38 @@
         _library = [_device newLibraryWithURL:libURL error:&error];
     }
 
-    // Fall back to runtime compilation
+    // Fall back to runtime compilation - try multiple paths
     if (!_library) {
-        // Look for .metal source in same directory as executable
-        NSString *execPath = [[NSBundle mainBundle] executablePath];
-        NSString *execDir = [execPath stringByDeletingLastPathComponent];
-        NSString *shaderPath = [execDir stringByAppendingPathComponent:@"tensor_shaders.metal"];
+        NSArray *searchPaths = @[
+            // 1. Same directory as the dynamic library (for ctypes loading)
+            @"/Volumes/AI_DATA/development/det_local_agency/det/local_agency/src/inference/build/tensor_shaders.metal",
+            // 2. Relative to executable
+            [[[NSBundle mainBundle] executablePath] stringByDeletingLastPathComponent],
+            // 3. Current working directory
+            @"tensor_shaders.metal",
+            // 4. Source directory (development fallback)
+            @"src/inference/metal/tensor_shaders.metal",
+            @"src/inference/build/tensor_shaders.metal",
+        ];
 
-        NSString *source = [NSString stringWithContentsOfFile:shaderPath
-                                                     encoding:NSUTF8StringEncoding
-                                                        error:&error];
-        if (!source) {
-            // Try relative path from current directory
-            shaderPath = @"tensor_shaders.metal";
-            source = [NSString stringWithContentsOfFile:shaderPath
+        for (NSString *path in searchPaths) {
+            NSString *fullPath = path;
+            if (![path hasSuffix:@".metal"]) {
+                fullPath = [path stringByAppendingPathComponent:@"tensor_shaders.metal"];
+            }
+
+            source = [NSString stringWithContentsOfFile:fullPath
                                                encoding:NSUTF8StringEncoding
-                                                  error:&error];
+                                                  error:NULL];
+            if (source) {
+                shaderPath = fullPath;
+                break;
+            }
         }
 
         if (source) {
             MTLCompileOptions *options = [[MTLCompileOptions alloc] init];
-            options.fastMathEnabled = YES;
+            options.mathMode = MTLMathModeFast;
             _library = [_device newLibraryWithSource:source options:options error:&error];
         }
     }
@@ -339,6 +352,176 @@ int tensor_metal_softmax(const float *x, float *y, uint32_t rows, uint32_t dim, 
         [cmdBuffer waitUntilCompleted];
 
         memcpy(y, bufY.contents, rows * dim * sizeof(float));
+        return 0;
+    }
+}
+
+// Attention scores on GPU: scores = Q @ K^T / sqrt(d_k)
+int tensor_metal_attention_scores(const float *Q, const float *K, float *scores,
+                                   uint32_t seq_q, uint32_t seq_k, uint32_t d_k) {
+    if (!g_metal_ctx || !g_metal_ctx.attentionScoresPipeline) {
+        return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        id<MTLBuffer> bufQ = [device newBufferWithBytes:Q
+                                                 length:seq_q * d_k * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufK = [device newBufferWithBytes:K
+                                                 length:seq_k * d_k * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufS = [device newBufferWithLength:seq_q * seq_k * sizeof(float)
+                                                 options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        uint32_t batch = 1;
+        [encoder setComputePipelineState:g_metal_ctx.attentionScoresPipeline];
+        [encoder setBuffer:bufQ offset:0 atIndex:0];
+        [encoder setBuffer:bufK offset:0 atIndex:1];
+        [encoder setBuffer:bufS offset:0 atIndex:2];
+        [encoder setBytes:&batch length:sizeof(batch) atIndex:3];
+        [encoder setBytes:&seq_q length:sizeof(seq_q) atIndex:4];
+        [encoder setBytes:&seq_k length:sizeof(seq_k) atIndex:5];
+        [encoder setBytes:&d_k length:sizeof(d_k) atIndex:6];
+
+        MTLSize gridSize = MTLSizeMake(batch, seq_q, seq_k);
+        MTLSize threadGroupSize = MTLSizeMake(1, 8, 8);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        memcpy(scores, bufS.contents, seq_q * seq_k * sizeof(float));
+        return 0;
+    }
+}
+
+// Apply causal mask on GPU
+int tensor_metal_causal_mask(float *scores, uint32_t seq_q, uint32_t seq_k) {
+    if (!g_metal_ctx || !g_metal_ctx.causalMaskPipeline) {
+        return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        id<MTLBuffer> bufS = [device newBufferWithBytes:scores
+                                                 length:seq_q * seq_k * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        [encoder setComputePipelineState:g_metal_ctx.causalMaskPipeline];
+        [encoder setBuffer:bufS offset:0 atIndex:0];
+        [encoder setBytes:&seq_q length:sizeof(seq_q) atIndex:1];
+        [encoder setBytes:&seq_k length:sizeof(seq_k) atIndex:2];
+
+        MTLSize gridSize = MTLSizeMake(seq_q, seq_k, 1);
+        MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        memcpy(scores, bufS.contents, seq_q * seq_k * sizeof(float));
+        return 0;
+    }
+}
+
+// RoPE on GPU (split-half pairing)
+int tensor_metal_rope(float *x, uint32_t seq, uint32_t heads,
+                       uint32_t head_dim, uint32_t pos_offset, float theta) {
+    if (!g_metal_ctx || !g_metal_ctx.ropePipeline) {
+        return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        size_t size = seq * heads * head_dim * sizeof(float);
+        id<MTLBuffer> bufX = [device newBufferWithBytes:x
+                                                 length:size
+                                                options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        uint32_t batch = 1;
+        [encoder setComputePipelineState:g_metal_ctx.ropePipeline];
+        [encoder setBuffer:bufX offset:0 atIndex:0];
+        [encoder setBytes:&batch length:sizeof(batch) atIndex:1];
+        [encoder setBytes:&seq length:sizeof(seq) atIndex:2];
+        [encoder setBytes:&heads length:sizeof(heads) atIndex:3];
+        [encoder setBytes:&head_dim length:sizeof(head_dim) atIndex:4];
+        [encoder setBytes:&pos_offset length:sizeof(pos_offset) atIndex:5];
+        [encoder setBytes:&theta length:sizeof(theta) atIndex:6];
+
+        MTLSize gridSize = MTLSizeMake(batch, seq, heads);
+        MTLSize threadGroupSize = MTLSizeMake(1, 8, 8);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        memcpy(x, bufX.contents, size);
+        return 0;
+    }
+}
+
+// Q8_0 dequantization on GPU
+int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_blocks) {
+    if (!g_metal_ctx) {
+        return -1;
+    }
+
+    // Create pipeline for dequantization if not exists
+    static id<MTLComputePipelineState> dequantPipeline = nil;
+    if (!dequantPipeline) {
+        id<MTLFunction> func = [g_metal_ctx.library newFunctionWithName:@"dequantize_q8_0"];
+        if (!func) return -1;
+        NSError *error = nil;
+        dequantPipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        if (!dequantPipeline) return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        // Q8_0: 36 bytes per block (4-byte scale + 32 int8 values)
+        size_t src_size = num_blocks * 36;
+        size_t dst_size = num_blocks * 32 * sizeof(float);
+
+        id<MTLBuffer> bufSrc = [device newBufferWithBytes:src
+                                                   length:src_size
+                                                  options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufDst = [device newBufferWithLength:dst_size
+                                                   options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        [encoder setComputePipelineState:dequantPipeline];
+        [encoder setBuffer:bufSrc offset:0 atIndex:0];
+        [encoder setBuffer:bufDst offset:0 atIndex:1];
+        [encoder setBytes:&num_blocks length:sizeof(num_blocks) atIndex:2];
+
+        MTLSize gridSize = MTLSizeMake(num_blocks, 1, 1);
+        MTLSize threadGroupSize = MTLSizeMake(256, 1, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        memcpy(dst, bufDst.contents, dst_size);
         return 0;
     }
 }

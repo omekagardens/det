@@ -290,6 +290,24 @@ DetTokenizer* det_model_get_tokenizer(DetModel* model);
  */
 const char* det_model_strerror(int err);
 
+/* ==========================================================================
+ * METAL GPU ACCELERATION
+ * ========================================================================== */
+
+/**
+ * Check if Metal GPU acceleration is available
+ *
+ * Returns 1 if Metal is available and initialized, 0 otherwise.
+ */
+int det_model_metal_available(void);
+
+/**
+ * Get Metal device name
+ *
+ * Returns the name of the Metal GPU device, or "CPU only" if not available.
+ */
+const char* det_model_metal_device(void);
+
 #ifdef __cplusplus
 }
 #endif
