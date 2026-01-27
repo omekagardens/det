@@ -37,6 +37,24 @@ from det.lang.bytecode_cache import BytecodeCache, load_creature as cache_load_c
 from det.eis.creature_runner import CreatureRunner, CompiledCreatureData, CreatureState
 from det.eis.primitives import get_registry
 
+# Native inference (Phase 26)
+try:
+    from det.inference import (
+        Model as NativeModel, metal_status, SamplingParams,
+        set_inference_mode, get_inference_mode,
+        INFERENCE_MODE_F32, INFERENCE_MODE_Q8_0
+    )
+    NATIVE_INFERENCE_AVAILABLE = True
+except ImportError:
+    NATIVE_INFERENCE_AVAILABLE = False
+    NativeModel = None
+    metal_status = None
+    SamplingParams = None
+    set_inference_mode = None
+    get_inference_mode = None
+    INFERENCE_MODE_F32 = 0
+    INFERENCE_MODE_Q8_0 = 1
+
 # Optional GPU backend
 try:
     from det.metal import MetalBackend, NodeArraysHelper, BondArraysHelper
@@ -115,6 +133,10 @@ class DETRuntime:
         self.gpu_backend: Optional['MetalBackend'] = None
         self.gpu_nodes: Optional['NodeArraysHelper'] = None
         self.gpu_bonds: Optional['BondArraysHelper'] = None
+
+        # Native Inference (Phase 26)
+        self.native_model: Optional['NativeModel'] = None
+        self.native_enabled = False
 
         if use_gpu and GPU_AVAILABLE:
             self._init_gpu()
@@ -270,7 +292,8 @@ class DETRuntime:
         Bootstrap the DET-OS by loading all core creatures and bonding them.
         """
         gpu_status = f" [GPU: {self.gpu_backend.device_name}]" if self.gpu_enabled else ""
-        print(f"Bootstrapping DET-OS...{gpu_status}")
+        native_status = " [Native Inference: Available]" if NATIVE_INFERENCE_AVAILABLE else ""
+        print(f"Bootstrapping DET-OS...{gpu_status}{native_status}")
 
         # Discover available creatures
         self.discover_creatures()
@@ -483,31 +506,6 @@ class DETRuntime:
         self.bond_creature(name)
         return cid
 
-    def send_to_llm(self, prompt: str) -> Optional[str]:
-        """Send a message to LLM creature via bond and get response."""
-        if not self.terminal_cid or not self.llm_cid:
-            return None
-
-        # Send request via bond
-        self.runner.send(self.terminal_cid, self.llm_cid, {
-            "type": "primitive",
-            "name": "llm_call",
-            "args": [prompt]
-        })
-
-        # Process messages on LLM creature
-        self.runner.process_messages(self.llm_cid)
-
-        # Receive response
-        response = self.runner.receive(self.terminal_cid, self.llm_cid)
-        if response and response.get("type") == "primitive_result":
-            if response.get("success"):
-                return response.get("result", "")
-            else:
-                return f"[Error: {response.get('result_code', 'unknown')}]"
-
-        return None
-
     # =========================================================================
     # Phase 21: LLM Management Methods
     # =========================================================================
@@ -633,6 +631,226 @@ class DETRuntime:
         print("Configuration noted:")
         print(f"  {config_json}")
         print("  (Full runtime integration pending)")
+
+    # =========================================================================
+    # Phase 26: Native Inference Methods
+    # =========================================================================
+
+    def _native_help(self):
+        """Show native inference commands."""
+        print("""
+\033[33mNative Inference Commands (Phase 26):\033[0m
+  native              Show this help
+  native status       Show native inference status (model, GPU)
+  native load <path>  Load a GGUF model file (uses F32 mode by default)
+  native load <path> --q8   Load with Q8_0 mode (less memory, slower)
+  native enable       Enable native inference mode
+  native disable      Disable native inference (use Ollama)
+  native generate <prompt>  Generate text with native model
+  native reset        Reset KV cache (for new conversation)
+
+\033[33mExample:\033[0m
+  native load ~/models/Qwen2.5-0.5B-Instruct-Q8_0.gguf
+  native enable
+  ask What is the capital of France?
+
+\033[33mF32 vs Q8_0 Mode:\033[0m
+  F32 (default):  Faster inference, uses more memory
+  Q8_0 (--q8):    ~4x less memory, but slower (CPU dequant)
+
+\033[33mNote:\033[0m
+  Once enabled, regular 'ask' commands will use native inference.
+  Use 'native disable' to switch back to Ollama.
+  Press Ctrl+C to interrupt generation.
+""")
+
+    def _native_status(self):
+        """Show native inference status."""
+        print("\n\033[33mNative Inference Status (Phase 26):\033[0m")
+        print(f"  Available: {NATIVE_INFERENCE_AVAILABLE}")
+
+        if NATIVE_INFERENCE_AVAILABLE:
+            # GPU status
+            try:
+                gpu_info = metal_status()
+                if gpu_info.get('available'):
+                    print(f"  GPU: \033[32m{gpu_info.get('device', 'Metal')}\033[0m")
+                else:
+                    print(f"  GPU: \033[90mCPU only\033[0m")
+            except Exception as e:
+                print(f"  GPU: Error - {e}")
+
+            # Inference mode
+            if get_inference_mode:
+                mode = get_inference_mode()
+                mode_str = "Q8_0 (quantized)" if mode == INFERENCE_MODE_Q8_0 else "F32 (dequantized)"
+                print(f"  Inference Mode: {mode_str}")
+
+            # Model status
+            if self.native_model:
+                print(f"  Model Loaded: \033[32mYes\033[0m")
+                print(f"    {self.native_model.info}")
+            else:
+                print(f"  Model Loaded: \033[90mNo\033[0m")
+
+            # Mode
+            if self.native_enabled:
+                print(f"  Mode: \033[32mNative (enabled)\033[0m")
+            else:
+                print(f"  Mode: \033[90mOllama (native disabled)\033[0m")
+        else:
+            print("  Native inference library not found.")
+            print("  Build with: cd src/inference/build && cmake .. && make")
+        print()
+
+    def _native_load(self, path: str, use_q8_mode: bool = False):
+        """Load a GGUF model for native inference.
+
+        Args:
+            path: Path to GGUF model file
+            use_q8_mode: If True, use Q8_0 mode for ~4x memory savings (slower)
+                         Default is False (F32 mode) for faster interactive use.
+        """
+        if not NATIVE_INFERENCE_AVAILABLE:
+            print("\033[31mNative inference not available. Build the library first.\033[0m")
+            return
+
+        # Expand path
+        path = os.path.expanduser(path)
+
+        if not os.path.exists(path):
+            print(f"\033[31mModel file not found: {path}\033[0m")
+            return
+
+        # Set inference mode before loading
+        if set_inference_mode:
+            if use_q8_mode:
+                set_inference_mode(INFERENCE_MODE_Q8_0)
+                print(f"Using Q8_0 mode (4x memory savings, slower)")
+            else:
+                set_inference_mode(INFERENCE_MODE_F32)
+                print(f"Using F32 mode (faster, more memory)")
+
+        print(f"Loading model: {path}")
+        try:
+            import time
+            start = time.time()
+            self.native_model = NativeModel(path)
+            elapsed = time.time() - start
+            print(f"\033[32mModel loaded in {elapsed:.2f}s\033[0m")
+            print(f"  {self.native_model.info}")  # info is a property
+
+            # Auto-enable native mode
+            self.native_enabled = True
+            print("\033[33mNative inference enabled. Use 'ask' to generate.\033[0m")
+
+        except Exception as e:
+            print(f"\033[31mFailed to load model: {e}\033[0m")
+            import traceback
+            traceback.print_exc()
+
+    def _native_enable(self):
+        """Enable native inference mode."""
+        if not NATIVE_INFERENCE_AVAILABLE:
+            print("\033[31mNative inference not available.\033[0m")
+            return
+
+        if not self.native_model:
+            print("\033[33mNo model loaded. Use 'native load <path>' first.\033[0m")
+            return
+
+        self.native_enabled = True
+        print("\033[32mNative inference enabled.\033[0m")
+
+    def _native_disable(self):
+        """Disable native inference (use Ollama)."""
+        self.native_enabled = False
+        print("\033[33mNative inference disabled. Using Ollama.\033[0m")
+
+    def _native_generate(self, prompt: str):
+        """Generate text using native model."""
+        if not self.native_model:
+            print("\033[31mNo model loaded. Use 'native load <path>' first.\033[0m")
+            return
+
+        print(f"\033[33m[Generating with native model...]\033[0m")
+        try:
+            import time
+            start = time.time()
+            params = SamplingParams(temperature=0.7, top_p=0.9)
+            response = self.native_model.generate(prompt, max_tokens=256, params=params)
+            elapsed = time.time() - start
+            print(f"\033[32m{response}\033[0m")
+            print(f"\033[90m[Generated in {elapsed:.2f}s]\033[0m")
+        except Exception as e:
+            print(f"\033[31mGeneration failed: {e}\033[0m")
+            import traceback
+            traceback.print_exc()
+
+    def _native_reset(self):
+        """Reset KV cache for new conversation."""
+        if not self.native_model:
+            print("\033[31mNo model loaded.\033[0m")
+            return
+
+        try:
+            self.native_model.reset()
+            print("\033[32mKV cache reset.\033[0m")
+        except Exception as e:
+            print(f"\033[31mReset failed: {e}\033[0m")
+
+    def send_to_llm(self, prompt: str) -> Optional[str]:
+        """Send a message to LLM creature via bond and get response.
+
+        If native inference is enabled and model is loaded, uses native model.
+        Otherwise falls back to Ollama via LLM creature.
+        """
+        # Phase 26: Native inference path
+        if self.native_enabled and self.native_model:
+            try:
+                import sys
+                params = SamplingParams(temperature=0.7, top_p=0.9)
+
+                # Streaming callback to show progress
+                def on_token(text, token_id):
+                    sys.stdout.write(f"\033[32m{text}\033[0m")
+                    sys.stdout.flush()
+
+                print()  # Newline before streaming output
+                response = self.native_model.generate(
+                    prompt, max_tokens=256, params=params, callback=on_token
+                )
+                print()  # Newline after streaming
+                return response
+            except Exception as e:
+                print(f"\033[31m[Native inference failed: {e}]\033[0m")
+                import traceback
+                traceback.print_exc()
+                # Fall through to Ollama
+
+        # Ollama path (original)
+        if not self.terminal_cid or not self.llm_cid:
+            return None
+
+        # Send request via bond
+        self.runner.send(self.terminal_cid, self.llm_cid, {
+            "type": "primitive",
+            "name": "llm_call",
+            "args": [prompt]
+        })
+
+        # Process messages on LLM creature
+        self.runner.process_messages(self.llm_cid)
+
+        # Receive response
+        response = self.runner.receive(self.terminal_cid, self.llm_cid)
+        if response and response.get("type") == "primitive_result":
+            if response.get("success"):
+                return response.get("result", "")
+            else:
+                return f"[Error: {response.get('result_code', 'unknown')}]"
+
+        return None
 
     def send_to_tool(self, command: str, safe: bool = True) -> Optional[str]:
         """Send a command to Tool creature via bond and get response."""
@@ -837,6 +1055,51 @@ class DETRuntime:
                     self._llm_configure(config_json)
                     continue
 
+                # Phase 26: Native Inference Commands
+                elif cmd_lower == "native" or cmd_lower == "native help":
+                    self._native_help()
+                    continue
+
+                elif cmd_lower == "native status":
+                    self._native_status()
+                    continue
+
+                elif cmd_lower.startswith("native load "):
+                    args = user_input[12:].strip()
+                    if args:
+                        # Check for --q8 flag (F32 is now default)
+                        use_q8 = False
+                        if args.endswith(" --q8"):
+                            use_q8 = True
+                            args = args[:-5].strip()
+                        elif args.startswith("--q8 "):
+                            use_q8 = True
+                            args = args[5:].strip()
+                        self._native_load(args, use_q8_mode=use_q8)
+                    else:
+                        print("Usage: native load <path/to/model.gguf> [--q8]")
+                    continue
+
+                elif cmd_lower == "native enable":
+                    self._native_enable()
+                    continue
+
+                elif cmd_lower == "native disable":
+                    self._native_disable()
+                    continue
+
+                elif cmd_lower.startswith("native generate "):
+                    prompt = user_input[16:].strip()
+                    if prompt:
+                        self._native_generate(prompt)
+                    else:
+                        print("Usage: native generate <prompt>")
+                    continue
+
+                elif cmd_lower == "native reset":
+                    self._native_reset()
+                    continue
+
                 elif cmd_lower.startswith("run "):
                     command = user_input[4:].strip()
                     print(f"\033[33m[Sending to Tool via bond...]\033[0m")
@@ -1030,6 +1293,15 @@ class DETRuntime:
   llm budget        Show token budget
   llm budget reset  Reset token budget
   llm stream <p>    Streaming prompt
+
+\033[33mNative Inference (Phase 26):\033[0m
+  native            Show native inference help
+  native status     Show model and GPU status
+  native load <p>   Load GGUF model from path
+  native enable     Enable native inference (auto after load)
+  native disable    Disable native (use Ollama)
+  native generate   Generate text directly
+  native reset      Reset KV cache
 
 \033[33mGPU Acceleration:\033[0m
   gpu               Show GPU status

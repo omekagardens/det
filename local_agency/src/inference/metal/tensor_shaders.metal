@@ -423,9 +423,33 @@ kernel void rope_f32(
  * ========================================================================== */
 
 /**
+ * Convert F16 (half) to F32 (float) - GGUF uses F16 scale in Q8_0
+ */
+inline float half_to_float(uint16_t h) {
+    uint32_t sign = (h & 0x8000) << 16;
+    uint32_t exp = (h >> 10) & 0x1F;
+    uint32_t mant = h & 0x3FF;
+
+    if (exp == 0) {
+        // Zero or denormal
+        if (mant == 0) return 0.0f;
+        // Denormal - rare, just return 0
+        return 0.0f;
+    } else if (exp == 31) {
+        // Inf or NaN
+        uint32_t f = sign | 0x7F800000 | (mant << 13);
+        return as_type<float>(f);
+    } else {
+        // Normal
+        uint32_t f = sign | ((exp + 112) << 23) | (mant << 13);
+        return as_type<float>(f);
+    }
+}
+
+/**
  * Dequantize Q8_0 block to F32
  *
- * Q8_0 block: 4-byte scale + 32 int8 values
+ * GGUF Q8_0 block format: 2-byte F16 scale + 32 int8 values = 34 bytes per block
  */
 kernel void dequantize_q8_0(
     device const uint8_t* src [[buffer(0)]],
@@ -435,17 +459,72 @@ kernel void dequantize_q8_0(
 {
     if (gid >= num_blocks) return;
 
-    // Each Q8_0 block is 4 bytes scale + 32 bytes data = 36 bytes
-    device const uint8_t* block = src + gid * 36;
+    // Each Q8_0 block is 2 bytes F16 scale + 32 bytes data = 34 bytes
+    device const uint8_t* block = src + gid * 34;
 
-    // Read scale (first 4 bytes as float)
-    float scale = *((device const float*)block);
+    // Read scale (first 2 bytes as F16, convert to F32)
+    uint16_t scale_h = *((device const uint16_t*)block);
+    float scale = half_to_float(scale_h);
 
     // Dequantize 32 values
-    device const int8_t* q = (device const int8_t*)(block + 4);
+    device const int8_t* q = (device const int8_t*)(block + 2);
     device float* out = dst + gid * 32;
 
     for (uint i = 0; i < 32; i++) {
         out[i] = float(q[i]) * scale;
     }
+}
+
+/**
+ * Fused Q8_0 dequantize + matmul with transposed B: C = A @ B_q8^T
+ *
+ * A: [M, K] float32
+ * B_q8: [N, K] Q8_0 quantized (stored as N*K/32 blocks of 34 bytes each)
+ * C: [M, N] float32
+ *
+ * Each row of B has K/32 Q8_0 blocks, each block is 34 bytes.
+ */
+kernel void matmul_q8_0_transposed_f32(
+    device const float* A [[buffer(0)]],
+    device const uint8_t* B_q8 [[buffer(1)]],
+    device float* C [[buffer(2)]],
+    constant uint& M [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& K [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint row = gid.y;  // Output row (0..M-1)
+    uint col = gid.x;  // Output column (0..N-1)
+
+    if (row >= M || col >= N) return;
+
+    // Pointers
+    device const float* a_row = A + row * K;
+
+    // B_q8 row layout: each row has K/32 blocks, each block is 34 bytes
+    // Block j of row n starts at: n * (K/32 * 34) + j * 34
+    uint num_blocks_per_row = K / 32;
+    device const uint8_t* b_row = B_q8 + col * num_blocks_per_row * 34;
+
+    float sum = 0.0f;
+
+    // Process 32 elements at a time (one Q8_0 block)
+    for (uint blk = 0; blk < num_blocks_per_row; blk++) {
+        device const uint8_t* block = b_row + blk * 34;
+
+        // Read F16 scale
+        uint16_t scale_h = *((device const uint16_t*)block);
+        float scale = half_to_float(scale_h);
+
+        // Dequantize and accumulate
+        device const int8_t* q = (device const int8_t*)(block + 2);
+        uint base_k = blk * 32;
+
+        for (uint i = 0; i < 32; i++) {
+            float b_val = float(q[i]) * scale;
+            sum += a_row[base_k + i] * b_val;
+        }
+    }
+
+    C[row * N + col] = sum;
 }

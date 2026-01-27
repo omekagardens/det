@@ -1022,11 +1022,199 @@ DetTensor* det_workspace_get_scratch(DetTensorWorkspace* ws, int idx,
 }
 
 /* ==========================================================================
- * QUANTIZATION
+ * Q8_0 QUANTIZATION-AWARE MATMUL (QAM)
  * ========================================================================== */
 
-/* Q8_0 block structure: 1 float scale + 32 int8 values */
+/* Q8_0 block structure: 2 byte F16 scale + 32 int8 values = 34 bytes */
 #define Q8_0_BLOCK_SIZE 32
+#define Q8_0_BLOCK_BYTES 34
+
+/**
+ * Convert half-precision float to single-precision
+ */
+static inline float half_to_float_cpu(uint16_t h) {
+    uint32_t sign = (h & 0x8000) << 16;
+    uint32_t exp = (h >> 10) & 0x1F;
+    uint32_t mant = h & 0x3FF;
+
+    if (exp == 0) {
+        if (mant == 0) return 0.0f;
+        /* Denormal - just return 0 for simplicity */
+        return 0.0f;
+    } else if (exp == 31) {
+        /* Inf or NaN */
+        uint32_t f = sign | 0x7F800000 | (mant << 13);
+        float result;
+        memcpy(&result, &f, 4);
+        return result;
+    } else {
+        /* Normal */
+        uint32_t f = sign | ((exp + 112) << 23) | (mant << 13);
+        float result;
+        memcpy(&result, &f, 4);
+        return result;
+    }
+}
+
+/**
+ * Quantization-Aware Matmul for Q8_0: Y[M,N] = X[M,K] @ W_q8[N,K]^T
+ *
+ * Dequantizes W row by row into a scratch buffer, then uses BLAS.
+ * This avoids storing full F32 weights in memory.
+ *
+ * @param Y Output matrix [M, N]
+ * @param X Input matrix [M, K]
+ * @param W_q8 Q8_0 quantized weight matrix [N, K] (K must be multiple of 32)
+ * @param M Number of rows in X and Y
+ * @param N Number of columns in Y (rows in W)
+ * @param K Number of columns in X (columns in W)
+ * @return 0 on success, error code on failure
+ */
+int det_matmul_q8_0_transposed(float* Y, const float* X, const uint8_t* W_q8,
+                                int M, int N, int K) {
+    if (!Y || !X || !W_q8) return DET_TENSOR_ERR_INVALID;
+    if (K % Q8_0_BLOCK_SIZE != 0) return DET_TENSOR_ERR_SHAPE;
+
+    int blocks_per_row = K / Q8_0_BLOCK_SIZE;
+
+    /* Allocate scratch buffer for one dequantized row */
+    float* w_row = (float*)malloc(K * sizeof(float));
+    if (!w_row) return DET_TENSOR_ERR_ALLOC;
+
+    /* Initialize output to zero */
+    memset(Y, 0, M * N * sizeof(float));
+
+    /* Process each output column (each W row) */
+    for (int n = 0; n < N; n++) {
+        const uint8_t* w_row_q8 = W_q8 + n * blocks_per_row * Q8_0_BLOCK_BYTES;
+
+        /* Dequantize this row of W */
+        for (int blk = 0; blk < blocks_per_row; blk++) {
+            const uint8_t* block = w_row_q8 + blk * Q8_0_BLOCK_BYTES;
+
+            /* Read F16 scale, convert to F32 */
+            uint16_t scale_h;
+            memcpy(&scale_h, block, 2);
+            float scale = half_to_float_cpu(scale_h);
+
+            /* Dequantize 32 values */
+            const int8_t* q = (const int8_t*)(block + 2);
+            float* out = w_row + blk * Q8_0_BLOCK_SIZE;
+
+#ifdef USE_ACCELERATE
+            /* Convert int8 to float with SIMD acceleration */
+            float temp[32];
+            for (int i = 0; i < 32; i++) {
+                temp[i] = (float)q[i];
+            }
+            vDSP_vsmul(temp, 1, &scale, out, 1, 32);
+#else
+            for (int i = 0; i < 32; i++) {
+                out[i] = (float)q[i] * scale;
+            }
+#endif
+        }
+
+#ifdef USE_ACCELERATE
+        /* Compute Y[:,n] += X @ w_row using BLAS
+         * This is a matrix-vector multiply: y = A @ x
+         * We want to add to column n of Y for all rows */
+        for (int m = 0; m < M; m++) {
+            float dot;
+            vDSP_dotpr(X + m * K, 1, w_row, 1, &dot, K);
+            Y[m * N + n] = dot;
+        }
+#else
+        /* Naive fallback */
+        for (int m = 0; m < M; m++) {
+            const float* x_row = X + m * K;
+            float sum = 0.0f;
+            for (int k = 0; k < K; k++) {
+                sum += x_row[k] * w_row[k];
+            }
+            Y[m * N + n] = sum;
+        }
+#endif
+    }
+
+    free(w_row);
+    return DET_TENSOR_OK;
+}
+
+/**
+ * Batched Q8_0 matmul - processes all rows more efficiently
+ * Uses BLAS sgemm by dequantizing a batch of W rows at once.
+ */
+int det_matmul_q8_0_transposed_batched(float* Y, const float* X, const uint8_t* W_q8,
+                                        int M, int N, int K) {
+    if (!Y || !X || !W_q8) return DET_TENSOR_ERR_INVALID;
+    if (K % Q8_0_BLOCK_SIZE != 0) return DET_TENSOR_ERR_SHAPE;
+
+    int blocks_per_row = K / Q8_0_BLOCK_SIZE;
+
+    /* For large N, process in batches to limit memory usage */
+    int batch_size = 256;  /* Dequantize 256 rows at a time */
+    if (batch_size > N) batch_size = N;
+
+    float* W_batch = (float*)malloc(batch_size * K * sizeof(float));
+    if (!W_batch) return DET_TENSOR_ERR_ALLOC;
+
+    for (int n_start = 0; n_start < N; n_start += batch_size) {
+        int n_end = n_start + batch_size;
+        if (n_end > N) n_end = N;
+        int batch_n = n_end - n_start;
+
+        /* Dequantize batch of W rows */
+        for (int n = 0; n < batch_n; n++) {
+            const uint8_t* w_row_q8 = W_q8 + (n_start + n) * blocks_per_row * Q8_0_BLOCK_BYTES;
+            float* w_row = W_batch + n * K;
+
+            for (int blk = 0; blk < blocks_per_row; blk++) {
+                const uint8_t* block = w_row_q8 + blk * Q8_0_BLOCK_BYTES;
+
+                uint16_t scale_h;
+                memcpy(&scale_h, block, 2);
+                float scale = half_to_float_cpu(scale_h);
+
+                const int8_t* q = (const int8_t*)(block + 2);
+                float* out = w_row + blk * Q8_0_BLOCK_SIZE;
+
+                for (int i = 0; i < 32; i++) {
+                    out[i] = (float)q[i] * scale;
+                }
+            }
+        }
+
+#ifdef USE_ACCELERATE
+        /* Y_batch[M, batch_n] = X[M, K] @ W_batch[batch_n, K]^T */
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                    M, batch_n, K,
+                    1.0f,
+                    X, K,
+                    W_batch, K,
+                    0.0f,
+                    Y + n_start, N);  /* Write to correct columns */
+#else
+        /* Naive fallback */
+        for (int m = 0; m < M; m++) {
+            for (int n = 0; n < batch_n; n++) {
+                float sum = 0.0f;
+                for (int k = 0; k < K; k++) {
+                    sum += X[m * K + k] * W_batch[n * K + k];
+                }
+                Y[m * N + n_start + n] = sum;
+            }
+        }
+#endif
+    }
+
+    free(W_batch);
+    return DET_TENSOR_OK;
+}
+
+/* ==========================================================================
+ * QUANTIZATION
+ * ========================================================================== */
 
 /* Q4_0 block structure: 1 float16 scale + 16 bytes (32 4-bit values) */
 #define Q4_0_BLOCK_SIZE 32

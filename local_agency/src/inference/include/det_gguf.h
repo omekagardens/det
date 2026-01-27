@@ -216,6 +216,18 @@ DetTensor* gguf_get_tensor(GgufContext* ctx, const char* name);
  */
 DetTensor* gguf_get_tensor_f32(GgufContext* ctx, const char* name);
 
+/**
+ * Get raw Q8_0 tensor without dequantization
+ *
+ * Returns a memory-mapped view of the Q8_0 data.
+ * Only works for Q8_0 tensors, returns NULL otherwise.
+ * The tensor's dtype will be DET_DTYPE_Q8_0.
+ *
+ * Use this for QAM (Quantization-Aware Matmul) to keep weights
+ * quantized in memory and dequantize on-the-fly during matmul.
+ */
+DetTensor* gguf_get_tensor_q8_0(GgufContext* ctx, const char* name);
+
 /* ==========================================================================
  * METADATA ACCESS
  * ========================================================================== */

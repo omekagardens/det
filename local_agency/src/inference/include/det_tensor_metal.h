@@ -108,11 +108,24 @@ int tensor_metal_rope(float *x, uint32_t seq, uint32_t heads,
 /**
  * GPU-accelerated Q8_0 dequantization
  *
- * src: Q8_0 quantized data (36 bytes per block: 4-byte scale + 32 int8 values)
+ * GGUF Q8_0 format: 34 bytes per block (2-byte F16 scale + 32 int8 values)
+ * src: Q8_0 quantized data
  * dst: Output float buffer (32 floats per block)
  * num_blocks: Number of Q8_0 blocks to dequantize
  */
 int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_blocks);
+
+/**
+ * GPU-accelerated Q8_0 matmul with transposed B: C = A @ B_q8^T
+ *
+ * Fused dequantization + matmul for memory efficiency.
+ *
+ * A: [M, K] float32
+ * B_q8: [N, K] Q8_0 quantized (K must be divisible by 32)
+ * C: [M, N] float32
+ */
+int tensor_metal_matmul_q8_0_transposed(const float *A, const uint8_t *B_q8, float *C,
+                                         uint32_t M, uint32_t N, uint32_t K);
 
 #ifdef __cplusplus
 }

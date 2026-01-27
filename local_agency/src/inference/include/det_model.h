@@ -25,6 +25,38 @@ extern "C" {
 #endif
 
 /* ==========================================================================
+ * INFERENCE MODE CONFIGURATION
+ * ========================================================================== */
+
+/**
+ * Inference mode determines how weights are stored and processed.
+ *
+ * DET_INFERENCE_F32:  (Default) Dequantize all weights to F32 at load time.
+ *                     Higher memory usage (~8x for Q8_0 models).
+ *                     Fastest computation.
+ *
+ * DET_INFERENCE_Q8_0: Keep Q8_0 weights quantized in memory.
+ *                     Lower memory usage (~4x savings).
+ *                     On-the-fly dequantization during matmul (QAM).
+ */
+typedef enum {
+    DET_INFERENCE_F32 = 0,   /* Dequantize at load time (current behavior) */
+    DET_INFERENCE_Q8_0 = 1,  /* Keep quantized, dequant during matmul (QAM) */
+} DetInferenceMode;
+
+/**
+ * Set global inference mode for weight loading
+ *
+ * Must be called before det_model_load() to take effect.
+ */
+void det_set_inference_mode(DetInferenceMode mode);
+
+/**
+ * Get current inference mode
+ */
+DetInferenceMode det_get_inference_mode(void);
+
+/* ==========================================================================
  * MODEL CONFIGURATION
  * ========================================================================== */
 
@@ -101,6 +133,19 @@ typedef struct {
  * MODEL CONTEXT
  * ========================================================================== */
 
+/** Pre-allocated scratch buffers for forward pass */
+typedef struct {
+    float* hidden;      /* [n_ctx, n_embd] */
+    float* residual;    /* [n_ctx, n_embd] */
+    float* q;           /* [n_ctx, n_embd] */
+    float* k;           /* [n_ctx, kv_dim] */
+    float* v;           /* [n_ctx, kv_dim] */
+    float* att;         /* [n_ctx, n_ctx] */
+    float* ffn_gate;    /* [n_ctx, n_ff] */
+    float* ffn_up;      /* [n_ctx, n_ff] */
+    float* temp;        /* [n_ctx, n_embd] for output projection */
+} DetScratchBuffers;
+
 /** Model inference context */
 typedef struct DetModel {
     /* Configuration */
@@ -111,6 +156,9 @@ typedef struct DetModel {
 
     /* KV cache */
     DetKVCache kv_cache;
+
+    /* Pre-allocated scratch buffers (avoid malloc in forward pass) */
+    DetScratchBuffers scratch;
 
     /* Tokenizer */
     DetTokenizer* tokenizer;
@@ -289,6 +337,11 @@ DetTokenizer* det_model_get_tokenizer(DetModel* model);
  * Get error message
  */
 const char* det_model_strerror(int err);
+
+/**
+ * Enable/disable timing debug output
+ */
+void det_enable_timing(int enable);
 
 /* ==========================================================================
  * METAL GPU ACCELERATION

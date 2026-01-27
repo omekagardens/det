@@ -363,6 +363,34 @@ int det_dequantize(DetTensor* dst, const DetTensor* src);
 int det_quantize(DetTensor* dst, const DetTensor* src, DetDType target_dtype);
 
 /* ==========================================================================
+ * QUANTIZATION-AWARE MATMUL (QAM)
+ * ========================================================================== */
+
+/**
+ * Q8_0 matmul with transposed weights: Y[M,N] = X[M,K] @ W_q8[N,K]^T
+ *
+ * Performs on-the-fly dequantization during matmul.
+ * K must be a multiple of 32 (Q8_0 block size).
+ *
+ * @param Y Output matrix [M, N] float32
+ * @param X Input matrix [M, K] float32
+ * @param W_q8 Q8_0 quantized weight matrix [N, K] (raw bytes, 34 bytes per 32-element block)
+ * @param M Number of rows in X and Y
+ * @param N Number of columns in Y (and rows in W)
+ * @param K Number of columns in X (and W), must be multiple of 32
+ */
+int det_matmul_q8_0_transposed(float* Y, const float* X, const uint8_t* W_q8,
+                                int M, int N, int K);
+
+/**
+ * Batched Q8_0 matmul - more efficient for large N
+ *
+ * Dequantizes W in batches and uses BLAS sgemm for better performance.
+ */
+int det_matmul_q8_0_transposed_batched(float* Y, const float* X, const uint8_t* W_q8,
+                                        int M, int N, int K);
+
+/* ==========================================================================
  * WORKSPACE MANAGEMENT
  * ========================================================================== */
 

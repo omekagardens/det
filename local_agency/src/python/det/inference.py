@@ -181,6 +181,10 @@ def _setup_bindings(lib: ctypes.CDLL):
     lib.det_token_to_text.argtypes = [ctypes.c_void_p, ctypes.c_int32]
     lib.det_token_to_text.restype = ctypes.c_char_p
 
+    # det_token_to_text_decoded (with BPE decoding for streaming)
+    lib.det_token_to_text_decoded.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+    lib.det_token_to_text_decoded.restype = ctypes.c_char_p
+
     # det_bos_token_export (non-inline wrapper for ctypes)
     lib.det_bos_token_export.argtypes = [ctypes.c_void_p]
     lib.det_bos_token_export.restype = ctypes.c_int32
@@ -196,6 +200,13 @@ def _setup_bindings(lib: ctypes.CDLL):
     # det_model_info
     lib.det_model_info.argtypes = [ctypes.c_void_p]
     lib.det_model_info.restype = ctypes.c_char_p
+
+    # Inference mode (QAM support)
+    lib.det_set_inference_mode.argtypes = [ctypes.c_int]
+    lib.det_set_inference_mode.restype = None
+
+    lib.det_get_inference_mode.argtypes = []
+    lib.det_get_inference_mode.restype = ctypes.c_int
 
     # Metal backend
     try:
@@ -223,6 +234,34 @@ class SamplingParams:
     top_k: int = 40
     repetition_penalty: float = 1.1
     seed: int = 0
+
+
+# Inference mode constants (match C enum)
+INFERENCE_MODE_F32 = 0   # Dequantize all weights at load time
+INFERENCE_MODE_Q8_0 = 1  # Keep Q8_0 weights quantized, dequant on-the-fly (QAM)
+
+
+def set_inference_mode(mode: int):
+    """Set inference mode before loading model.
+
+    Args:
+        mode: INFERENCE_MODE_F32 (0) or INFERENCE_MODE_Q8_0 (1)
+
+    Must be called BEFORE loading a model to take effect.
+    Q8_0 mode uses ~4x less memory but dequantizes during matmul.
+    """
+    lib = _get_lib()
+    lib.det_set_inference_mode(mode)
+
+
+def get_inference_mode() -> int:
+    """Get current inference mode.
+
+    Returns:
+        INFERENCE_MODE_F32 (0) or INFERENCE_MODE_Q8_0 (1)
+    """
+    lib = _get_lib()
+    return lib.det_get_inference_mode()
 
 
 class Model:
@@ -311,8 +350,8 @@ class Model:
         return text.value.decode('utf-8')
 
     def token_to_text(self, token_id: int) -> str:
-        """Get text for a single token."""
-        result = self._lib.det_token_to_text(self._tokenizer, token_id)
+        """Get text for a single token (with BPE decoding for streaming)."""
+        result = self._lib.det_token_to_text_decoded(self._tokenizer, token_id)
         return result.decode('utf-8') if result else ""
 
     def forward(self, tokens: List[int]) -> 'ctypes.POINTER(DetTensor)':
@@ -489,6 +528,23 @@ def metal_init() -> bool:
         return lib.tensor_metal_init() == 0
     except (RuntimeError, AttributeError):
         return False
+
+
+def metal_status() -> dict:
+    """Get Metal GPU status as a dict.
+
+    Returns:
+        dict with 'available', 'device', and 'initialized' keys
+    """
+    available = metal_available()
+    initialized = metal_init() if available else False
+    # Get device name after init (needed for g_metal_ctx to be set)
+    device = metal_device_name() if initialized else 'None'
+    return {
+        'available': available,
+        'device': device,
+        'initialized': initialized,
+    }
 
 
 # =============================================================================

@@ -510,6 +510,48 @@ DetTensor* gguf_get_tensor_f32(GgufContext* ctx, const char* name) {
     return dst;
 }
 
+DetTensor* gguf_get_tensor_q8_0(GgufContext* ctx, const char* name) {
+    if (!ctx || !name) return NULL;
+
+    const GgufTensorInfo* info = gguf_get_tensor_info(ctx, name);
+    if (!info) return NULL;
+
+    /* Only works for Q8_0 tensors */
+    if (info->type != GGUF_TENSOR_Q8_0) {
+        return NULL;
+    }
+
+    /* Calculate data pointer */
+    void* data = (uint8_t*)ctx->mapped_data + ctx->data_offset + info->offset;
+
+    /* Create shape array (convert uint64_t to int32_t) */
+    int32_t shape[DET_MAX_DIMS];
+    for (uint32_t i = 0; i < info->ndim; i++) {
+        shape[i] = (int32_t)info->shape[i];
+    }
+
+    /* Create tensor view - keeps data as Q8_0, no dequantization */
+    DetTensor* t = det_tensor_from_ptr(data, info->ndim, shape, DET_DTYPE_Q8_0);
+    if (t) {
+        t->storage = DET_STORAGE_MMAP;
+
+        /* Calculate actual data size for Q8_0:
+         * Each row of a 2D tensor [N, K] has K/32 blocks of 34 bytes */
+        if (info->ndim == 2) {
+            int32_t N = shape[0];
+            int32_t K = shape[1];
+            int32_t blocks_per_row = (K + 31) / 32;
+            t->data_size = N * blocks_per_row * 34;
+        } else if (info->ndim == 1) {
+            int32_t K = shape[0];
+            int32_t num_blocks = (K + 31) / 32;
+            t->data_size = num_blocks * 34;
+        }
+    }
+
+    return t;
+}
+
 /* ==========================================================================
  * METADATA ACCESS
  * ========================================================================== */
@@ -615,11 +657,11 @@ static const uint32_t gguf_block_sizes[] = {
 static const size_t gguf_type_sizes[] = {
     [GGUF_TENSOR_F32]     = 4,
     [GGUF_TENSOR_F16]     = 2,
-    [GGUF_TENSOR_Q4_0]    = 2 + 16,   /* scale + 32 4-bit values */
+    [GGUF_TENSOR_Q4_0]    = 2 + 16,   /* F16 scale + 32 4-bit values */
     [GGUF_TENSOR_Q4_1]    = 4 + 16,   /* scale + min + 32 4-bit values */
     [GGUF_TENSOR_Q5_0]    = 2 + 4 + 16,
     [GGUF_TENSOR_Q5_1]    = 4 + 4 + 16,
-    [GGUF_TENSOR_Q8_0]    = 4 + 32,   /* scale + 32 8-bit values */
+    [GGUF_TENSOR_Q8_0]    = 2 + 32,   /* F16 scale (2 bytes) + 32 int8 values = 34 bytes */
     [GGUF_TENSOR_Q8_1]    = 8 + 32,   /* scale + sum + 32 8-bit values */
     [GGUF_TENSOR_Q2_K]    = 256/4 + 256/16 + 2 + 2,
     [GGUF_TENSOR_Q3_K]    = 256/8*3 + 256/16 + 2,

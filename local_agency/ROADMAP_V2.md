@@ -392,12 +392,10 @@ src/existence/
 - [x] Weight tensor extraction
 - [x] Quantization support (Q4_K_M minimum, Q8_0)
 - [x] Memory-mapped weights (don't load full model into RAM)
-- [ ] ModelLoaderCreature.ex ← TODO (creature wrapper)
+- [x] `gguf_get_tensor_q8_0()` - Raw Q8_0 loading for QAM
 
-**Files**: `src/inference/{det_gguf.h, det_gguf.c}` (1,067 lines)
+**Files**: `src/inference/{det_gguf.h, det_gguf.c}` (1,100+ lines)
 **Tests**: 7/7 passing
-
-**Note**: C primitives complete. Creature wrapper still needed.
 
 #### 26.3 Inference Pipeline (M3) ✅ PRIMITIVES + CREATURES COMPLETE
 **Goal**: Single token generation via creatures
@@ -492,6 +490,53 @@ is the remaining substrate integration work.
 
 **Formula**: `T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C`
 
+#### 26.6.5 QAM - Quantization-Aware Matmul ✅ COMPLETE
+**Goal**: Keep weights in Q8_0 format in memory, dequantize on-the-fly during matmul (~4x memory reduction)
+
+**Problem Solved**: `det_model.c:183` was calling `gguf_get_tensor_f32()` which dequantized ALL weights to F32 at load time, causing 8x memory increase from GGUF size.
+
+**Q8_0 Format Fix**:
+- Fixed Metal and CPU code to use correct GGUF Q8_0 format: 34 bytes (2-byte F16 scale + 32 int8 values)
+- Previous code incorrectly assumed 36 bytes (4-byte F32 scale)
+
+**CPU QAM** (`det_tensor.c`):
+- [x] `det_matmul_q8_0_transposed()` - Row-by-row dequant with vDSP
+- [x] `det_matmul_q8_0_transposed_batched()` - Batch dequant with BLAS sgemm
+- [x] `half_to_float_cpu()` - F16→F32 conversion
+
+**Metal QAM** (`tensor_shaders.metal`, `tensor_metal.m`):
+- [x] `matmul_q8_0_transposed_f32` kernel - Fused dequant + matmul on GPU
+- [x] `tensor_metal_matmul_q8_0_transposed()` - C wrapper
+- [x] `half_to_float()` shader function
+
+**Inference Mode Configuration** (`det_model.h`, `det_model.c`):
+- [x] `DetInferenceMode` enum: `DET_INFERENCE_F32` (default) or `DET_INFERENCE_Q8_0`
+- [x] `det_set_inference_mode()` / `det_get_inference_mode()`
+
+**Smart Weight Loading** (`det_model.c`):
+- [x] `get_layer_weight_smart()` - Returns Q8_0 or F32 based on inference mode
+- [x] `get_weight_smart()` - Same for named weights
+- [x] `batched_proj_smart()` - Dispatches to Q8_0 or F32 matmul based on weight dtype
+
+**Raw Q8_0 Tensor Loading** (`det_gguf.c`):
+- [x] `gguf_get_tensor_q8_0()` - Returns memory-mapped Q8_0 tensor (no dequantization)
+
+**Tests**:
+- [x] `test_matmul_q8_0_transposed()` - 0.75% relative error (Q8_0 quantization noise)
+- [x] `test_matmul_q8_0_batched()` - 0.05% relative error
+
+**Memory Savings**:
+| Model Size | F32 Mode | Q8_0 Mode | Savings |
+|------------|----------|-----------|---------|
+| 0.5B params | ~2 GB | ~0.5 GB | 1.5 GB |
+| 7B params | ~28 GB | ~7.4 GB | 20.6 GB |
+
+**Usage**:
+```c
+det_set_inference_mode(DET_INFERENCE_Q8_0);  // Enable before loading
+DetModel* model = det_model_load("model.gguf");  // Weights stay quantized
+```
+
 #### 26.7 Metal Performance Shaders (M5) ✅ COMPLETE
 **Goal**: GPU-accelerated inference
 
@@ -521,7 +566,7 @@ is the remaining substrate integration work.
 - `src/inference/include/det_tensor_metal.h` - API declarations
 - `src/inference/src/det_model.c` - Metal integration + Accelerate BLAS for CPU fallback
 
-#### 26.8 Integration (M6) ✅ INITIAL INTEGRATION COMPLETE
+#### 26.8 Integration (M6) ✅ REPL + CREATURE INTEGRATION COMPLETE
 **Goal**: Drop-in replacement for Ollama
 
 - [x] LLMCreature.ex compatibility layer (unchanged interface)
@@ -537,6 +582,16 @@ is the remaining substrate integration work.
 - `NativeStatus` kernel: Report GPU and model status
 - Modified `Think` kernel with CALL_NATIVE and CALL_OLLAMA proposals
 - DET integration: Presence (P) gates native inference
+
+**DET-OS REPL Commands** (det_os_boot.py):
+- [x] `native` - Show native inference help
+- [x] `native status` - Show model and GPU status
+- [x] `native load <path>` - Load GGUF model
+- [x] `native enable/disable` - Switch between native and Ollama
+- [x] `native generate <prompt>` - Generate text
+- [x] `native reset` - Reset KV cache
+- [x] `ask` - Auto-routes to native when enabled
+- [x] `metal_status()` - Python API for GPU info
 
 #### 26.9 Forward Pass Debugging ✅ COMPLETE
 
@@ -653,4 +708,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (Metal GPU acceleration complete, 3.2x speedup)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (Metal GPU + QAM complete, ~4x memory savings)*

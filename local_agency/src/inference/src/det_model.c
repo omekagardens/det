@@ -27,8 +27,42 @@
 static int g_metal_initialized = 0;
 static int g_metal_available = 0;
 
-/* Minimum matrix size to use Metal (avoid overhead for small matrices) */
-#define METAL_MIN_ELEMENTS (64 * 64)
+/* Inference mode configuration */
+static DetInferenceMode g_inference_mode = DET_INFERENCE_F32;
+
+/* Minimum matrix size to use Metal (avoid overhead for small matrices)
+ * For thin matrices (small T), GPU data transfer overhead dominates.
+ * CPU BLAS (Accelerate) is faster for autoregressive generation. */
+#define METAL_MIN_ELEMENTS (2048 * 2048)  /* ~4M elements minimum for Metal */
+
+/* ==========================================================================
+ * TIMING DEBUG
+ * ========================================================================== */
+
+#include <sys/time.h>
+static int g_debug_timing = 0;  /* Set to 1 for timing output */
+
+static double get_time_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
+
+void det_enable_timing(int enable) {
+    g_debug_timing = enable;
+}
+
+/* ==========================================================================
+ * INFERENCE MODE CONFIGURATION
+ * ========================================================================== */
+
+void det_set_inference_mode(DetInferenceMode mode) {
+    g_inference_mode = mode;
+}
+
+DetInferenceMode det_get_inference_mode(void) {
+    return g_inference_mode;
+}
 
 /* ==========================================================================
  * INTERNAL HELPERS
@@ -137,8 +171,12 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
                              int T, int K, int N) {
 #ifdef DET_USE_METAL
     /* Use Metal for large matrices where GPU overhead is amortized */
-    if (g_metal_available && (T * N >= METAL_MIN_ELEMENTS || N >= 4096)) {
+    if (g_metal_available && (T * N >= METAL_MIN_ELEMENTS)) {
+        double t0 = g_debug_timing ? get_time_ms() : 0;
         if (tensor_metal_matmul_transposed_b(hidden, W, out, T, N, K) == 0) {
+            if (g_debug_timing && N > 100000) {
+                printf("    Metal matmul [%d,%d,%d]: %.1fms\n", T, K, N, get_time_ms() - t0);
+            }
             return;  /* Metal succeeded */
         }
         /* Fall through to CPU on failure */
@@ -148,6 +186,7 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
 #ifdef USE_ACCELERATE
     /* Use Accelerate BLAS: C = A @ B^T
      * A is hidden[T,K], B is W[N,K], Result is out[T,N] */
+    double t0 = g_debug_timing ? get_time_ms() : 0;
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
                 T, N, K,
                 1.0f,           /* alpha */
@@ -155,6 +194,9 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
                 W, K,           /* B[N,K], ldb=K (transposed) */
                 0.0f,           /* beta */
                 out, N);        /* C[T,N], ldc=N */
+    if (g_debug_timing && N > 100000) {
+        printf("    BLAS matmul [%d,%d,%d]: %.1fms\n", T, K, N, get_time_ms() - t0);
+    }
 #else
     /* CPU fallback: compute row by row */
     for (int t = 0; t < T; t++) {
@@ -172,6 +214,40 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
 #endif
 }
 
+/**
+ * Smart projection dispatch: handles both F32 and Q8_0 weights.
+ *
+ * out[T,N] = hidden[T,K] @ W[N,K]^T
+ *
+ * If W is Q8_0, uses quantization-aware matmul.
+ * If W is F32, uses standard batched_proj_f32.
+ */
+static void batched_proj_smart(float* out, const float* hidden,
+                                const DetTensor* W, int T, int K, int N) {
+    if (!W) return;
+
+    if (W->dtype == DET_DTYPE_Q8_0) {
+        /* Q8_0 quantization-aware matmul */
+        const uint8_t* W_q8 = (const uint8_t*)W->data;
+
+#ifdef DET_USE_METAL
+        /* Try Metal Q8_0 matmul for large matrices */
+        if (g_metal_available && (T * N >= METAL_MIN_ELEMENTS)) {
+            if (tensor_metal_matmul_q8_0_transposed(hidden, W_q8, out, T, N, K) == 0) {
+                return;  /* Metal succeeded */
+            }
+            /* Fall through to CPU on failure */
+        }
+#endif
+
+        /* CPU Q8_0 matmul with batched dequantization */
+        det_matmul_q8_0_transposed_batched(out, hidden, W_q8, T, N, K);
+    } else {
+        /* F32 weights - use standard projection */
+        batched_proj_f32(out, hidden, (const float*)W->data, T, K, N);
+    }
+}
+
 /* ==========================================================================
  * MODEL LOADING
  * ========================================================================== */
@@ -187,6 +263,42 @@ static DetTensor* get_layer_weight(GgufContext* gguf, int layer, const char* nam
 static DetTensor* get_layer_bias(GgufContext* gguf, int layer, const char* name) {
     char full_name[256];
     snprintf(full_name, sizeof(full_name), "blk.%d.%s.bias", layer, name);
+    return gguf_get_tensor_f32(gguf, full_name);
+}
+
+/**
+ * Smart weight loading based on inference mode.
+ *
+ * In Q8_0 mode: Returns Q8_0 tensor if source is Q8_0 (no dequantization)
+ * In F32 mode:  Always returns dequantized F32 tensor
+ */
+static DetTensor* get_layer_weight_smart(GgufContext* gguf, int layer, const char* name) {
+    char full_name[256];
+    snprintf(full_name, sizeof(full_name), "blk.%d.%s.weight", layer, name);
+
+    /* Check if we should use Q8_0 mode */
+    if (g_inference_mode == DET_INFERENCE_Q8_0) {
+        /* Try to get Q8_0 tensor first */
+        const GgufTensorInfo* info = gguf_get_tensor_info(gguf, full_name);
+        if (info && info->type == GGUF_TENSOR_Q8_0) {
+            DetTensor* t = gguf_get_tensor_q8_0(gguf, full_name);
+            if (t) return t;
+        }
+    }
+
+    /* Fall back to F32 */
+    return gguf_get_tensor_f32(gguf, full_name);
+}
+
+/* Get weight by full name with smart mode */
+static DetTensor* get_weight_smart(GgufContext* gguf, const char* full_name) {
+    if (g_inference_mode == DET_INFERENCE_Q8_0) {
+        const GgufTensorInfo* info = gguf_get_tensor_info(gguf, full_name);
+        if (info && info->type == GGUF_TENSOR_Q8_0) {
+            DetTensor* t = gguf_get_tensor_q8_0(gguf, full_name);
+            if (t) return t;
+        }
+    }
     return gguf_get_tensor_f32(gguf, full_name);
 }
 
@@ -253,7 +365,8 @@ DetModel* det_model_load(const char* path) {
         model->weights.output_norm = gguf_get_tensor_f32(gguf, "model.norm.weight");
     }
 
-    model->weights.output = gguf_get_tensor_f32(gguf, "output.weight");
+    /* Output projection - can be Q8_0 in QAM mode (this is often the largest weight) */
+    model->weights.output = get_weight_smart(gguf, "output.weight");
     if (!model->weights.output) {
         /* May share weights with embedding */
         model->weights.output = model->weights.tok_embd;
@@ -267,25 +380,31 @@ DetModel* det_model_load(const char* path) {
         return NULL;
     }
 
-    /* Load layer weights */
+    /* Load layer weights
+     * Use smart loading for projection weights (can be Q8_0 in QAM mode)
+     * Always F32 for norms (small tensors, not worth quantizing) */
     for (int i = 0; i < model->config.n_layer; i++) {
         DetLayerWeights* layer = &model->weights.layers[i];
 
+        /* Normalization weights - always F32 */
         layer->attn_norm = get_layer_weight(gguf, i, "attn_norm");
-        layer->wq = get_layer_weight(gguf, i, "attn_q");
-        layer->wk = get_layer_weight(gguf, i, "attn_k");
-        layer->wv = get_layer_weight(gguf, i, "attn_v");
-        layer->wo = get_layer_weight(gguf, i, "attn_output");
+        layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
 
-        /* QKV biases (Qwen2 uses these) */
+        /* Attention projections - can be Q8_0 in QAM mode */
+        layer->wq = get_layer_weight_smart(gguf, i, "attn_q");
+        layer->wk = get_layer_weight_smart(gguf, i, "attn_k");
+        layer->wv = get_layer_weight_smart(gguf, i, "attn_v");
+        layer->wo = get_layer_weight_smart(gguf, i, "attn_output");
+
+        /* QKV biases (Qwen2 uses these) - always F32 */
         layer->bq = get_layer_bias(gguf, i, "attn_q");
         layer->bk = get_layer_bias(gguf, i, "attn_k");
         layer->bv = get_layer_bias(gguf, i, "attn_v");
 
-        layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
-        layer->w1 = get_layer_weight(gguf, i, "ffn_gate");
-        layer->w2 = get_layer_weight(gguf, i, "ffn_down");
-        layer->w3 = get_layer_weight(gguf, i, "ffn_up");
+        /* FFN projections - can be Q8_0 in QAM mode */
+        layer->w1 = get_layer_weight_smart(gguf, i, "ffn_gate");
+        layer->w2 = get_layer_weight_smart(gguf, i, "ffn_down");
+        layer->w3 = get_layer_weight_smart(gguf, i, "ffn_up");
     }
 
     /* Create tokenizer */
@@ -315,10 +434,25 @@ DetModel* det_model_load(const char* path) {
     };
     model->workspace = det_workspace_create(workspace_sizes, 6);
 
+    /* Pre-allocate scratch buffers for forward pass (avoid malloc per call) */
+    int n_ctx = model->config.n_ctx;
+    int kv_dim = model->config.n_head_kv * head_dim;
+    model->scratch.hidden = malloc(n_ctx * model->config.n_embd * sizeof(float));
+    model->scratch.residual = malloc(n_ctx * model->config.n_embd * sizeof(float));
+    model->scratch.q = malloc(n_ctx * model->config.n_embd * sizeof(float));
+    model->scratch.k = malloc(n_ctx * kv_dim * sizeof(float));
+    model->scratch.v = malloc(n_ctx * kv_dim * sizeof(float));
+    model->scratch.att = malloc(n_ctx * n_ctx * sizeof(float));
+    model->scratch.ffn_gate = malloc(n_ctx * model->config.n_ff * sizeof(float));
+    model->scratch.ffn_up = malloc(n_ctx * model->config.n_ff * sizeof(float));
+    model->scratch.temp = malloc(n_ctx * model->config.n_embd * sizeof(float));
+
     printf("Loaded model: %s\n", det_arch_name(model->config.arch));
     printf("  Layers: %d, Embedding: %d, Heads: %d, Vocab: %d\n",
            model->config.n_layer, model->config.n_embd,
            model->config.n_head, model->config.n_vocab);
+    printf("  Inference mode: %s\n",
+           g_inference_mode == DET_INFERENCE_Q8_0 ? "Q8_0 (QAM)" : "F32");
 
     return model;
 }
@@ -357,6 +491,17 @@ void det_model_free(DetModel* model) {
     det_tensor_release(model->kv_cache.k);
     det_tensor_release(model->kv_cache.v);
 
+    /* Free scratch buffers */
+    free(model->scratch.hidden);
+    free(model->scratch.residual);
+    free(model->scratch.q);
+    free(model->scratch.k);
+    free(model->scratch.v);
+    free(model->scratch.att);
+    free(model->scratch.ffn_gate);
+    free(model->scratch.ffn_up);
+    free(model->scratch.temp);
+
     /* Free workspace */
     det_workspace_destroy(model->workspace);
 
@@ -387,6 +532,9 @@ DetTensor* det_model_forward(DetModel* model,
                              DetTensor* logits) {
     if (!model || !tokens || num_tokens <= 0) return NULL;
 
+    double t_start = 0, t_end = 0;
+    if (g_debug_timing) t_start = get_time_ms();
+
     const DetModelConfig* cfg = &model->config;
     int head_dim = cfg->n_embd / cfg->n_head;
     int kv_dim = cfg->n_head_kv * head_dim;
@@ -404,21 +552,15 @@ DetTensor* det_model_forward(DetModel* model,
         logits = det_workspace_get_scratch(model->workspace, 4, 2, shape, DET_DTYPE_F32);
     }
 
-    /* Allocate working buffers */
-    float* hidden = malloc(num_tokens * cfg->n_embd * sizeof(float));
-    float* residual = malloc(num_tokens * cfg->n_embd * sizeof(float));
-    float* q = malloc(num_tokens * cfg->n_embd * sizeof(float));
-    float* k = malloc(num_tokens * kv_dim * sizeof(float));
-    float* v = malloc(num_tokens * kv_dim * sizeof(float));
-    float* att = malloc(num_tokens * cfg->n_ctx * sizeof(float));
-    float* ffn_gate = malloc(num_tokens * cfg->n_ff * sizeof(float));
-    float* ffn_up = malloc(num_tokens * cfg->n_ff * sizeof(float));
-
-    if (!hidden || !residual || !q || !k || !v || !att || !ffn_gate || !ffn_up) {
-        free(hidden); free(residual); free(q); free(k); free(v);
-        free(att); free(ffn_gate); free(ffn_up);
-        return NULL;
-    }
+    /* Use pre-allocated scratch buffers (avoid malloc/free per forward pass) */
+    float* hidden = model->scratch.hidden;
+    float* residual = model->scratch.residual;
+    float* q = model->scratch.q;
+    float* k = model->scratch.k;
+    float* v = model->scratch.v;
+    float* att = model->scratch.att;
+    float* ffn_gate = model->scratch.ffn_gate;
+    float* ffn_up = model->scratch.ffn_up;
 
     /* Get embedding weights */
     float* embd_data = (float*)model->weights.tok_embd->data;
@@ -434,6 +576,9 @@ DetTensor* det_model_forward(DetModel* model,
                cfg->n_embd * sizeof(float));
     }
 
+    double t_layers_start = g_debug_timing ? get_time_ms() : 0;
+    double t_attn_total = 0, t_ffn_total = 0;
+
     /* Process each layer */
     for (int layer = 0; layer < cfg->n_layer; layer++) {
         DetLayerWeights* lw = &model->weights.layers[layer];
@@ -442,6 +587,8 @@ DetTensor* det_model_forward(DetModel* model,
         if (!lw->attn_norm || !lw->wq || !lw->wk || !lw->wv || !lw->wo) {
             continue;
         }
+
+        double t_layer_start = g_debug_timing ? get_time_ms() : 0;
 
         /* Save residual */
         memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
@@ -466,25 +613,22 @@ DetTensor* det_model_forward(DetModel* model,
          * GGUF stores weights as [out_features, in_features] with ne[0]=in_features
          * For y = x @ W^T: y[i] = sum_j(x[j] * W[i * in_dim + j])
          *
-         * Uses batched projection for better cache utilization.
+         * Uses smart projection that handles both F32 and Q8_0 weights.
          */
-        if (lw->wq && lw->wq->dtype == DET_DTYPE_F32) {
-            float* wq = (float*)lw->wq->data;
-            float* wk = (float*)lw->wk->data;
-            float* wv = (float*)lw->wv->data;
+        if (lw->wq) {
             /* QKV biases (Qwen2 uses these) */
             float* bq = lw->bq ? (float*)lw->bq->data : NULL;
             float* bk = lw->bk ? (float*)lw->bk->data : NULL;
             float* bv = lw->bv ? (float*)lw->bv->data : NULL;
 
             /* Batched Q projection: q[T, n_embd] = hidden[T, n_embd] @ Wq^T */
-            batched_proj_f32(q, hidden, wq, num_tokens, cfg->n_embd, cfg->n_embd);
+            batched_proj_smart(q, hidden, lw->wq, num_tokens, cfg->n_embd, cfg->n_embd);
 
             /* Batched K projection: k[T, kv_dim] = hidden[T, n_embd] @ Wk^T */
-            batched_proj_f32(k, hidden, wk, num_tokens, cfg->n_embd, kv_dim);
+            batched_proj_smart(k, hidden, lw->wk, num_tokens, cfg->n_embd, kv_dim);
 
             /* Batched V projection: v[T, kv_dim] = hidden[T, n_embd] @ Wv^T */
-            batched_proj_f32(v, hidden, wv, num_tokens, cfg->n_embd, kv_dim);
+            batched_proj_smart(v, hidden, lw->wv, num_tokens, cfg->n_embd, kv_dim);
 
             /* Add biases if present */
             if (bq) {
@@ -619,21 +763,11 @@ DetTensor* det_model_forward(DetModel* model,
 
         /* Output projection: out = attn @ Wo^T
          * Wo shape: [n_embd out, n_embd in] */
-        if (lw->wo && lw->wo->dtype == DET_DTYPE_F32) {
-            float* wo = (float*)lw->wo->data;
-            for (int t = 0; t < num_tokens; t++) {
-                float* h = hidden + t * cfg->n_embd;
-                float temp[4096];  /* Assume n_embd <= 4096 */
-                memcpy(temp, h, cfg->n_embd * sizeof(float));
-
-                for (int i = 0; i < cfg->n_embd; i++) {
-                    float sum = 0.0f;
-                    for (int j = 0; j < cfg->n_embd; j++) {
-                        sum += temp[j] * wo[i * cfg->n_embd + j];
-                    }
-                    h[i] = sum;
-                }
-            }
+        if (lw->wo) {
+            /* Use pre-allocated temp buffer for in-place projection */
+            float* temp = model->scratch.temp;
+            memcpy(temp, hidden, num_tokens * cfg->n_embd * sizeof(float));
+            batched_proj_smart(hidden, temp, lw->wo, num_tokens, cfg->n_embd, cfg->n_embd);
         }
 
         /* Add residual */
@@ -641,8 +775,13 @@ DetTensor* det_model_forward(DetModel* model,
             hidden[i] += residual[i];
         }
 
+        double t_attn_end = g_debug_timing ? get_time_ms() : 0;
+        if (g_debug_timing) t_attn_total += (t_attn_end - t_layer_start);
+
         /* Save residual for FFN */
         memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+        double t_ffn_start = g_debug_timing ? get_time_ms() : 0;
 
         /* FFN pre-norm */
         if (lw->ffn_norm) {
@@ -665,19 +804,14 @@ DetTensor* det_model_forward(DetModel* model,
          * W2 (down) shape: [n_embd out, n_ff in]
          * W3 (up) shape: [n_ff out, n_embd in]
          *
-         * Uses batched projection for better cache/Metal utilization.
+         * Uses smart projection for both F32 and Q8_0 weights.
          */
-        if (lw->w1 && lw->w2 && lw->w3 &&
-            lw->w1->dtype == DET_DTYPE_F32) {
-            float* w1 = (float*)lw->w1->data;  /* gate */
-            float* w2 = (float*)lw->w2->data;  /* down */
-            float* w3 = (float*)lw->w3->data;  /* up */
-
+        if (lw->w1 && lw->w2 && lw->w3) {
             /* Batched gate projection: ffn_gate[T,n_ff] = hidden[T,n_embd] @ W1^T */
-            batched_proj_f32(ffn_gate, hidden, w1, num_tokens, cfg->n_embd, cfg->n_ff);
+            batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
 
             /* Batched up projection: ffn_up[T,n_ff] = hidden[T,n_embd] @ W3^T */
-            batched_proj_f32(ffn_up, hidden, w3, num_tokens, cfg->n_embd, cfg->n_ff);
+            batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
 
             /* SiLU(gate) * up - fused operation */
             {
@@ -699,13 +833,22 @@ DetTensor* det_model_forward(DetModel* model,
             }
 
             /* Batched down projection: hidden[T,n_embd] = ffn_gate[T,n_ff] @ W2^T */
-            batched_proj_f32(hidden, ffn_gate, w2, num_tokens, cfg->n_ff, cfg->n_embd);
+            batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
         }
 
         /* Add FFN residual */
         for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
             hidden[i] += residual[i];
         }
+
+        if (g_debug_timing) t_ffn_total += (get_time_ms() - t_ffn_start);
+    }
+
+    if (g_debug_timing) {
+        printf("    Attention total: %.1fms (%.1fms/layer)\n",
+               t_attn_total, t_attn_total / cfg->n_layer);
+        printf("    FFN total: %.1fms (%.1fms/layer)\n",
+               t_ffn_total, t_ffn_total / cfg->n_layer);
     }
 
     /* Final norm */
@@ -724,33 +867,36 @@ DetTensor* det_model_forward(DetModel* model,
         }
     }
 
+    if (g_debug_timing) {
+        double t_layers_end = get_time_ms();
+        printf("  Layers: %.1fms\n", t_layers_end - t_layers_start);
+    }
+
+    double t_output_start = g_debug_timing ? get_time_ms() : 0;
+
     /* Output projection to logits
      * For tied embeddings, weight shape is (vocab_size, n_embd) stored row-major
      * logits[T, vocab] = hidden[T, embd] @ W[vocab, embd]^T
      *
      * This is typically the largest single operation (vocab can be 150K+).
+     * Uses smart projection for both F32 and Q8_0 output weights.
      */
     float* logits_data = (float*)logits->data;
-    if (model->weights.output && model->weights.output->dtype == DET_DTYPE_F32) {
-        float* wo = (float*)model->weights.output->data;
-        /* Use batched projection for potential Metal acceleration */
-        batched_proj_f32(logits_data, hidden, wo,
-                         num_tokens, cfg->n_embd, cfg->n_vocab);
+    if (model->weights.output) {
+        batched_proj_smart(logits_data, hidden, model->weights.output,
+                           num_tokens, cfg->n_embd, cfg->n_vocab);
+    }
+
+    if (g_debug_timing) {
+        double t_output_end = get_time_ms();
+        printf("  Output proj: %.1fms\n", t_output_end - t_output_start);
+        printf("  Total forward: %.1fms\n", t_output_end - t_start);
     }
 
     /* Update cache position */
     model->kv_cache.seq_len = pos + num_tokens;
 
-    /* Cleanup */
-    free(hidden);
-    free(residual);
-    free(q);
-    free(k);
-    free(v);
-    free(att);
-    free(ffn_gate);
-    free(ffn_up);
-
+    /* No cleanup needed - using pre-allocated scratch buffers */
     return logits;
 }
 
@@ -810,6 +956,19 @@ int32_t det_model_sample_ex(DetModel* model, const DetTensor* logits,
     return token;
 }
 
+/* Struct for sorting (probability, token_index) pairs */
+typedef struct {
+    float prob;
+    int32_t index;
+} ProbIndexPair;
+
+/* Comparator for descending sort by probability */
+static int prob_index_cmp_desc(const void* a, const void* b) {
+    float pa = ((const ProbIndexPair*)a)->prob;
+    float pb = ((const ProbIndexPair*)b)->prob;
+    return (pa < pb) - (pa > pb);  /* descending */
+}
+
 int32_t det_choose_token(DetModel* model,
                          const float* logits, int32_t vocab_size,
                          float temperature, float top_p,
@@ -867,13 +1026,20 @@ int32_t det_choose_token(DetModel* model,
         indices[i] = i;
     }
 
-    /* Sort by probability (descending) for top-p */
-    for (int i = 0; i < vocab_size - 1; i++) {
-        for (int j = i + 1; j < vocab_size; j++) {
-            if (probs[j] > probs[i]) {
-                float tmp_p = probs[i]; probs[i] = probs[j]; probs[j] = tmp_p;
-                int32_t tmp_i = indices[i]; indices[i] = indices[j]; indices[j] = tmp_i;
+    /* Sort by probability (descending) for top-p using O(n log n) quicksort */
+    {
+        ProbIndexPair* pairs = malloc(vocab_size * sizeof(ProbIndexPair));
+        if (pairs) {
+            for (int i = 0; i < vocab_size; i++) {
+                pairs[i].prob = probs[i];
+                pairs[i].index = indices[i];
             }
+            qsort(pairs, vocab_size, sizeof(ProbIndexPair), prob_index_cmp_desc);
+            for (int i = 0; i < vocab_size; i++) {
+                probs[i] = pairs[i].prob;
+                indices[i] = pairs[i].index;
+            }
+            free(pairs);
         }
     }
 

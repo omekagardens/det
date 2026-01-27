@@ -594,6 +594,226 @@ cleanup:
 }
 
 /* ==========================================================================
+ * Q8_0 QUANTIZATION-AWARE MATMUL TESTS
+ * ========================================================================== */
+
+/* Helper to convert float to F16 (half precision) */
+static uint16_t float_to_half(float f) {
+    uint32_t x;
+    memcpy(&x, &f, 4);
+
+    uint32_t sign = (x >> 16) & 0x8000;
+    int32_t exp = ((x >> 23) & 0xFF) - 127 + 15;
+    uint32_t mant = (x >> 13) & 0x3FF;
+
+    if (exp <= 0) {
+        /* Underflow to zero */
+        return sign;
+    } else if (exp >= 31) {
+        /* Overflow to inf */
+        return sign | 0x7C00;
+    }
+
+    return sign | (exp << 10) | mant;
+}
+
+/* Helper to quantize a row of floats to Q8_0 format
+ * Input: floats[K]
+ * Output: q8_data (K/32 blocks of 34 bytes each)
+ */
+static void quantize_row_to_q8_0(const float* floats, uint8_t* q8_data, int K) {
+    int num_blocks = K / 32;
+
+    for (int blk = 0; blk < num_blocks; blk++) {
+        const float* src = floats + blk * 32;
+        uint8_t* dst = q8_data + blk * 34;
+
+        /* Find max absolute value */
+        float amax = 0.0f;
+        for (int i = 0; i < 32; i++) {
+            float absval = fabsf(src[i]);
+            if (absval > amax) amax = absval;
+        }
+
+        /* Compute scale */
+        float scale = amax / 127.0f;
+        uint16_t scale_h = float_to_half(scale);
+        memcpy(dst, &scale_h, 2);
+
+        /* Quantize values */
+        int8_t* q = (int8_t*)(dst + 2);
+        float inv_scale = (scale > 0.0f) ? (1.0f / scale) : 0.0f;
+        for (int i = 0; i < 32; i++) {
+            int32_t v = (int32_t)roundf(src[i] * inv_scale);
+            if (v > 127) v = 127;
+            if (v < -128) v = -128;
+            q[i] = (int8_t)v;
+        }
+    }
+}
+
+void test_matmul_q8_0_transposed(void) {
+    TEST("matmul_q8_0_transposed");
+
+    /* Create test matrices:
+     * X: [M, K] = [2, 64] (K must be multiple of 32)
+     * W: [N, K] = [3, 64] quantized to Q8_0
+     * Y: [M, N] = [2, 3]
+     */
+    int M = 2, N = 3, K = 64;
+
+    /* Allocate F32 matrices */
+    float* X = malloc(M * K * sizeof(float));
+    float* W_f32 = malloc(N * K * sizeof(float));
+    float* Y_f32 = malloc(M * N * sizeof(float));
+    float* Y_q8 = malloc(M * N * sizeof(float));
+
+    /* Q8_0 storage: N rows, each row has K/32 blocks of 34 bytes */
+    int blocks_per_row = K / 32;
+    uint8_t* W_q8 = malloc(N * blocks_per_row * 34);
+
+    if (!X || !W_f32 || !Y_f32 || !Y_q8 || !W_q8) {
+        FAIL("allocation failed");
+        free(X); free(W_f32); free(Y_f32); free(Y_q8); free(W_q8);
+        return;
+    }
+
+    /* Initialize with test data */
+    for (int i = 0; i < M * K; i++) {
+        X[i] = (float)(i % 10) * 0.1f - 0.5f;
+    }
+    for (int i = 0; i < N * K; i++) {
+        W_f32[i] = (float)((i + 3) % 7) * 0.2f - 0.6f;
+    }
+
+    /* Quantize W to Q8_0 */
+    for (int n = 0; n < N; n++) {
+        quantize_row_to_q8_0(W_f32 + n * K, W_q8 + n * blocks_per_row * 34, K);
+    }
+
+    /* Compute reference Y_f32 = X @ W^T using F32 */
+    for (int m = 0; m < M; m++) {
+        for (int n = 0; n < N; n++) {
+            float sum = 0.0f;
+            for (int k = 0; k < K; k++) {
+                sum += X[m * K + k] * W_f32[n * K + k];
+            }
+            Y_f32[m * N + n] = sum;
+        }
+    }
+
+    /* Compute Y_q8 = X @ W_q8^T using Q8_0 matmul */
+    int err = det_matmul_q8_0_transposed(Y_q8, X, W_q8, M, N, K);
+    if (err != DET_TENSOR_OK) {
+        FAIL("det_matmul_q8_0_transposed failed");
+        goto cleanup;
+    }
+
+    /* Compare results - allow for quantization error (typically <1% for Q8_0) */
+    float max_err = 0.0f;
+    float max_rel_err = 0.0f;
+    for (int i = 0; i < M * N; i++) {
+        float err_val = fabsf(Y_f32[i] - Y_q8[i]);
+        float rel_err = (fabsf(Y_f32[i]) > 1e-6f) ? err_val / fabsf(Y_f32[i]) : err_val;
+        if (err_val > max_err) max_err = err_val;
+        if (rel_err > max_rel_err) max_rel_err = rel_err;
+    }
+
+    /* Q8_0 should have <5% relative error on average */
+    if (max_rel_err > 0.1f) {  /* 10% tolerance for edge cases */
+        printf("FAIL: max_err=%.6f, max_rel_err=%.2f%%\n", max_err, max_rel_err * 100.0f);
+        tests_failed++;
+        goto cleanup;
+    }
+
+    printf("(max_err=%.6f, rel=%.2f%%) ", max_err, max_rel_err * 100.0f);
+    PASS();
+
+cleanup:
+    free(X);
+    free(W_f32);
+    free(Y_f32);
+    free(Y_q8);
+    free(W_q8);
+}
+
+void test_matmul_q8_0_batched(void) {
+    TEST("matmul_q8_0_batched");
+
+    /* Larger test for batched version */
+    int M = 4, N = 128, K = 256;
+
+    float* X = malloc(M * K * sizeof(float));
+    float* W_f32 = malloc(N * K * sizeof(float));
+    float* Y_f32 = malloc(M * N * sizeof(float));
+    float* Y_q8 = malloc(M * N * sizeof(float));
+
+    int blocks_per_row = K / 32;
+    uint8_t* W_q8 = malloc(N * blocks_per_row * 34);
+
+    if (!X || !W_f32 || !Y_f32 || !Y_q8 || !W_q8) {
+        FAIL("allocation failed");
+        free(X); free(W_f32); free(Y_f32); free(Y_q8); free(W_q8);
+        return;
+    }
+
+    /* Initialize with deterministic data that avoids zero values */
+    for (int i = 0; i < M * K; i++) {
+        X[i] = 0.1f + 0.01f * (float)(i % 37);  /* Range: 0.1 to 0.46 */
+    }
+    for (int i = 0; i < N * K; i++) {
+        W_f32[i] = 0.1f + 0.01f * (float)(i % 41);  /* Range: 0.1 to 0.50 */
+    }
+
+    /* Quantize W to Q8_0 */
+    for (int n = 0; n < N; n++) {
+        quantize_row_to_q8_0(W_f32 + n * K, W_q8 + n * blocks_per_row * 34, K);
+    }
+
+    /* Compute reference */
+    for (int m = 0; m < M; m++) {
+        for (int n = 0; n < N; n++) {
+            float sum = 0.0f;
+            for (int k = 0; k < K; k++) {
+                sum += X[m * K + k] * W_f32[n * K + k];
+            }
+            Y_f32[m * N + n] = sum;
+        }
+    }
+
+    /* Compute using batched Q8_0 matmul */
+    int err = det_matmul_q8_0_transposed_batched(Y_q8, X, W_q8, M, N, K);
+    if (err != DET_TENSOR_OK) {
+        FAIL("det_matmul_q8_0_transposed_batched failed");
+        goto cleanup;
+    }
+
+    /* Compare with tolerance */
+    float max_rel_err = 0.0f;
+    for (int i = 0; i < M * N; i++) {
+        float err_val = fabsf(Y_f32[i] - Y_q8[i]);
+        float rel_err = (fabsf(Y_f32[i]) > 1e-6f) ? err_val / fabsf(Y_f32[i]) : err_val;
+        if (rel_err > max_rel_err) max_rel_err = rel_err;
+    }
+
+    if (max_rel_err > 0.1f) {
+        printf("FAIL: max_rel_err=%.2f%%\n", max_rel_err * 100.0f);
+        tests_failed++;
+        goto cleanup;
+    }
+
+    printf("(rel_err=%.2f%%) ", max_rel_err * 100.0f);
+    PASS();
+
+cleanup:
+    free(X);
+    free(W_f32);
+    free(Y_f32);
+    free(Y_q8);
+    free(W_q8);
+}
+
+/* ==========================================================================
  * WORKSPACE TESTS
  * ========================================================================== */
 
@@ -659,6 +879,10 @@ int main(void) {
     printf("\nAttention Operations:\n");
     test_attention_scores();
     test_causal_mask();
+
+    printf("\nQ8_0 Quantization-Aware Matmul:\n");
+    test_matmul_q8_0_transposed();
+    test_matmul_q8_0_batched();
 
     printf("\nWorkspace:\n");
     test_workspace();

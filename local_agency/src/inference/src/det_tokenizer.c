@@ -449,6 +449,60 @@ const char* det_token_to_text(const DetTokenizer* tok, int32_t token_id) {
     return tok->vocab[token_id].text ? tok->vocab[token_id].text : "";
 }
 
+/**
+ * Decode BPE token text, converting Ġ (U+0120) back to space
+ * Returns number of bytes written (not including null terminator)
+ */
+static int32_t decode_bpe_text(const char* src, char* dst, int32_t max_len);
+
+/* Static buffer for decoded token text (for streaming) */
+static char g_decoded_token_buf[256];
+
+const char* det_token_to_text_decoded(const DetTokenizer* tok, int32_t token_id) {
+    if (!tok || token_id < 0 || token_id >= tok->vocab_size) {
+        return "";
+    }
+    const char* raw = tok->vocab[token_id].text;
+    if (!raw) return "";
+
+    /* Decode BPE text (convert Ġ to space, etc.) */
+    decode_bpe_text(raw, g_decoded_token_buf, sizeof(g_decoded_token_buf));
+    return g_decoded_token_buf;
+}
+
+/**
+ * Decode BPE token text, converting Ġ (U+0120) back to space
+ * Returns number of bytes written (not including null terminator)
+ */
+static int32_t decode_bpe_text(const char* src, char* dst, int32_t max_len) {
+    int32_t pos = 0;
+    const uint8_t* s = (const uint8_t*)src;
+
+    while (*s && pos < max_len - 1) {
+        /* Check for Ġ (U+0120 = UTF-8: 0xC4 0xA0) */
+        if (s[0] == 0xC4 && s[1] == 0xA0) {
+            dst[pos++] = ' ';
+            s += 2;
+        }
+        /* Check for Ċ (U+010A = UTF-8: 0xC4 0x8A) - newline in some tokenizers */
+        else if (s[0] == 0xC4 && s[1] == 0x8A) {
+            dst[pos++] = '\n';
+            s += 2;
+        }
+        /* Check for ĉ (U+0109 = UTF-8: 0xC4 0x89) - tab in some tokenizers */
+        else if (s[0] == 0xC4 && s[1] == 0x89) {
+            dst[pos++] = '\t';
+            s += 2;
+        }
+        else {
+            dst[pos++] = *s++;
+        }
+    }
+
+    dst[pos] = '\0';
+    return pos;
+}
+
 int32_t det_detokenize(const DetTokenizer* tok,
                        const int32_t* tokens, int32_t num_tokens,
                        char* text, int32_t max_len) {
@@ -461,13 +515,16 @@ int32_t det_detokenize(const DetTokenizer* tok,
 
     for (int32_t i = 0; i < num_tokens; i++) {
         const char* token_text = det_token_to_text(tok, tokens[i]);
-        size_t len = strlen(token_text);
 
-        if (pos + len >= (size_t)max_len) {
+        /* Decode BPE text (convert Ġ to space, etc.) */
+        char decoded[256];
+        int32_t len = decode_bpe_text(token_text, decoded, sizeof(decoded));
+
+        if (pos + len >= max_len) {
             break;
         }
 
-        memcpy(text + pos, token_text, len);
+        memcpy(text + pos, decoded, len);
         pos += len;
     }
 
@@ -485,16 +542,9 @@ int32_t det_detokenize_incremental(const DetTokenizer* tok,
     }
 
     const char* token_text = det_token_to_text(tok, token_id);
-    size_t len = strlen(token_text);
 
-    if (len >= (size_t)max_len) {
-        len = max_len - 1;
-    }
-
-    memcpy(text, token_text, len);
-    text[len] = '\0';
-
-    return (int32_t)len;
+    /* Decode BPE text (convert Ġ to space, etc.) */
+    return decode_bpe_text(token_text, text, max_len);
 }
 
 /* ==========================================================================

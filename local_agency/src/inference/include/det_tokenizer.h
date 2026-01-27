@@ -150,6 +150,13 @@ int32_t det_token_count(const DetTokenizer* tok, const char* text);
 const char* det_token_to_text(const DetTokenizer* tok, int32_t token_id);
 
 /**
+ * Decode single token to text with BPE decoding (Ġ→space, Ċ→newline)
+ *
+ * Returns: Decoded token text (valid until next call - uses static buffer)
+ */
+const char* det_token_to_text_decoded(const DetTokenizer* tok, int32_t token_id);
+
+/**
  * Decode token sequence to text
  *
  * tokens: Input token IDs

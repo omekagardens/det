@@ -570,6 +570,7 @@ int tensor_metal_rope(float *x, uint32_t seq, uint32_t heads,
 }
 
 // Q8_0 dequantization on GPU
+// GGUF Q8_0 format: 2-byte F16 scale + 32 int8 values = 34 bytes per block
 int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_blocks) {
     if (!g_metal_ctx) {
         return -1;
@@ -588,8 +589,8 @@ int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_bl
     @autoreleasepool {
         id<MTLDevice> device = g_metal_ctx.device;
 
-        // Q8_0: 36 bytes per block (4-byte scale + 32 int8 values)
-        size_t src_size = num_blocks * 36;
+        // GGUF Q8_0: 34 bytes per block (2-byte F16 scale + 32 int8 values)
+        size_t src_size = num_blocks * 34;
         size_t dst_size = num_blocks * 32 * sizeof(float);
 
         id<MTLBuffer> bufSrc = [device newBufferWithBytes:src
@@ -615,6 +616,77 @@ int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_bl
         [cmdBuffer waitUntilCompleted];
 
         memcpy(dst, bufDst.contents, dst_size);
+        return 0;
+    }
+}
+
+// Q8_0 matmul with transposed B on GPU: C = A @ B_q8^T
+// A: [M, K] float32
+// B_q8: [N, K] Q8_0 quantized
+// C: [M, N] float32
+int tensor_metal_matmul_q8_0_transposed(const float *A, const uint8_t *B_q8, float *C,
+                                         uint32_t M, uint32_t N, uint32_t K) {
+    if (!g_metal_ctx) {
+        return -1;
+    }
+
+    // K must be divisible by 32 for Q8_0
+    if (K % 32 != 0) {
+        return -1;
+    }
+
+    // Create pipeline if not exists
+    static id<MTLComputePipelineState> matmulQ8Pipeline = nil;
+    if (!matmulQ8Pipeline) {
+        id<MTLFunction> func = [g_metal_ctx.library newFunctionWithName:@"matmul_q8_0_transposed_f32"];
+        if (!func) {
+            NSLog(@"TensorMetal: matmul_q8_0_transposed_f32 kernel not found");
+            return -1;
+        }
+        NSError *error = nil;
+        matmulQ8Pipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        if (!matmulQ8Pipeline) {
+            NSLog(@"TensorMetal: Failed to create Q8_0 matmul pipeline: %@", error);
+            return -1;
+        }
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        // Calculate B_q8 size: N rows, each row has K/32 blocks of 34 bytes
+        uint32_t blocks_per_row = K / 32;
+        size_t b_size = N * blocks_per_row * 34;
+
+        id<MTLBuffer> bufA = [device newBufferWithBytes:A
+                                                 length:M * K * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufB = [device newBufferWithBytes:B_q8
+                                                 length:b_size
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufC = [device newBufferWithLength:M * N * sizeof(float)
+                                                 options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        [encoder setComputePipelineState:matmulQ8Pipeline];
+        [encoder setBuffer:bufA offset:0 atIndex:0];
+        [encoder setBuffer:bufB offset:0 atIndex:1];
+        [encoder setBuffer:bufC offset:0 atIndex:2];
+        [encoder setBytes:&M length:sizeof(M) atIndex:3];
+        [encoder setBytes:&N length:sizeof(N) atIndex:4];
+        [encoder setBytes:&K length:sizeof(K) atIndex:5];
+
+        MTLSize gridSize = MTLSizeMake(N, M, 1);
+        MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        memcpy(C, bufC.contents, M * N * sizeof(float));
         return 0;
     }
 }
