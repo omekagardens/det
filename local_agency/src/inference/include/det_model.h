@@ -232,6 +232,49 @@ void det_model_free(DetModel* model);
 void det_model_reset(DetModel* model);
 
 /* ==========================================================================
+ * KV CACHE MANAGEMENT
+ * ========================================================================== */
+
+/**
+ * Get KV cache usage info
+ *
+ * Returns current sequence length (tokens in cache)
+ */
+int32_t det_kv_cache_position(const DetModel* model);
+
+/**
+ * Get KV cache capacity
+ *
+ * Returns maximum context length
+ */
+int32_t det_kv_cache_capacity(const DetModel* model);
+
+/**
+ * Slice KV cache to keep only positions [start, end)
+ *
+ * Useful for sliding window attention or context truncation.
+ * After slice, seq_len becomes (end - start).
+ *
+ * start: First position to keep (0-indexed)
+ * end: One past last position to keep
+ *
+ * Returns: 0 on success, -1 on error
+ */
+int det_kv_cache_slice(DetModel* model, int32_t start, int32_t end);
+
+/**
+ * Shift KV cache to keep only last N tokens
+ *
+ * Convenience wrapper around det_kv_cache_slice.
+ * Equivalent to: slice(seq_len - keep_last, seq_len)
+ *
+ * keep_last: Number of recent tokens to keep
+ *
+ * Returns: 0 on success, -1 on error
+ */
+int det_kv_cache_shift(DetModel* model, int32_t keep_last);
+
+/* ==========================================================================
  * INFERENCE
  * ========================================================================== */
 

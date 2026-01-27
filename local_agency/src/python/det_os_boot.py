@@ -738,6 +738,11 @@ class DETRuntime:
             if self.native_model:
                 print(f"  Model Loaded: \033[32mYes\033[0m")
                 print(f"    {self.native_model.info}")
+                # Cache status
+                info = self.native_model.cache_info()
+                usage = info['usage'] * 100
+                usage_color = "\033[32m" if usage < 50 else ("\033[33m" if usage < 80 else "\033[31m")
+                print(f"    Cache: {info['position']:,}/{info['capacity']:,} ({usage_color}{usage:.0f}%\033[0m)")
             else:
                 print(f"  Model Loaded: \033[90mNo\033[0m")
 
@@ -1048,6 +1053,24 @@ class DETRuntime:
             try:
                 import sys
                 params = SamplingParams(temperature=0.7, top_p=0.9)
+
+                # Check cache capacity (Phase 26.4)
+                cache_info = self.native_model.cache_info()
+                usage = cache_info['usage']
+                remaining = cache_info['remaining']
+
+                # Estimate tokens needed: prompt + max generation
+                prompt_tokens_est = len(prompt) // 3 + 50  # rough estimate
+                needed = prompt_tokens_est + 256  # max_tokens
+
+                if remaining < needed:
+                    # Auto-shift to keep last 75% of context
+                    keep = int(cache_info['capacity'] * 0.5)
+                    if self.verbose:
+                        print(f"\033[33m[Auto-shifting cache: keeping last {keep} tokens]\033[0m")
+                    self.native_model.cache_shift(keep)
+                elif usage > 0.9:
+                    print(f"\033[33m[Warning: Cache {usage*100:.0f}% full. Use 'cache reset' for new topic.]\033[0m")
 
                 # Format prompt with chat template if available
                 if self.chat_template:
@@ -1573,6 +1596,58 @@ class DETRuntime:
                         print("GPU not enabled. Use 'gpu enable' first.")
                     continue
 
+                # KV Cache commands (Phase 26.4)
+                elif cmd_lower == "cache" or cmd_lower == "cache status":
+                    self._show_cache_status()
+                    continue
+
+                elif cmd_lower == "cache reset":
+                    if self.native_model:
+                        self.native_model.reset()
+                        print("KV cache reset. Ready for new conversation.")
+                    else:
+                        print("No model loaded.")
+                    continue
+
+                elif cmd_lower.startswith("cache shift"):
+                    if self.native_model:
+                        args = cmd_lower[11:].strip().split()
+                        if args:
+                            try:
+                                keep_last = int(args[0])
+                                old_pos = self.native_model.cache_position
+                                if self.native_model.cache_shift(keep_last):
+                                    new_pos = self.native_model.cache_position
+                                    print(f"Cache shifted: {old_pos} -> {new_pos} tokens (kept last {keep_last})")
+                                else:
+                                    print("Cache shift failed.")
+                            except ValueError:
+                                print("Usage: cache shift <N>")
+                        else:
+                            print("Usage: cache shift <N>  (keep last N tokens)")
+                    else:
+                        print("No model loaded.")
+                    continue
+
+                elif cmd_lower.startswith("cache slice"):
+                    if self.native_model:
+                        args = cmd_lower[11:].strip().split()
+                        if len(args) >= 2:
+                            try:
+                                start = int(args[0])
+                                end = int(args[1])
+                                if self.native_model.cache_slice(start, end):
+                                    print(f"Cache sliced to positions [{start}, {end})")
+                                else:
+                                    print("Cache slice failed.")
+                            except ValueError:
+                                print("Usage: cache slice <start> <end>")
+                        else:
+                            print("Usage: cache slice <start> <end>")
+                    else:
+                        print("No model loaded.")
+                    continue
+
                 # Collider commands (Phase 20.5)
                 elif cmd_lower == "collider" or cmd_lower == "collider help":
                     self._collider_help()
@@ -1724,6 +1799,12 @@ class DETRuntime:
   gpu disable       Disable GPU acceleration
   gpu tick [N]      Execute N substrate ticks on GPU
   gpu benchmark [nodes] [bonds] [ticks]  Run GPU benchmark
+
+\033[33mKV Cache (Phase 26.4):\033[0m
+  cache             Show KV cache status (position, capacity, usage)
+  cache reset       Reset cache for new conversation
+  cache shift <N>   Keep only last N tokens (sliding window)
+  cache slice <s> <e>  Keep positions [start, end)
 
 \033[33mCollider (Phase 20.5):\033[0m
   collider          Show collider commands
@@ -1922,6 +2003,46 @@ class DETRuntime:
                     print(f"  Device: Error - {e}")
         else:
             print("  Metal GPU backend not available on this system")
+        print()
+
+    def _show_cache_status(self):
+        """Display KV cache status (Phase 26.4)."""
+        print("\n\033[33mKV Cache Status:\033[0m")
+
+        if not self.native_model:
+            print("  No model loaded. Use 'load model <path>' first.")
+            print()
+            return
+
+        info = self.native_model.cache_info()
+        pos = info['position']
+        cap = info['capacity']
+        usage = info['usage'] * 100
+        remaining = info['remaining']
+
+        # Color based on usage
+        if usage < 50:
+            usage_color = "\033[32m"  # Green
+        elif usage < 80:
+            usage_color = "\033[33m"  # Yellow
+        else:
+            usage_color = "\033[31m"  # Red
+
+        print(f"  Position:  {pos:,} tokens")
+        print(f"  Capacity:  {cap:,} tokens")
+        print(f"  Usage:     {usage_color}{usage:.1f}%\033[0m")
+        print(f"  Remaining: {remaining:,} tokens")
+
+        # Visual bar
+        bar_width = 40
+        filled = int(bar_width * info['usage'])
+        bar = "█" * filled + "░" * (bar_width - filled)
+        print(f"  [{usage_color}{bar}\033[0m]")
+
+        if usage >= 80:
+            print(f"\n  \033[33mWarning: Cache nearing capacity.")
+            print(f"  Use 'cache shift <N>' to keep last N tokens, or")
+            print(f"  'cache reset' to clear for new conversation.\033[0m")
         print()
 
     def _send_to_creature(self, target: str, primitive: str, args: list):

@@ -238,6 +238,19 @@ def _setup_bindings(lib: ctypes.CDLL):
     lib.det_stats_clear.argtypes = [ctypes.c_void_p]
     lib.det_stats_clear.restype = None
 
+    # KV cache management (Phase 26.4)
+    lib.det_kv_cache_position.argtypes = [ctypes.c_void_p]
+    lib.det_kv_cache_position.restype = ctypes.c_int32
+
+    lib.det_kv_cache_capacity.argtypes = [ctypes.c_void_p]
+    lib.det_kv_cache_capacity.restype = ctypes.c_int32
+
+    lib.det_kv_cache_slice.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
+    lib.det_kv_cache_slice.restype = ctypes.c_int
+
+    lib.det_kv_cache_shift.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+    lib.det_kv_cache_shift.restype = ctypes.c_int
+
     # Metal backend
     try:
         lib.tensor_metal_available.argtypes = []
@@ -342,6 +355,61 @@ class Model:
     def reset(self):
         """Reset KV cache for new conversation."""
         self._lib.det_model_reset(self._handle)
+
+    # =========================================================================
+    # KV CACHE MANAGEMENT (Phase 26.4)
+    # =========================================================================
+
+    @property
+    def cache_position(self) -> int:
+        """Get current KV cache position (tokens in cache)."""
+        return self._lib.det_kv_cache_position(self._handle)
+
+    @property
+    def cache_capacity(self) -> int:
+        """Get KV cache capacity (max context length)."""
+        return self._lib.det_kv_cache_capacity(self._handle)
+
+    def cache_slice(self, start: int, end: int) -> bool:
+        """
+        Slice KV cache to keep only positions [start, end).
+
+        Useful for sliding window attention or context truncation.
+        After slice, cache_position becomes (end - start).
+
+        Args:
+            start: First position to keep (0-indexed)
+            end: One past last position to keep
+
+        Returns:
+            True on success, False on error
+        """
+        return self._lib.det_kv_cache_slice(self._handle, start, end) == 0
+
+    def cache_shift(self, keep_last: int) -> bool:
+        """
+        Shift KV cache to keep only last N tokens.
+
+        Equivalent to: cache_slice(cache_position - keep_last, cache_position)
+
+        Args:
+            keep_last: Number of recent tokens to keep
+
+        Returns:
+            True on success, False on error
+        """
+        return self._lib.det_kv_cache_shift(self._handle, keep_last) == 0
+
+    def cache_info(self) -> dict:
+        """Get KV cache info as a dict."""
+        pos = self.cache_position
+        cap = self.cache_capacity
+        return {
+            'position': pos,
+            'capacity': cap,
+            'usage': pos / cap if cap > 0 else 0.0,
+            'remaining': cap - pos,
+        }
 
     def tokenize(self, text: str) -> List[int]:
         """Convert text to token IDs."""

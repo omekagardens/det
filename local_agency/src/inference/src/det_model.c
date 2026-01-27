@@ -524,6 +524,85 @@ void det_model_reset(DetModel* model) {
 }
 
 /* ==========================================================================
+ * KV CACHE MANAGEMENT
+ * ========================================================================== */
+
+int32_t det_kv_cache_position(const DetModel* model) {
+    if (!model) return 0;
+    return model->kv_cache.seq_len;
+}
+
+int32_t det_kv_cache_capacity(const DetModel* model) {
+    if (!model) return 0;
+    return model->kv_cache.capacity;
+}
+
+int det_kv_cache_slice(DetModel* model, int32_t start, int32_t end) {
+    if (!model) return -1;
+
+    int32_t seq_len = model->kv_cache.seq_len;
+
+    /* Validate bounds */
+    if (start < 0 || end < 0 || start > end || end > seq_len) {
+        fprintf(stderr, "kv_cache_slice: invalid range [%d, %d) for seq_len=%d\n",
+                start, end, seq_len);
+        return -1;
+    }
+
+    /* Nothing to do if slicing from beginning */
+    if (start == 0) {
+        model->kv_cache.seq_len = end;
+        return 0;
+    }
+
+    /* Shift cache data left */
+    const DetModelConfig* cfg = &model->config;
+    int head_dim = cfg->n_embd / cfg->n_head;
+    int kv_dim = cfg->n_head_kv * head_dim;
+    int32_t new_len = end - start;
+
+    float* k_cache = (float*)model->kv_cache.k->data;
+    float* v_cache = (float*)model->kv_cache.v->data;
+
+    /* Shift each layer's cache */
+    for (int layer = 0; layer < cfg->n_layer; layer++) {
+        size_t layer_offset = layer * cfg->n_ctx * kv_dim;
+
+        /* Move [start, end) to [0, new_len) */
+        memmove(k_cache + layer_offset,
+                k_cache + layer_offset + start * kv_dim,
+                new_len * kv_dim * sizeof(float));
+
+        memmove(v_cache + layer_offset,
+                v_cache + layer_offset + start * kv_dim,
+                new_len * kv_dim * sizeof(float));
+    }
+
+    model->kv_cache.seq_len = new_len;
+    return 0;
+}
+
+int det_kv_cache_shift(DetModel* model, int32_t keep_last) {
+    if (!model) return -1;
+
+    int32_t seq_len = model->kv_cache.seq_len;
+
+    if (keep_last <= 0) {
+        /* Reset cache */
+        model->kv_cache.seq_len = 0;
+        return 0;
+    }
+
+    if (keep_last >= seq_len) {
+        /* Nothing to shift - keep everything */
+        return 0;
+    }
+
+    /* Shift to keep last N tokens */
+    return det_kv_cache_slice(model, seq_len - keep_last, seq_len);
+}
+
+/* ==========================================================================
  * FORWARD PASS
  * ========================================================================== */
 
