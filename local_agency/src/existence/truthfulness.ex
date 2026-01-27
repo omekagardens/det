@@ -219,14 +219,8 @@ creature TruthfulnessCreature {
 
                     // Build details string
                     details ::= witness(format(
-                        "T={:.3f} G={:.3f} q_claim={:.3f} components={{ground:{:.3f}, agency:{:.3f}, consist:{:.3f}, cohere:{:.3f}}}",
-                        result.total,
-                        result.grounding_factor,
-                        result.q_claim,
-                        result.components.grounding,
-                        result.components.agency,
-                        result.components.consistency,
-                        result.components.coherence
+                        "T={:.3f} G={:.3f} q_claim={:.3f}",
+                        result.total, result.grounding_factor, result.q_claim
                     ));
 
                     evaluations_count := evaluations_count + 1;
