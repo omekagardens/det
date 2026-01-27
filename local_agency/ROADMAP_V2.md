@@ -456,9 +456,10 @@ src/existence/
 - [x] Python bindings: `Model.cache_slice()`, `cache_shift()`, `cache_info()` ✅
 - [x] DET-OS commands: `cache`, `cache reset`, `cache shift`, `cache slice` ✅
 - [x] Auto-shift when cache nearing capacity during generation ✅
-- [ ] Cache management in ModelCreature (creature wrapper - optional)
+- [x] Cache primitives: `model_cache_status`, `model_cache_shift`, `model_cache_slice` ✅
+- [x] LLMCreature.ex kernels: CacheStatus, CacheShift, CacheSlice, CacheReset ✅
 
-**Note**: Full KV cache management now available. Creature wrapper is optional refinement.
+**Note**: Full KV cache management now available at all levels (C, Python, primitives, creature).
 
 **Performance Critical**: KV cache correctness + efficiency is where decode speed lives.
 

@@ -889,4 +889,229 @@ creature LLMCreature {
             commit choice;
         }
     }
+
+    // =========================================================================
+    // CACHE_STATUS KERNEL - Get KV cache status (Phase 26.4)
+    // =========================================================================
+
+    kernel CacheStatus {
+        out position: Register;
+        out capacity: Register;
+        out usage: Register;
+        out remaining: Register;
+
+        phase READ {
+            is_loaded ::= witness(native_model_loaded);
+        }
+
+        phase PROPOSE {
+            proposal GET_STATUS {
+                loaded_ok := if_past(is_loaded == true) then 1.0 else 0.0;
+                score = loaded_ok;
+
+                effect {
+                    status := primitive("model_cache_status");
+                    position := status.position;
+                    capacity := status.capacity;
+                    usage := status.usage;
+                    remaining := status.remaining;
+                }
+            }
+
+            proposal NOT_LOADED {
+                not_loaded := if_past(is_loaded != true) then 1.0 else 0.0;
+                score = not_loaded * 0.95;
+
+                effect {
+                    position := 0.0;
+                    capacity := 0.0;
+                    usage := 0.0;
+                    remaining := 0.0;
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({GET_STATUS, NOT_LOADED});
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
+
+    // =========================================================================
+    // CACHE_SHIFT KERNEL - Sliding window cache management (Phase 26.4)
+    // =========================================================================
+
+    kernel CacheShift {
+        in  keep_last: Register;    // Number of tokens to keep
+        out success: Register;
+        out new_position: Register;
+
+        phase READ {
+            current_F ::= witness(F);
+            current_a ::= witness(a);
+            is_loaded ::= witness(native_model_loaded);
+        }
+
+        phase PROPOSE {
+            shift_cost := 0.02;
+
+            proposal DO_SHIFT {
+                loaded_ok := if_past(is_loaded == true) then 1.0 else 0.0;
+                f_ok := if_past(current_F >= shift_cost) then 1.0 else 0.0;
+                score = current_a * 0.9 * loaded_ok * f_ok;
+
+                effect {
+                    result := primitive("model_cache_shift", keep_last);
+                    success := if_past(result == true) then 1.0 else 0.0;
+
+                    // Get new position
+                    status := primitive("model_cache_status");
+                    new_position := status.position;
+
+                    F := F - shift_cost;
+                }
+            }
+
+            proposal NOT_LOADED {
+                not_loaded := if_past(is_loaded != true) then 1.0 else 0.0;
+                score = not_loaded * 0.95;
+
+                effect {
+                    success := 0.0;
+                    new_position := 0.0;
+                }
+            }
+
+            proposal REFUSE_LOW_F {
+                score = if_past(current_F < shift_cost) then 1.0 else 0.0;
+
+                effect {
+                    success := 0.0;
+                    new_position := 0.0;
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({DO_SHIFT, NOT_LOADED, REFUSE_LOW_F}, decisiveness = current_a);
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
+
+    // =========================================================================
+    // CACHE_SLICE KERNEL - Explicit cache range control (Phase 26.4)
+    // =========================================================================
+
+    kernel CacheSlice {
+        in  start_pos: Register;    // First position to keep
+        in  end_pos: Register;      // One past last position
+        out success: Register;
+        out new_position: Register;
+
+        phase READ {
+            current_F ::= witness(F);
+            current_a ::= witness(a);
+            is_loaded ::= witness(native_model_loaded);
+        }
+
+        phase PROPOSE {
+            slice_cost := 0.02;
+
+            proposal DO_SLICE {
+                loaded_ok := if_past(is_loaded == true) then 1.0 else 0.0;
+                f_ok := if_past(current_F >= slice_cost) then 1.0 else 0.0;
+                score = current_a * 0.9 * loaded_ok * f_ok;
+
+                effect {
+                    result := primitive("model_cache_slice", start_pos, end_pos);
+                    success := if_past(result == true) then 1.0 else 0.0;
+
+                    // Get new position
+                    status := primitive("model_cache_status");
+                    new_position := status.position;
+
+                    F := F - slice_cost;
+                }
+            }
+
+            proposal NOT_LOADED {
+                not_loaded := if_past(is_loaded != true) then 1.0 else 0.0;
+                score = not_loaded * 0.95;
+
+                effect {
+                    success := 0.0;
+                    new_position := 0.0;
+                }
+            }
+
+            proposal REFUSE_LOW_F {
+                score = if_past(current_F < slice_cost) then 1.0 else 0.0;
+
+                effect {
+                    success := 0.0;
+                    new_position := 0.0;
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({DO_SLICE, NOT_LOADED, REFUSE_LOW_F}, decisiveness = current_a);
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
+
+    // =========================================================================
+    // CACHE_RESET KERNEL - Reset cache for new conversation (Phase 26.4)
+    // =========================================================================
+
+    kernel CacheReset {
+        out success: Register;
+
+        phase READ {
+            current_F ::= witness(F);
+            is_loaded ::= witness(native_model_loaded);
+        }
+
+        phase PROPOSE {
+            reset_cost := 0.01;
+
+            proposal DO_RESET {
+                loaded_ok := if_past(is_loaded == true) then 1.0 else 0.0;
+                f_ok := if_past(current_F >= reset_cost) then 1.0 else 0.0;
+                score = loaded_ok * f_ok;
+
+                effect {
+                    primitive("model_reset");
+                    success := 1.0;
+                    F := F - reset_cost;
+                }
+            }
+
+            proposal NOT_LOADED {
+                not_loaded := if_past(is_loaded != true) then 1.0 else 0.0;
+                score = not_loaded * 0.95;
+
+                effect {
+                    success := 0.0;
+                }
+            }
+        }
+
+        phase CHOOSE {
+            choice := choose({DO_RESET, NOT_LOADED});
+        }
+
+        phase COMMIT {
+            commit choice;
+        }
+    }
 }

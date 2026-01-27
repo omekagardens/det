@@ -1210,6 +1210,37 @@ class PrimitiveRegistry:
             return_type="void"
         ))
 
+        # === KV Cache Management (Phase 26.4) ===
+        self.register(PrimitiveSpec(
+            name="model_cache_status",
+            handler=self._model_cache_status,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get KV cache status (position, capacity, usage)",
+            arg_types=[],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_cache_shift",
+            handler=self._model_cache_shift,
+            base_cost=0.02,
+            min_agency=0.1,
+            description="Shift cache to keep last N tokens (sliding window)",
+            arg_types=["int"],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_cache_slice",
+            handler=self._model_cache_slice,
+            base_cost=0.02,
+            min_agency=0.1,
+            description="Slice cache to keep positions [start, end)",
+            arg_types=["int", "int"],
+            return_type="bool"
+        ))
+
         # === Tokenization ===
         self.register(PrimitiveSpec(
             name="model_tokenize",
@@ -1401,6 +1432,41 @@ class PrimitiveRegistry:
             raise RuntimeError("No model loaded")
 
         self._inference_model.reset()
+
+    def _model_cache_status(self) -> dict:
+        """Get KV cache status (Phase 26.4)."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            return {
+                "position": 0,
+                "capacity": 0,
+                "usage": 0.0,
+                "remaining": 0,
+                "loaded": False
+            }
+
+        info = self._inference_model.cache_info()
+        info["loaded"] = True
+        return info
+
+    def _model_cache_shift(self, keep_last: int) -> bool:
+        """Shift cache to keep last N tokens (Phase 26.4)."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        return self._inference_model.cache_shift(int(keep_last))
+
+    def _model_cache_slice(self, start: int, end: int) -> bool:
+        """Slice cache to keep positions [start, end) (Phase 26.4)."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        return self._inference_model.cache_slice(int(start), int(end))
 
     def _model_tokenize(self, text: str) -> list:
         """Tokenize text to token IDs."""
