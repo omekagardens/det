@@ -1309,6 +1309,67 @@ class PrimitiveRegistry:
             return_type="dict"
         ))
 
+        # === Truthfulness Primitives (Phase 26.6) ===
+        self.register(PrimitiveSpec(
+            name="truth_reset",
+            handler=self._truth_reset,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Reset truthfulness evaluator for new generation",
+            arg_types=[],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="truth_record_claim",
+            handler=self._truth_record_claim,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Record a claim with F cost",
+            arg_types=["float", "float"],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="truth_set_grounding",
+            handler=self._truth_set_grounding,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Set grounding signals (delta_f, stability, c_user, violations)",
+            arg_types=["float", "float", "float", "int"],
+            return_type="bool"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="truth_evaluate",
+            handler=self._truth_evaluate,
+            base_cost=0.01,
+            min_agency=0.0,
+            description="Evaluate truthfulness from DET state",
+            arg_types=["float", "float", "int", "float", "int"],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="truth_get_weights",
+            handler=self._truth_get_weights,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get truthfulness component weights",
+            arg_types=[],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="truth_get_falsifiers",
+            handler=self._truth_get_falsifiers,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get last falsifier check results",
+            arg_types=[],
+            return_type="dict"
+        ))
+
     def _model_load(self, path: str) -> bool:
         """Load GGUF model from path."""
         self._init_inference_backend()
@@ -1499,6 +1560,133 @@ class PrimitiveRegistry:
             "device": metal_device_name() if available else "None",
             "reason": "OK" if available else "Metal not available"
         }
+
+    # =========================================================================
+    # Truthfulness Primitives (Phase 26.6)
+    # =========================================================================
+
+    def _init_truthfulness(self):
+        """Initialize truthfulness evaluator lazily."""
+        if not hasattr(self, '_truthfulness_evaluator'):
+            self._truthfulness_evaluator = None
+            self._last_truth_score = None
+
+        if self._truthfulness_evaluator is None:
+            try:
+                from det.inference import get_truthfulness_evaluator
+                self._truthfulness_evaluator = get_truthfulness_evaluator()
+            except ImportError:
+                pass
+
+    def _truth_reset(self) -> bool:
+        """Reset truthfulness evaluator for new generation."""
+        self._init_truthfulness()
+        if self._truthfulness_evaluator is None:
+            return False
+        self._truthfulness_evaluator.reset_generation()
+        self._last_truth_score = None
+        return True
+
+    def _truth_record_claim(self, f_cost: float, min_cost: float = 0.1) -> bool:
+        """Record a claim with F cost during generation."""
+        self._init_truthfulness()
+        if self._truthfulness_evaluator is None:
+            return False
+        self._truthfulness_evaluator.record_claim(float(f_cost), float(min_cost))
+        return True
+
+    def _truth_set_grounding(self, delta_f: float = 0.0, stability: float = 1.0,
+                              c_user: float = 1.0, violations: int = 0) -> bool:
+        """Set grounding signals for truthfulness evaluation."""
+        self._init_truthfulness()
+        if self._truthfulness_evaluator is None:
+            return False
+        self._truthfulness_evaluator.set_grounding_signals(
+            delta_f=float(delta_f),
+            stability=float(stability),
+            c_user=float(c_user),
+            violations=int(violations)
+        )
+        return True
+
+    def _truth_evaluate(self, agency: float = 0.5, entropy: float = 0.0,
+                        k_eff: int = 100, q_creature: float = 0.0,
+                        num_tokens: int = 0) -> dict:
+        """
+        Evaluate truthfulness from DET state.
+
+        Returns dict with:
+            - total: Overall truthfulness score [0, 1]
+            - confidence: 'high', 'medium', 'low', 'very_low'
+            - grounding_factor: G value
+            - q_claim: Epistemic debt
+            - components: Dict of component scores
+            - falsifiers: Dict of falsifier flags
+        """
+        self._init_truthfulness()
+        if self._truthfulness_evaluator is None:
+            return {
+                "total": 0.5,
+                "confidence": "unknown",
+                "grounding_factor": 0.0,
+                "q_claim": 0.0,
+                "components": {},
+                "falsifiers": {},
+                "error": "Truthfulness evaluator not available"
+            }
+
+        score = self._truthfulness_evaluator.evaluate(
+            agency=float(agency),
+            entropy=float(entropy),
+            k_eff=int(k_eff),
+            q_creature=float(q_creature),
+            num_tokens=int(num_tokens)
+        )
+
+        self._last_truth_score = score
+
+        return {
+            "total": score.total,
+            "confidence": score.confidence_level,
+            "grounding_factor": score.grounding_factor,
+            "q_claim": score.q_claim,
+            "q_creature": score.q_creature,
+            "agency": score.agency,
+            "entropy": score.entropy,
+            "entropy_normalized": score.entropy_normalized,
+            "k_eff": score.k_eff,
+            "coherence_user": score.coherence_user,
+            "num_tokens": score.num_tokens,
+            "components": {
+                "grounding": score.grounding_component,
+                "agency": score.agency_component,
+                "consistency": score.consistency_component,
+                "coherence": score.coherence_component
+            },
+            "falsifiers": score.falsifier_flags or {}
+        }
+
+    def _truth_get_weights(self) -> dict:
+        """Get truthfulness component weights."""
+        self._init_truthfulness()
+        if self._truthfulness_evaluator is None:
+            return {"error": "Truthfulness evaluator not available"}
+
+        w = self._truthfulness_evaluator.weights
+        return {
+            "w_grounding": w.w_grounding,
+            "w_agency": w.w_agency,
+            "w_consistency": w.w_consistency,
+            "w_coherence": w.w_coherence
+        }
+
+    def _truth_get_falsifiers(self) -> dict:
+        """Get last falsifier check results."""
+        self._init_truthfulness()
+        if self._last_truth_score is None:
+            return {"error": "No evaluation performed yet"}
+
+        return self._last_truth_score.falsifier_flags or {}
 
 
 # Global registry instance

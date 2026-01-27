@@ -246,6 +246,8 @@ src/existence/
 ├── calculator.ex   # Math evaluation
 ├── kernel.ex       # Core kernel library
 ├── physics.ex      # DET physics operators (presence, flow, agency)
+├── inference.ex    # Native model inference (Phase 26.3)
+├── truthfulness.ex # DET-rigorous truthfulness evaluation (Phase 26.6)
 └── collider.ex     # Native DET collider (Phase 20.5)
 ```
 
@@ -489,7 +491,7 @@ is the remaining substrate integration work.
 - [x] Entropy normalized locally by K_eff (no global constant)
 - [x] Falsifier checks (F_T1 through F_T4)
 - [x] Calibration infrastructure with falsifier tracking
-- [ ] TruthfulnessCreature.ex (Existence-Lang wrapper)
+- [x] TruthfulnessCreature.ex (Existence-Lang wrapper) ✅
 - [ ] Per-token layer state hooks (requires C-level changes)
 
 **DET-Rigorous Formula**:
