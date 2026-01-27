@@ -42,7 +42,8 @@ try:
     from det.inference import (
         Model as NativeModel, metal_status, SamplingParams,
         set_inference_mode, get_inference_mode,
-        INFERENCE_MODE_F32, INFERENCE_MODE_Q8_0
+        INFERENCE_MODE_F32, INFERENCE_MODE_Q8_0,
+        QwenChatTemplate, get_chat_template, detect_template_from_vocab
     )
     NATIVE_INFERENCE_AVAILABLE = True
 except ImportError:
@@ -54,6 +55,9 @@ except ImportError:
     get_inference_mode = None
     INFERENCE_MODE_F32 = 0
     INFERENCE_MODE_Q8_0 = 1
+    QwenChatTemplate = None
+    get_chat_template = None
+    detect_template_from_vocab = None
 
 # Optional GPU backend
 try:
@@ -137,6 +141,8 @@ class DETRuntime:
         # Native Inference (Phase 26)
         self.native_model: Optional['NativeModel'] = None
         self.native_enabled = False
+        self.chat_template = None  # Will be set on model load
+        self.system_message = "You are a helpful assistant."  # Default system prompt
 
         if use_gpu and GPU_AVAILABLE:
             self._init_gpu()
@@ -641,13 +647,14 @@ class DETRuntime:
         print("""
 \033[33mNative Inference Commands (Phase 26):\033[0m
   native              Show this help
-  native status       Show native inference status (model, GPU)
+  native status       Show native inference status (model, GPU, template)
   native load <path>  Load a GGUF model file (uses F32 mode by default)
   native load <path> --q8   Load with Q8_0 mode (less memory, slower)
   native enable       Enable native inference mode
   native disable      Disable native inference (use Ollama)
   native generate <prompt>  Generate text with native model
   native reset        Reset KV cache (for new conversation)
+  native system <msg> Set system message for chat template
 
 \033[33mExample:\033[0m
   native load ~/models/Qwen2.5-0.5B-Instruct-Q8_0.gguf
@@ -657,6 +664,11 @@ class DETRuntime:
 \033[33mF32 vs Q8_0 Mode:\033[0m
   F32 (default):  Faster inference, uses more memory
   Q8_0 (--q8):    ~4x less memory, but slower (CPU dequant)
+
+\033[33mChat Templates:\033[0m
+  Models are auto-detected for proper chat formatting.
+  Qwen models use ChatML format: <|im_start|>role\\n...<|im_end|>
+  This prevents the model from continuing with recursive questions.
 
 \033[33mNote:\033[0m
   Once enabled, regular 'ask' commands will use native inference.
@@ -692,6 +704,14 @@ class DETRuntime:
                 print(f"    {self.native_model.info}")
             else:
                 print(f"  Model Loaded: \033[90mNo\033[0m")
+
+            # Chat template status
+            if self.chat_template:
+                template_name = type(self.chat_template).__name__
+                print(f"  Chat Template: \033[32m{template_name}\033[0m")
+                print(f"    System: \"{self.system_message[:50]}{'...' if len(self.system_message) > 50 else ''}\"")
+            else:
+                print(f"  Chat Template: \033[90mNone (raw prompts)\033[0m")
 
             # Mode
             if self.native_enabled:
@@ -739,6 +759,19 @@ class DETRuntime:
             elapsed = time.time() - start
             print(f"\033[32mModel loaded in {elapsed:.2f}s\033[0m")
             print(f"  {self.native_model.info}")  # info is a property
+
+            # Set up chat template based on model name
+            model_name = os.path.basename(path).lower()
+            if detect_template_from_vocab:
+                self.chat_template = detect_template_from_vocab(self.native_model)
+            elif get_chat_template:
+                self.chat_template = get_chat_template(model_name)
+            else:
+                self.chat_template = None
+
+            if self.chat_template:
+                template_name = type(self.chat_template).__name__
+                print(f"  Chat template: {template_name}")
 
             # Auto-enable native mode
             self.native_enabled = True
@@ -811,17 +844,30 @@ class DETRuntime:
                 import sys
                 params = SamplingParams(temperature=0.7, top_p=0.9)
 
+                # Format prompt with chat template if available
+                if self.chat_template:
+                    formatted_prompt = self.chat_template.format_prompt(
+                        prompt, self.system_message
+                    )
+                else:
+                    formatted_prompt = prompt
+
                 # Streaming callback to show progress
                 def on_token(text, token_id):
+                    # Stop on <|im_end|> token (151645 for Qwen)
+                    # The EOS token should already stop generation, but
+                    # we also filter out the token text just in case
+                    if "<|im_end|>" in text or "<|im_start|>" in text:
+                        return
                     sys.stdout.write(f"\033[32m{text}\033[0m")
                     sys.stdout.flush()
 
                 print()  # Newline before streaming output
-                response = self.native_model.generate(
-                    prompt, max_tokens=256, params=params, callback=on_token
+                self.native_model.generate(
+                    formatted_prompt, max_tokens=256, params=params, callback=on_token
                 )
                 print()  # Newline after streaming
-                return response
+                return ""  # Return empty - already streamed output
             except Exception as e:
                 print(f"\033[31m[Native inference failed: {e}]\033[0m")
                 import traceback
@@ -1100,6 +1146,15 @@ class DETRuntime:
                     self._native_reset()
                     continue
 
+                elif cmd_lower.startswith("native system "):
+                    system_msg = user_input[14:].strip()
+                    if system_msg:
+                        self.system_message = system_msg
+                        print(f"\033[32mSystem message set: \"{system_msg[:60]}{'...' if len(system_msg) > 60 else ''}\"\033[0m")
+                    else:
+                        print(f"Current system message: \"{self.system_message}\"")
+                    continue
+
                 elif cmd_lower.startswith("run "):
                     command = user_input[4:].strip()
                     print(f"\033[33m[Sending to Tool via bond...]\033[0m")
@@ -1296,12 +1351,13 @@ class DETRuntime:
 
 \033[33mNative Inference (Phase 26):\033[0m
   native            Show native inference help
-  native status     Show model and GPU status
+  native status     Show model, GPU, and chat template status
   native load <p>   Load GGUF model from path
   native enable     Enable native inference (auto after load)
   native disable    Disable native (use Ollama)
   native generate   Generate text directly
   native reset      Reset KV cache
+  native system <m> Set system message for chat template
 
 \033[33mGPU Acceleration:\033[0m
   gpu               Show GPU status

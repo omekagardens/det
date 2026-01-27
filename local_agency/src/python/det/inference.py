@@ -580,3 +580,159 @@ def detokenize(tokens: List[int]) -> str:
     if _global_model is None:
         raise RuntimeError("No model loaded. Call load_model() first.")
     return _global_model.detokenize(tokens)
+
+
+# =============================================================================
+# CHAT TEMPLATES
+# =============================================================================
+
+class ChatTemplate:
+    """Base class for chat templates."""
+
+    def format_prompt(self, user_message: str, system_message: str = None) -> str:
+        """Format a single user message with optional system message."""
+        raise NotImplementedError
+
+    def format_conversation(self, messages: List[dict]) -> str:
+        """Format a list of messages [{'role': 'user'|'assistant'|'system', 'content': str}]."""
+        raise NotImplementedError
+
+    @property
+    def stop_tokens(self) -> List[str]:
+        """Return list of stop token strings."""
+        return []
+
+
+class QwenChatTemplate(ChatTemplate):
+    """
+    ChatML template for Qwen2.5-Instruct models.
+
+    Format:
+        <|im_start|>system
+        {system}<|im_end|>
+        <|im_start|>user
+        {user}<|im_end|>
+        <|im_start|>assistant
+    """
+
+    DEFAULT_SYSTEM = "You are a helpful assistant."
+
+    def format_prompt(self, user_message: str, system_message: str = None) -> str:
+        """Format a single user message with optional system message."""
+        if system_message is None:
+            system_message = self.DEFAULT_SYSTEM
+
+        return (
+            f"<|im_start|>system\n{system_message}<|im_end|>\n"
+            f"<|im_start|>user\n{user_message}<|im_end|>\n"
+            f"<|im_start|>assistant\n"
+        )
+
+    def format_conversation(self, messages: List[dict]) -> str:
+        """Format a list of messages."""
+        result = []
+
+        # Add system message if first message is system, otherwise use default
+        if messages and messages[0].get('role') == 'system':
+            system_content = messages[0].get('content', self.DEFAULT_SYSTEM)
+            result.append(f"<|im_start|>system\n{system_content}<|im_end|>")
+            messages = messages[1:]
+        else:
+            result.append(f"<|im_start|>system\n{self.DEFAULT_SYSTEM}<|im_end|>")
+
+        for msg in messages:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+
+            if role == 'system':
+                # Skip additional system messages (already handled)
+                continue
+            elif role == 'user':
+                result.append(f"<|im_start|>user\n{content}<|im_end|>")
+            elif role == 'assistant':
+                result.append(f"<|im_start|>assistant\n{content}<|im_end|>")
+
+        # Add assistant prompt for generation
+        result.append("<|im_start|>assistant\n")
+
+        return "\n".join(result)
+
+    @property
+    def stop_tokens(self) -> List[str]:
+        return ["<|im_end|>", "<|endoftext|>"]
+
+
+class LlamaChatTemplate(ChatTemplate):
+    """
+    Template for Llama 2/3 chat models.
+
+    Format (simplified):
+        <s>[INST] <<SYS>>
+        {system}
+        <</SYS>>
+
+        {user} [/INST]
+    """
+
+    DEFAULT_SYSTEM = "You are a helpful assistant."
+
+    def format_prompt(self, user_message: str, system_message: str = None) -> str:
+        if system_message is None:
+            system_message = self.DEFAULT_SYSTEM
+
+        return (
+            f"<s>[INST] <<SYS>>\n{system_message}\n<</SYS>>\n\n"
+            f"{user_message} [/INST]"
+        )
+
+    def format_conversation(self, messages: List[dict]) -> str:
+        # Simplified implementation
+        return self.format_prompt(
+            messages[-1].get('content', '') if messages else '',
+            messages[0].get('content') if messages and messages[0].get('role') == 'system' else None
+        )
+
+    @property
+    def stop_tokens(self) -> List[str]:
+        return ["</s>"]
+
+
+# Template registry
+CHAT_TEMPLATES = {
+    'qwen': QwenChatTemplate(),
+    'qwen2': QwenChatTemplate(),
+    'qwen2.5': QwenChatTemplate(),
+    'chatml': QwenChatTemplate(),  # ChatML is the same format
+    'llama': LlamaChatTemplate(),
+    'llama2': LlamaChatTemplate(),
+    'llama3': LlamaChatTemplate(),
+}
+
+
+def get_chat_template(model_name: str) -> ChatTemplate:
+    """Get chat template for a model based on its name."""
+    model_lower = model_name.lower()
+
+    # Check for known patterns
+    if 'qwen' in model_lower:
+        return CHAT_TEMPLATES['qwen']
+    elif 'llama' in model_lower:
+        return CHAT_TEMPLATES['llama']
+
+    # Default to Qwen/ChatML format (common)
+    return CHAT_TEMPLATES['chatml']
+
+
+def detect_template_from_vocab(model: 'Model') -> ChatTemplate:
+    """Auto-detect chat template by checking vocabulary for special tokens."""
+    try:
+        # Check if model has ChatML tokens (Qwen-style)
+        # Try to tokenize the special tokens
+        im_start_tokens = model.tokenize("<|im_start|>")
+        if len(im_start_tokens) == 1:  # Single token = recognized special token
+            return CHAT_TEMPLATES['qwen']
+    except Exception:
+        pass
+
+    # Default to ChatML
+    return CHAT_TEMPLATES['chatml']
