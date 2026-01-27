@@ -929,8 +929,8 @@ class DETRuntime:
         return result.get("outputs", {})
 
     def _truthfulness_status(self):
-        """Show truthfulness settings and status via TruthfulnessCreature.ex."""
-        print("\n\033[33mTruthfulness Status (Phase 26.6 - via TruthfulnessCreature.ex):\033[0m")
+        """Show truthfulness settings and status (hybrid: creature + primitives)."""
+        print("\n\033[33mTruthfulness Status (Phase 26.6 - Hybrid Mode):\033[0m")
         print(f"  Display Enabled: {'Yes' if self.truthfulness_enabled else 'No'}")
         print(f"  Creature Loaded: {'Yes' if self.truthfulness_cid else 'No'}")
 
@@ -944,12 +944,18 @@ class DETRuntime:
         else:
             print(f"  Last Score: \033[90mNone (no generation yet)\033[0m")
 
-        # Get weights via creature kernel
-        weights_output = self._invoke_truth_kernel("GetWeights")
-        if weights_output and 'weights' in weights_output:
-            weights_str = weights_output['weights']
-            print(f"\n  \033[36mWeights (from creature):\033[0m")
-            print(f"    {weights_str}")
+        # Get weights via primitive directly
+        try:
+            reg = get_registry()
+            weights = reg.primitives['truth_get_weights'].handler()
+            if weights and 'w_grounding' in weights:
+                print(f"\n  \033[36mWeights (DET-Rigorous):\033[0m")
+                print(f"    w_grounding:   {weights['w_grounding']:.2f}")
+                print(f"    w_agency:      {weights['w_agency']:.2f} (gated by G)")
+                print(f"    w_consistency: {weights['w_consistency']:.2f}")
+                print(f"    w_coherence:   {weights['w_coherence']:.2f} (user-specific)")
+        except Exception as e:
+            print(f"  \033[90mWeights unavailable: {e}\033[0m")
         print()
 
     def _truthfulness_color(self, level: str) -> str:
@@ -1103,40 +1109,31 @@ class DETRuntime:
                             'min_cost': 0.1
                         })
 
-                    # Evaluate via creature
+                    # Evaluate via primitive directly (to get full result dict)
+                    # Creature handled setup; primitive gives us rich data
                     agency = det_state.get('a', 0.5) if det_state else 0.5
                     q_creature = det_state.get('q', 0.0) if det_state else 0.0
                     k_eff = 40  # Default top_k from SamplingParams
 
-                    eval_output = self._invoke_truth_kernel("Evaluate", {
-                        'agency_in': agency,
-                        'entropy': 0.5,  # Estimate, would need logit entropy
-                        'k_eff': k_eff,
-                        'q_creature': q_creature,
-                        'num_tokens': token_count[0]
-                    })
+                    try:
+                        reg = get_registry()
+                        eval_result = reg.primitives['truth_evaluate'].handler(
+                            agency=agency,
+                            entropy=0.5,  # Estimate
+                            k_eff=k_eff,
+                            q_creature=q_creature,
+                            num_tokens=token_count[0]
+                        )
 
-                    if eval_output:
-                        # Store the full result from the primitive (via creature)
-                        # The creature calls the primitive which returns a rich dict
-                        self.last_truth_result = {
-                            'total': eval_output.get('score', 0),
-                            'confidence': eval_output.get('confidence', 'unknown'),
-                            'grounding_factor': eval_output.get('grounding', 0),
-                            'q_claim': 0,  # Would come from deeper integration
-                            'num_tokens': token_count[0],
-                            'agency': agency,
-                            'q_creature': q_creature,
-                            'k_eff': k_eff,
-                            'entropy': 0.5,
-                            'entropy_normalized': 0,
-                            'coherence_user': c_user,
-                            'components': {},
-                            'falsifiers': {}
-                        }
+                        if eval_result and 'total' in eval_result:
+                            self.last_truth_result = eval_result
+                            self.last_truth_result['num_tokens'] = token_count[0]
 
-                        if self.truthfulness_enabled:
-                            self._show_truthfulness_score_compact(self.last_truth_result)
+                            if self.truthfulness_enabled:
+                                self._show_truthfulness_score_compact(self.last_truth_result)
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"\033[90m[Truthfulness eval error: {e}]\033[0m")
 
                 return ""  # Return empty - already streamed output
             except Exception as e:
@@ -1450,41 +1447,46 @@ class DETRuntime:
                     continue
 
                 elif cmd_lower == "truth weights":
-                    # Get weights via TruthfulnessCreature.ex
-                    weights_output = self._invoke_truth_kernel("GetWeights")
-                    if weights_output and 'weights' in weights_output:
-                        print(f"\n\033[33mTruthfulness Weights (via TruthfulnessCreature.ex):\033[0m")
-                        print(f"  {weights_output['weights']}")
-                        print(f"\n\033[36mWeight Meanings:\033[0m")
-                        print("  w_grounding:   paid claims, stability, C_user")
-                        print("  w_agency:      GATED by grounding factor G")
-                        print("  w_consistency: 1 - H_normalized")
-                        print("  w_coherence:   user-specific bond")
-                        print()
-                    else:
-                        print("\033[31mTruthfulness creature not available.\033[0m")
+                    # Get weights via primitive directly
+                    try:
+                        reg = get_registry()
+                        weights = reg.primitives['truth_get_weights'].handler()
+                        if weights and 'w_grounding' in weights:
+                            print(f"\n\033[33mTruthfulness Weights (DET-Rigorous):\033[0m")
+                            print(f"  w_grounding:   {weights['w_grounding']:.3f}  (paid claims, stability, C_user)")
+                            print(f"  w_agency:      {weights['w_agency']:.3f}  (GATED by grounding factor G)")
+                            print(f"  w_consistency: {weights['w_consistency']:.3f}  (1 - H_normalized)")
+                            print(f"  w_coherence:   {weights['w_coherence']:.3f}  (user-specific bond)")
+                            print()
+                        else:
+                            print("\033[31mTruthfulness weights not available.\033[0m")
+                    except Exception as e:
+                        print(f"\033[31mError getting weights: {e}\033[0m")
                     continue
 
                 elif cmd_lower == "truth falsifiers":
-                    # Get falsifiers via TruthfulnessCreature.ex
-                    fals_output = self._invoke_truth_kernel("GetFalsifiers")
-                    if fals_output:
-                        print(f"\n\033[33mFalsifier Check Results (via TruthfulnessCreature.ex):\033[0m")
-                        if 'falsifiers' in fals_output:
-                            print(f"  {fals_output['falsifiers']}")
-                        any_triggered = fals_output.get('any_triggered', 0)
-                        if any_triggered > 0:
-                            print(f"\n  \033[31m⚠ At least one falsifier triggered!\033[0m")
+                    # Get falsifiers from last result (stored from primitive)
+                    if self.last_truth_result and 'falsifiers' in self.last_truth_result:
+                        falsifiers = self.last_truth_result['falsifiers']
+                        print(f"\n\033[33mFalsifier Check Results:\033[0m")
+                        triggered = []
+                        for flag, value in falsifiers.items():
+                            status = "\033[31m⚠ TRIGGERED\033[0m" if value else "\033[32m✓ OK\033[0m"
+                            print(f"  {flag}: {status}")
+                            if value:
+                                triggered.append(flag)
+                        if triggered:
+                            print(f"\n  \033[31m⚠ {len(triggered)} falsifier(s) triggered!\033[0m")
                         else:
                             print(f"\n  \033[32m✓ No falsifier violations detected.\033[0m")
                         print(f"\n\033[36mFalsifier Descriptions:\033[0m")
-                        print("  F_T1: Reward hacking - High T without grounding evidence")
-                        print("  F_T2: Overconfidence - Low entropy but low stability")
-                        print("  F_T3: Coherence misuse - High C_user alone yields high T")
-                        print("  F_T4: Agency ungated - High agency without grounding")
+                        print("  F_T1_reward_hacking:    High T without grounding evidence")
+                        print("  F_T2_overconfidence:    Low entropy but low stability")
+                        print("  F_T3_coherence_misuse:  High C_user alone yields high T")
+                        print("  F_T4_agency_ungated:    High agency without grounding")
                         print()
                     else:
-                        print("\033[33mNo falsifier data. Generate text first or creature not loaded.\033[0m")
+                        print("\033[33mNo falsifier data. Generate text first.\033[0m")
                     continue
 
                 elif cmd_lower.startswith("run "):
