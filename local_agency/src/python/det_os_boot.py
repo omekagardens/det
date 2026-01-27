@@ -847,33 +847,48 @@ class DETRuntime:
         print("\033[33mNative inference disabled. Using Ollama.\033[0m")
 
     def _native_generate(self, prompt: str):
-        """Generate text using native model."""
+        """Generate text using native model via model_chat primitive."""
         if not self.native_model:
             print("\033[31mNo model loaded. Use 'native load <path>' first.\033[0m")
             return
 
-        print(f"\033[33m[Generating with native model...]\033[0m")
+        print(f"\033[33m[Generating via model_chat primitive...]\033[0m")
         try:
             import time
             start = time.time()
-            params = SamplingParams(temperature=0.7, top_p=0.9)
-            response = self.native_model.generate(prompt, max_tokens=256, params=params)
+
+            # Use model_chat primitive (handles template, stats, sampling)
+            reg = get_registry()
+            result = reg.primitives['model_chat'].handler(
+                user_message=prompt,
+                system_message=self.system_message,
+                max_tokens=256,
+                temperature=0.7,
+                top_p=0.9
+            )
+
             elapsed = time.time() - start
-            print(f"\033[32m{response}\033[0m")
-            print(f"\033[90m[Generated in {elapsed:.2f}s]\033[0m")
+            print(f"\033[32m{result['text']}\033[0m")
+            print(f"\033[90m[Generated {result['token_count']} tokens in {elapsed:.2f}s")
+            if result.get('stats'):
+                stats = result['stats']
+                print(f" | entropy={stats.get('mean_entropy', 0):.3f} k_eff={stats.get('mean_k_eff', 0):.0f}]\033[0m")
+            else:
+                print("]\033[0m")
         except Exception as e:
             print(f"\033[31mGeneration failed: {e}\033[0m")
             import traceback
             traceback.print_exc()
 
     def _native_reset(self):
-        """Reset KV cache for new conversation."""
+        """Reset KV cache for new conversation via primitive."""
         if not self.native_model:
             print("\033[31mNo model loaded.\033[0m")
             return
 
         try:
-            self.native_model.reset()
+            reg = get_registry()
+            reg.primitives['model_reset'].handler()
             print("\033[32mKV cache reset.\033[0m")
         except Exception as e:
             print(f"\033[31mReset failed: {e}\033[0m")
@@ -1112,21 +1127,21 @@ class DETRuntime:
 
                 print()  # Newline before streaming output
 
-                # Start stats collection for real entropy (Phase 26.6)
-                self.native_model.stats_start(capacity=512)
+                # Use primitives for stats (Phase 26.6 - unified model)
+                reg = get_registry()
+                reg.primitives['model_stats_start'].handler(512)
 
+                # Streaming generation uses shared model directly (callbacks need direct access)
                 self.native_model.generate(
                     formatted_prompt, max_tokens=256, params=params, callback=on_token
                 )
                 print()  # Newline after streaming
 
-                # Get real entropy from token stats (Phase 26.6)
-                gen_stats = self.native_model.stats_aggregate()
+                # Get real entropy from token stats via primitive
+                gen_stats = reg.primitives['model_stats_aggregate'].handler()
 
-                # Compute truthfulness score via primitives directly (Phase 26.6)
-                # (Creature kernels add indirection; primitives are more reliable)
+                # Compute truthfulness score via primitives (Phase 26.6)
                 try:
-                    reg = get_registry()
 
                     # Reset evaluator for this generation
                     reg.primitives['truth_reset'].handler()
@@ -1601,56 +1616,59 @@ class DETRuntime:
                         print("GPU not enabled. Use 'gpu enable' first.")
                     continue
 
-                # KV Cache commands (Phase 26.4)
+                # KV Cache commands (Phase 26.4) - via primitives
                 elif cmd_lower == "cache" or cmd_lower == "cache status":
                     self._show_cache_status()
                     continue
 
                 elif cmd_lower == "cache reset":
-                    if self.native_model:
-                        self.native_model.reset()
+                    try:
+                        reg = get_registry()
+                        reg.primitives['model_reset'].handler()
                         print("KV cache reset. Ready for new conversation.")
-                    else:
-                        print("No model loaded.")
+                    except Exception as e:
+                        print(f"No model loaded or reset failed: {e}")
                     continue
 
                 elif cmd_lower.startswith("cache shift"):
-                    if self.native_model:
+                    try:
+                        reg = get_registry()
                         args = cmd_lower[11:].strip().split()
                         if args:
-                            try:
-                                keep_last = int(args[0])
-                                old_pos = self.native_model.cache_position
-                                if self.native_model.cache_shift(keep_last):
-                                    new_pos = self.native_model.cache_position
-                                    print(f"Cache shifted: {old_pos} -> {new_pos} tokens (kept last {keep_last})")
-                                else:
-                                    print("Cache shift failed.")
-                            except ValueError:
-                                print("Usage: cache shift <N>")
+                            keep_last = int(args[0])
+                            old_status = reg.primitives['model_cache_status'].handler()
+                            old_pos = old_status.get('position', 0)
+                            if reg.primitives['model_cache_shift'].handler(keep_last):
+                                new_status = reg.primitives['model_cache_status'].handler()
+                                new_pos = new_status.get('position', 0)
+                                print(f"Cache shifted: {old_pos} -> {new_pos} tokens (kept last {keep_last})")
+                            else:
+                                print("Cache shift failed.")
                         else:
                             print("Usage: cache shift <N>  (keep last N tokens)")
-                    else:
-                        print("No model loaded.")
+                    except ValueError:
+                        print("Usage: cache shift <N>")
+                    except Exception as e:
+                        print(f"No model loaded or shift failed: {e}")
                     continue
 
                 elif cmd_lower.startswith("cache slice"):
-                    if self.native_model:
+                    try:
+                        reg = get_registry()
                         args = cmd_lower[11:].strip().split()
                         if len(args) >= 2:
-                            try:
-                                start = int(args[0])
-                                end = int(args[1])
-                                if self.native_model.cache_slice(start, end):
-                                    print(f"Cache sliced to positions [{start}, {end})")
-                                else:
-                                    print("Cache slice failed.")
-                            except ValueError:
-                                print("Usage: cache slice <start> <end>")
+                            start = int(args[0])
+                            end = int(args[1])
+                            if reg.primitives['model_cache_slice'].handler(start, end):
+                                print(f"Cache sliced to positions [{start}, {end})")
+                            else:
+                                print("Cache slice failed.")
                         else:
                             print("Usage: cache slice <start> <end>")
-                    else:
-                        print("No model loaded.")
+                    except ValueError:
+                        print("Usage: cache slice <start> <end>")
+                    except Exception as e:
+                        print(f"No model loaded or slice failed: {e}")
                     continue
 
                 # Collider commands (Phase 20.5)

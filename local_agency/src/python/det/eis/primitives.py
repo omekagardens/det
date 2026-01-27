@@ -1320,6 +1320,17 @@ class PrimitiveRegistry:
         ))
 
         self.register(PrimitiveSpec(
+            name="model_chat",
+            handler=self._model_chat,
+            base_cost=1.0,
+            cost_per_unit=0.02,
+            min_agency=0.3,
+            description="Chat generation with template, stats, and structured output",
+            arg_types=["string", "string", "int", "float", "float"],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
             name="model_generate_step",
             handler=self._model_generate_step,
             base_cost=0.15,
@@ -1601,6 +1612,76 @@ class PrimitiveRegistry:
             raise RuntimeError("No model loaded")
 
         return self._inference_model.generate(str(prompt), int(max_tokens))
+
+    def _model_chat(self, user_message: str, system_message: str = "",
+                    max_tokens: int = 256, temperature: float = 0.7,
+                    top_p: float = 0.9) -> dict:
+        """
+        Chat generation with template, stats, and structured output.
+
+        This is the recommended primitive for chat-style generation.
+        Handles: chat template formatting, stats collection, sampling params.
+
+        Args:
+            user_message: User's input message
+            system_message: System prompt (empty = use default)
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            top_p: Nucleus sampling threshold
+
+        Returns:
+            dict with:
+                - text: Generated response text
+                - token_count: Number of tokens generated
+                - stats: {mean_entropy, mean_k_eff, min_entropy}
+        """
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        from det.inference import SamplingParams, get_chat_template, detect_template_from_vocab
+
+        # Get chat template
+        chat_template = detect_template_from_vocab(self._inference_model)
+        if chat_template is None:
+            chat_template = get_chat_template("qwen")  # Default to Qwen/ChatML
+
+        # Format prompt with template
+        if system_message:
+            formatted_prompt = chat_template.format_prompt(str(user_message), str(system_message))
+        else:
+            formatted_prompt = chat_template.format_prompt(str(user_message))
+
+        # Set up sampling params
+        params = SamplingParams(
+            temperature=float(temperature),
+            top_p=float(top_p)
+        )
+
+        # Start stats collection
+        self._inference_model.stats_start(capacity=512)
+
+        # Generate (non-streaming)
+        token_count = [0]
+        def count_tokens(text, token_id):
+            token_count[0] += 1
+
+        text = self._inference_model.generate(
+            formatted_prompt,
+            max_tokens=int(max_tokens),
+            params=params,
+            callback=count_tokens
+        )
+
+        # Get stats
+        stats = self._inference_model.stats_aggregate()
+
+        return {
+            "text": text,
+            "token_count": token_count[0],
+            "stats": stats
+        }
 
     def _model_generate_step(self, tokens: list, temperature: float = 0.7,
                              top_p: float = 0.9) -> dict:
