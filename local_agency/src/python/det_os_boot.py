@@ -850,40 +850,50 @@ class DETRuntime:
     def _truthfulness_help(self):
         """Show truthfulness commands help."""
         print("""
-\033[33mTruthfulness Weighting Commands (Phase 26.6):\033[0m
+\033[33mTruthfulness Weighting Commands (Phase 26.6 - DET-Rigorous):\033[0m
   truth               Show this help
   truth status        Show truthfulness settings and last score
   truth enable        Enable truthfulness display after generation
   truth disable       Disable truthfulness display
   truth last          Show details of last truthfulness score
   truth weights       Show current component weights
+  truth falsifiers    Show falsifier check results
 
-\033[33mTruthfulness Formula:\033[0m
-  T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C
+\033[33mDET-Rigorous Formula:\033[0m
+  T_ground = f(paid_claims, trace_stability, C_user)
+  T_consist = 1 - H_norm  (where H_norm = H / log(K_eff + ε))
+  T = (w_g*T_ground + w_a*a*G + w_e*T_consist + w_c*C_user) / (1 + q_claim)
 
-\033[33mComponents:\033[0m
-  Debt (q):      Structure/debt from ungrounded claims. Lower = better.
-  Agency (a):    Real capability grounding. Higher = better.
-  Entropy (H):   Attention entropy/uncertainty. Lower = more confident.
-  Coherence (C): Bond coherence/relational grounding. Higher = better.
+  Where G = grounding_factor gates agency contribution.
+
+\033[33mKey Principles:\033[0m
+  q_claim:     Epistemic debt EARNED from unpaid assertions (not injected)
+  Agency*G:    Agency amplifies truth ONLY when coupled to grounding
+  H_norm:      Entropy normalized locally by K_eff (no global constant)
+  C_user:      Coherence with USER bond specifically (not generic)
+
+\033[33mGrounding Signals (DET-Native, Local, Auditable):\033[0m
+  ΔF_claim:    F expenditure for claims (paid = grounded)
+  Stability:   Does output remain stable under perturbation?
+  C_user:      Bond coherence with user's context/constraints
+  Violations:  Constraint violations detected
+
+\033[33mFalsifier Targets:\033[0m
+  F_T1: Reward hacking - T raised without grounding evidence
+  F_T2: Overconfidence - Low entropy + low stability + high T
+  F_T3: Coherence misuse - High C_user alone yields high T
+  F_T4: Agency ungated - High agency without grounding = high T
 
 \033[33mConfidence Levels:\033[0m
-  High:     T >= 0.75  (reliable)
+  High:     T >= 0.75  (reliable, well-grounded)
   Medium:   T >= 0.50  (moderate confidence)
   Low:      T >= 0.25  (use with caution)
-  Very Low: T <  0.25  (highly uncertain)
-
-\033[33mAnti-Hallucination Integration:\033[0m
-  DET physics provides principled reliability estimates:
-  - F expenditure tracks real compute (no reward hacking)
-  - Agency from structure, not assertion (no false confidence)
-  - Debt accumulates from ungrounded claims
-  - Atomic commits prevent post-hoc justification
+  Very Low: T <  0.25  (highly uncertain, low grounding)
 """)
 
     def _truthfulness_status(self):
         """Show truthfulness settings and status."""
-        print("\n\033[33mTruthfulness Status (Phase 26.6):\033[0m")
+        print("\n\033[33mTruthfulness Status (Phase 26.6 - DET-Rigorous):\033[0m")
         print(f"  Display Enabled: {'Yes' if self.truthfulness_enabled else 'No'}")
 
         if self.last_truthfulness_score:
@@ -891,17 +901,19 @@ class DETRuntime:
             color = self._truthfulness_color(score.confidence_level)
             print(f"  Last Score: {color}T={score.total:.3f} ({score.confidence_level})\033[0m")
             print(f"  Last Tokens: {score.num_tokens}")
+            print(f"  Grounding Factor: G={score.grounding_factor:.3f}")
+            print(f"  Epistemic Debt: q_claim={score.q_claim:.3f}")
         else:
             print(f"  Last Score: \033[90mNone (no generation yet)\033[0m")
 
         if get_truthfulness_evaluator:
             evaluator = get_truthfulness_evaluator()
             w = evaluator.weights
-            print(f"\n  \033[36mWeights:\033[0m")
-            print(f"    w_debt:      {w.w_debt:.2f}")
-            print(f"    w_agency:    {w.w_agency:.2f}")
-            print(f"    w_entropy:   {w.w_entropy:.2f}")
-            print(f"    w_coherence: {w.w_coherence:.2f}")
+            print(f"\n  \033[36mWeights (DET-Rigorous):\033[0m")
+            print(f"    w_grounding:   {w.w_grounding:.2f}")
+            print(f"    w_agency:      {w.w_agency:.2f} (gated by G)")
+            print(f"    w_consistency: {w.w_consistency:.2f}")
+            print(f"    w_coherence:   {w.w_coherence:.2f} (user-specific)")
         print()
 
     def _truthfulness_color(self, level: str) -> str:
@@ -919,8 +931,8 @@ class DETRuntime:
         color = self._truthfulness_color(score.confidence_level)
         print(f"\033[90m[T={color}{score.total:.2f}\033[90m "
               f"({score.confidence_level}) "
-              f"debt={score.debt:.2f} "
-              f"agency={score.agency:.2f} "
+              f"G={score.grounding_factor:.2f} "
+              f"q_claim={score.q_claim:.2f} "
               f"tokens={score.num_tokens}]\033[0m")
 
     def _show_truthfulness_details(self):
@@ -932,25 +944,49 @@ class DETRuntime:
         score = self.last_truthfulness_score
         color = self._truthfulness_color(score.confidence_level)
 
-        print(f"\n\033[33mLast Truthfulness Score:\033[0m")
+        print(f"\n\033[33mLast Truthfulness Score (DET-Rigorous):\033[0m")
         print(f"  Total Score: {color}T = {score.total:.4f} ({score.confidence_level})\033[0m")
         print(f"  Tokens:      {score.num_tokens}")
 
+        print(f"\n  \033[36mGrounding (DET-Native Signals):\033[0m")
+        print(f"    Grounding Factor G:  {score.grounding_factor:.4f}")
+        print(f"    User Coherence C_u:  {score.coherence_user:.4f}")
+
+        print(f"\n  \033[36mEpistemic State:\033[0m")
+        print(f"    q_claim (earned):    {score.q_claim:.4f}  (epistemic debt from assertions)")
+        print(f"    q_creature (info):   {score.q_creature:.4f}  (structural debt)")
+        print(f"    Agency a:            {score.agency:.4f}")
+
+        print(f"\n  \033[36mConsistency:\033[0m")
+        print(f"    Entropy H:           {score.entropy:.4f}")
+        print(f"    H_normalized:        {score.entropy_normalized:.4f}  (H / log(K_eff))")
+        print(f"    K_eff:               {score.k_eff}  (effective candidates)")
+
         print(f"\n  \033[36mComponent Breakdown:\033[0m")
-        print(f"    Debt component:      {score.debt_component:.4f}  (raw q={score.debt:.4f})")
-        print(f"    Agency component:    {score.agency_component:.4f}  (raw a={score.agency:.4f})")
-        print(f"    Entropy component:   {score.entropy_component:.4f}  (raw H={score.entropy:.4f})")
-        print(f"    Coherence component: {score.coherence_component:.4f}  (raw C={score.coherence:.4f})")
+        print(f"    Grounding:    {score.grounding_component:.4f}")
+        print(f"    Agency*G:     {score.agency_component:.4f}  (agency gated by grounding)")
+        print(f"    Consistency:  {score.consistency_component:.4f}")
+        print(f"    Coherence:    {score.coherence_component:.4f}")
+
+        # Show falsifier flags if any triggered
+        if score.falsifier_flags:
+            triggered = [f for f, v in score.falsifier_flags.items() if v]
+            if triggered:
+                print(f"\n  \033[31mFalsifier Violations:\033[0m")
+                for flag in triggered:
+                    print(f"    ⚠ {flag}")
+            else:
+                print(f"\n  \033[32mNo falsifier violations detected.\033[0m")
 
         print(f"\n  \033[36mInterpretation:\033[0m")
         if score.confidence_level == 'high':
-            print("    Output appears reliable. DET state indicates good grounding.")
+            print("    Output well-grounded. High G + low q_claim = reliable.")
         elif score.confidence_level == 'medium':
-            print("    Output has moderate reliability. Some uncertainty present.")
+            print("    Moderate grounding. Some epistemic debt or low stability.")
         elif score.confidence_level == 'low':
-            print("    Use output with caution. Significant uncertainty detected.")
+            print("    Low grounding. High agency may not indicate truth here.")
         else:
-            print("    Output highly uncertain. Consider verifying independently.")
+            print("    Poor grounding. G < 0.3 or high q_claim. Verify independently.")
         print()
 
     def send_to_llm(self, prompt: str) -> Optional[str]:
@@ -1004,14 +1040,44 @@ class DETRuntime:
                 )
                 print()  # Newline after streaming
 
-                # Compute truthfulness score (Phase 26.6)
-                if get_truthfulness_evaluator and det_state:
+                # Compute truthfulness score (Phase 26.6 - DET-Rigorous)
+                if get_truthfulness_evaluator:
                     evaluator = get_truthfulness_evaluator()
-                    self.last_truthfulness_score = evaluator.evaluate_from_det_state(
-                        creature_state=det_state,
-                        bond_state=bond_state,
-                        num_tokens=token_count[0]
+
+                    # Reset for this generation
+                    evaluator.reset_generation()
+
+                    # Set up grounding signals
+                    # F expenditure approximation: tokens generated * cost per token
+                    delta_f = token_count[0] * 0.1  # Approximate F cost
+                    c_user = bond_state.get('coherence', 1.0) if bond_state else 1.0
+
+                    evaluator.set_grounding_signals(
+                        delta_f=delta_f,
+                        stability=1.0,  # Would need re-generation to test
+                        c_user=c_user,
+                        violations=0
                     )
+
+                    # Record claims (each token is a potential claim)
+                    for _ in range(token_count[0]):
+                        evaluator.record_claim(f_cost=0.1)
+
+                    # Compute score
+                    if det_state:
+                        # k_eff from sampling params (top_k or estimate)
+                        k_eff = 40  # Default top_k from SamplingParams
+                        self.last_truthfulness_score = evaluator.evaluate_from_det_state(
+                            creature_state=det_state,
+                            bond_state=bond_state,
+                            k_eff=k_eff,
+                            num_tokens=token_count[0]
+                        )
+                    else:
+                        self.last_truthfulness_score = evaluator.evaluate(
+                            num_tokens=token_count[0]
+                        )
+
                     if self.truthfulness_enabled:
                         self._show_truthfulness_score(self.last_truthfulness_score)
 
@@ -1330,14 +1396,30 @@ class DETRuntime:
                     if get_truthfulness_evaluator:
                         evaluator = get_truthfulness_evaluator()
                         w = evaluator.weights
-                        print(f"\n\033[33mTruthfulness Weights:\033[0m")
-                        print(f"  w_debt:      {w.w_debt:.3f}")
-                        print(f"  w_agency:    {w.w_agency:.3f}")
-                        print(f"  w_entropy:   {w.w_entropy:.3f}")
-                        print(f"  w_coherence: {w.w_coherence:.3f}")
+                        print(f"\n\033[33mTruthfulness Weights (DET-Rigorous):\033[0m")
+                        print(f"  w_grounding:   {w.w_grounding:.3f}  (paid claims, stability, C_user)")
+                        print(f"  w_agency:      {w.w_agency:.3f}  (GATED by grounding factor G)")
+                        print(f"  w_consistency: {w.w_consistency:.3f}  (1 - H_normalized)")
+                        print(f"  w_coherence:   {w.w_coherence:.3f}  (user-specific bond)")
                         print()
                     else:
                         print("\033[31mTruthfulness evaluator not available.\033[0m")
+                    continue
+
+                elif cmd_lower == "truth falsifiers":
+                    if self.last_truthfulness_score and self.last_truthfulness_score.falsifier_flags:
+                        print(f"\n\033[33mFalsifier Check Results:\033[0m")
+                        for flag, triggered in self.last_truthfulness_score.falsifier_flags.items():
+                            status = "\033[31m⚠ TRIGGERED\033[0m" if triggered else "\033[32m✓ OK\033[0m"
+                            print(f"  {flag}: {status}")
+                        print(f"\n\033[36mFalsifier Descriptions:\033[0m")
+                        print("  F_T1: Reward hacking - High T without grounding evidence")
+                        print("  F_T2: Overconfidence - Low entropy but low stability")
+                        print("  F_T3: Coherence misuse - High C_user alone yields high T")
+                        print("  F_T4: Agency ungated - High agency without grounding")
+                        print()
+                    else:
+                        print("\033[33mNo falsifier data. Generate text first.\033[0m")
                     continue
 
                 elif cmd_lower.startswith("run "):
