@@ -20,6 +20,11 @@
  *   - DET-aware sampling via det_choose_token
  *   - GPU acceleration via Metal (macOS)
  *   - Switchable backend (use_native flag)
+ *
+ * Phase 21.4 Enhancements:
+ *   - Native inference is now default (use_native=true)
+ *   - Ollama used as automatic fallback when native model not loaded
+ *   - All generation routed through primitives for DET-compliance
  */
 
 creature LLMCreature {
@@ -38,7 +43,7 @@ creature LLMCreature {
     var model_fast: string := "phi4-mini";              // Fast/efficient model
 
     // Phase 26: Native inference configuration
-    var use_native: bool := false;           // Toggle: true=native, false=Ollama
+    var use_native: bool := true;            // Toggle: true=native (default), false=Ollama
     var native_model_path: string := "";     // Path to GGUF model file
     var native_model_loaded: bool := false;  // Is native model loaded?
     var native_model_info: string := "";     // Model info string
@@ -141,7 +146,7 @@ creature LLMCreature {
                 }
             }
 
-            // Ollama path (original)
+            // Ollama path (explicit mode when use_native=false)
             proposal CALL_OLLAMA {
                 ollama_ok := if_past(is_native != true) then 1.0 else 0.0;
                 budget_ok := if_past(current_budget >= estimated_tokens) then 1.0 else 0.0;
@@ -163,14 +168,27 @@ creature LLMCreature {
                 }
             }
 
-            proposal REFUSE_NATIVE_NOT_LOADED {
+            // Phase 21.4: Ollama fallback when native preferred but model not loaded
+            proposal CALL_OLLAMA_FALLBACK {
                 native_on := if_past(is_native == true) then 1.0 else 0.0;
                 not_loaded := if_past(native_loaded != true) then 1.0 else 0.0;
-                score = native_on * not_loaded * 0.98;
+                budget_ok := if_past(current_budget >= estimated_tokens) then 1.0 else 0.0;
+                f_ok := if_past(current_F >= base_call_cost) then 1.0 else 0.0;
+                // Score slightly lower than CALL_NATIVE but usable as fallback
+                score = current_a * 0.85 * native_on * not_loaded * budget_ok * f_ok;
 
                 effect {
-                    response ::= witness("Native model not loaded - call LoadNativeModel first");
-                    token_count := 0.0;
+                    result := primitive("llm_call_v2", selected_model, prompt, effective_temp, max_tokens);
+                    response ::= witness(result.text);
+                    actual_tokens := result.tokens;
+                    token_count := actual_tokens;
+
+                    // Update budget
+                    tokens_remaining := tokens_remaining - actual_tokens;
+                    tokens_generated := tokens_generated + actual_tokens;
+                    calls_made := calls_made + 1;
+                    F := F - base_call_cost;
+                    total_cost := total_cost + base_call_cost + (actual_tokens * cost_per_token);
                 }
             }
 
@@ -205,7 +223,7 @@ creature LLMCreature {
         }
 
         phase CHOOSE {
-            choice := choose({CALL_NATIVE, CALL_OLLAMA, REFUSE_NATIVE_NOT_LOADED, REFUSE_LOW_PRESENCE, REFUSE_LOW_BUDGET, REFUSE_LOW_F}, decisiveness = current_a);
+            choice := choose({CALL_NATIVE, CALL_OLLAMA, CALL_OLLAMA_FALLBACK, REFUSE_LOW_PRESENCE, REFUSE_LOW_BUDGET, REFUSE_LOW_F}, decisiveness = current_a);
         }
 
         phase COMMIT {

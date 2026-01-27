@@ -277,7 +277,7 @@ src/existence/
 - [ ] Fallback chains when primary model unavailable
 - [ ] Cost tracking per model
 
-#### 21.4 Unified Model Architecture ✅ IN PROGRESS
+#### 21.4 Unified Model Architecture ✅ COMPLETE
 **Goal**: Deprecate Ollama, make native inference the primary backend
 
 - [x] Cache primitives: `model_cache_status`, `model_cache_shift`, `model_cache_slice` ✅
@@ -285,8 +285,9 @@ src/existence/
 - [x] LLMCreature.ex cache kernels: CacheStatus, CacheShift, CacheSlice, CacheReset ✅
 - [x] Unified model instance via `get_shared_model()`, `load_shared_model()` ✅
 - [x] det_os_boot.py uses shared model from primitives registry ✅
-- [ ] Route all generation through primitives (model_generate)
-- [ ] Make native default, Ollama fallback only
+- [x] Route all generation through `model_chat` primitive ✅
+- [x] Native inference is now default (`use_native=true` in LLMCreature.ex) ✅
+- [x] Ollama fallback via `CALL_OLLAMA_FALLBACK` when native model not loaded ✅
 
 ### Phase 22: System Integration
 **Goal**: Full system access and tool execution
