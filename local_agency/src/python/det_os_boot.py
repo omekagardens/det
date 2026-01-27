@@ -1087,53 +1087,54 @@ class DETRuntime:
                 )
                 print()  # Newline after streaming
 
-                # Compute truthfulness score via TruthfulnessCreature.ex (Phase 26.6)
-                if self.truthfulness_cid:
-                    # Reset creature for this generation
-                    self._invoke_truth_kernel("Reset")
+                # Compute truthfulness score via primitives directly (Phase 26.6)
+                # (Creature kernels add indirection; primitives are more reliable)
+                try:
+                    reg = get_registry()
 
-                    # Set up grounding signals via creature
-                    delta_f = token_count[0] * 0.1  # Approximate F cost
+                    # Reset evaluator for this generation
+                    reg.primitives['truth_reset'].handler()
+
+                    # Set grounding signals based on generation
+                    delta_f = token_count[0] * 0.1  # F cost scales with tokens
                     c_user = bond_state.get('coherence', 1.0) if bond_state else 1.0
-                    self._invoke_truth_kernel("SetGrounding", {
-                        'delta_f': delta_f,
-                        'stability': 1.0,
-                        'c_user': c_user,
-                        'violations': 0
-                    })
+                    reg.primitives['truth_set_grounding'].handler(
+                        delta_f=delta_f,
+                        stability=1.0,  # Would need re-generation to measure
+                        c_user=c_user,
+                        violations=0
+                    )
 
-                    # Record claims via creature (batch for efficiency)
-                    for _ in range(min(token_count[0], 100)):  # Cap at 100 to avoid too many kernel calls
-                        self._invoke_truth_kernel("RecordClaim", {
-                            'f_cost': 0.1,
-                            'min_cost': 0.1
-                        })
+                    # Record claims (each token is a potential claim)
+                    # Use batch recording for efficiency
+                    for _ in range(min(token_count[0], 100)):
+                        reg.primitives['truth_record_claim'].handler(
+                            f_cost=0.1,
+                            min_cost=0.1
+                        )
 
-                    # Evaluate via primitive directly (to get full result dict)
-                    # Creature handled setup; primitive gives us rich data
-                    agency = det_state.get('a', 0.5) if det_state else 0.5
+                    # Evaluate with actual DET state
+                    agency = det_state.get('a', 0.7) if det_state else 0.7
                     q_creature = det_state.get('q', 0.0) if det_state else 0.0
                     k_eff = 40  # Default top_k from SamplingParams
 
-                    try:
-                        reg = get_registry()
-                        eval_result = reg.primitives['truth_evaluate'].handler(
-                            agency=agency,
-                            entropy=0.5,  # Estimate
-                            k_eff=k_eff,
-                            q_creature=q_creature,
-                            num_tokens=token_count[0]
-                        )
+                    eval_result = reg.primitives['truth_evaluate'].handler(
+                        agency=agency,
+                        entropy=0.5,  # Estimate (would need logit entropy)
+                        k_eff=k_eff,
+                        q_creature=q_creature,
+                        num_tokens=token_count[0]
+                    )
 
-                        if eval_result and 'total' in eval_result:
-                            self.last_truth_result = eval_result
-                            self.last_truth_result['num_tokens'] = token_count[0]
+                    if eval_result and 'total' in eval_result:
+                        self.last_truth_result = eval_result
+                        self.last_truth_result['num_tokens'] = token_count[0]
 
-                            if self.truthfulness_enabled:
-                                self._show_truthfulness_score_compact(self.last_truth_result)
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"\033[90m[Truthfulness eval error: {e}]\033[0m")
+                        if self.truthfulness_enabled:
+                            self._show_truthfulness_score_compact(self.last_truth_result)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"\033[90m[Truthfulness eval error: {e}]\033[0m")
 
                 return ""  # Return empty - already streamed output
             except Exception as e:
