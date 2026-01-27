@@ -2000,13 +2000,13 @@ class PrimitiveRegistry:
         for i, stat in enumerate(token_stats):
             token_text = token_texts[i][0] if i < len(token_texts) else ""
             self.trace_ledger.record_choice(
-                token_id=stat.token_id,
+                token_id=stat['token_id'],
                 token_text=token_text,
-                entropy=stat.entropy,
-                entropy_raw=stat.entropy_raw,
-                k_eff=stat.k_eff,
-                top_prob=stat.top_prob,
-                top5_mass=stat.top5_mass,
+                entropy=stat['entropy'],
+                entropy_raw=stat['entropy_raw'],
+                k_eff=stat['k_eff'],
+                top_prob=stat['top_prob'],
+                top5_mass=stat['top5_mass'],
                 agency=float(agency),
                 presence=float(presence),
                 temperature=float(temperature)

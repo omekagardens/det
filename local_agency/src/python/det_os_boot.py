@@ -1160,15 +1160,14 @@ class DETRuntime:
                     for i, stat in enumerate(token_stats):
                         token_text = token_texts[i][0] if i < len(token_texts) else ""
                         reg.primitives['trace_record_choice'].handler(
-                            stat.token_id, token_text,
-                            stat.entropy, stat.entropy_raw, stat.k_eff,
-                            stat.top_prob, stat.top5_mass,
+                            stat['token_id'], token_text,
+                            stat['entropy'], stat['entropy_raw'], stat['k_eff'],
+                            stat['top_prob'], stat['top5_mass'],
                             agency, presence, 0.7  # temperature
                         )
                     reg.primitives['trace_end_generation'].handler(token_count[0] * 0.1)
                 except Exception as trace_err:
-                    if self.verbose:
-                        print(f"\033[90m[Trace recording: {trace_err}]\033[0m")
+                    print(f"\033[90m[Trace recording failed: {trace_err}]\033[0m")
 
                 # Compute truthfulness score via primitives (Phase 26.6)
                 try:
