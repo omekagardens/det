@@ -1072,7 +1072,7 @@ class DETRuntime:
         if self.native_enabled and self.native_model:
             try:
                 import sys
-                params = SamplingParams(temperature=0.7, top_p=0.9)
+                params = SamplingParams(temperature=0.7, top_p=0.9, repetition_penalty=1.3)
 
                 # Check cache capacity (Phase 26.4)
                 cache_info = self.native_model.cache_info()

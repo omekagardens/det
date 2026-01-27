@@ -574,18 +574,29 @@ class Model:
         # Tokenize prompt
         tokens = self.tokenize(prompt)
 
+        # Track all tokens for repetition penalty
+        context = list(tokens)
+
         # Forward pass on prompt
         logits = self.forward(tokens)
 
         # Generate tokens
         generated = []
         for _ in range(max_tokens):
-            token = self.sample(logits, params)
+            # Apply repetition penalty to logits if enabled
+            if params.repetition_penalty != 1.0 and context:
+                logits_modified = self._apply_repetition_penalty(
+                    logits, context, params.repetition_penalty
+                )
+                token = self.sample(logits_modified, params)
+            else:
+                token = self.sample(logits, params)
 
             if token == self.eos_token or token < 0:
                 break
 
             generated.append(token)
+            context.append(token)  # Track for repetition penalty
 
             # Callback for streaming
             if callback:
@@ -596,6 +607,51 @@ class Model:
             logits = self.forward([token])
 
         return self.detokenize(generated)
+
+    def _apply_repetition_penalty(self, logits, context: List[int], penalty: float):
+        """Apply repetition penalty to logits based on context tokens."""
+        import math
+
+        # Get logits as Python list
+        vocab_size = self.vocab_size
+        num_tokens = logits.contents.shape[0]
+
+        # Get pointer to last token's logits
+        float_ptr = ctypes.cast(logits.contents.data, ctypes.POINTER(ctypes.c_float))
+        offset = (num_tokens - 1) * vocab_size
+
+        # Create modified logits array
+        modified = (ctypes.c_float * vocab_size)()
+        for i in range(vocab_size):
+            modified[i] = float_ptr[offset + i]
+
+        # Apply penalty to tokens in context
+        seen_tokens = set(context[-256:])  # Only look at recent context
+        for token_id in seen_tokens:
+            if 0 <= token_id < vocab_size:
+                if modified[token_id] > 0:
+                    modified[token_id] /= penalty
+                else:
+                    modified[token_id] *= penalty
+
+        # Create a new tensor-like structure for modified logits
+        # We return a simple wrapper that sample() can use
+        return self._create_logits_tensor(modified, vocab_size)
+
+    def _create_logits_tensor(self, logits_array, vocab_size: int):
+        """Create a DetTensor wrapper for modified logits."""
+        # Allocate tensor structure
+        tensor = DetTensor()
+        tensor.ndim = 2
+        tensor.shape[0] = 1
+        tensor.shape[1] = vocab_size
+
+        # We need to keep the array alive, store in tensor.data
+        # The array is a ctypes array which manages its own memory
+        tensor.data = ctypes.cast(logits_array, ctypes.c_void_p).value
+        tensor._logits_array = logits_array  # Keep reference to prevent GC
+
+        return ctypes.pointer(tensor)
 
     def generate_with_truthfulness(self, prompt: str, max_tokens: int = 256,
                                     params: SamplingParams = None,
