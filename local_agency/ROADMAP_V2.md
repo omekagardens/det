@@ -479,16 +479,35 @@ is the remaining substrate integration work.
 
 **Key**: Even when using external sampling, wrap it in DET choose semantics.
 
-#### 26.6 Truthfulness Weighting
+#### 26.6 Truthfulness Weighting ✅ CORE COMPLETE
 **Goal**: Compute reliability score T for each output
 
-- [ ] TruthfulnessEvaluator creature
-- [ ] Per-token truthfulness from layer states
-- [ ] Composite score from: debt (q), agency (a), attention entropy, bond coherence
+- [x] TruthfulnessEvaluator Python class
+- [ ] TruthfulnessCreature.ex (Existence-Lang wrapper)
+- [ ] Per-token truthfulness from layer states (requires C-level hooks)
+- [x] Composite score from: debt (q), agency (a), attention entropy, bond coherence
 - [ ] Truthfulness vector output (factual_grounding, logical_coherence, etc.)
-- [ ] Calibration infrastructure
+- [x] Calibration infrastructure (add_calibration_sample, get_calibration_stats)
 
 **Formula**: `T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C`
+
+**Implementation** (`src/python/det/inference.py`):
+- `TruthfulnessScore`: Dataclass with composite score and component breakdown
+- `TruthfulnessWeights`: Configurable weights (w_debt=0.25, w_agency=0.30, w_entropy=0.25, w_coherence=0.20)
+- `TruthfulnessEvaluator`: Core evaluator class with evaluate() and evaluate_from_det_state()
+- `get_truthfulness_evaluator()`: Global singleton access
+- `Model.generate_with_truthfulness()`: Generation with T score
+
+**DET-OS Integration** (`src/python/det_os_boot.py`):
+- `truth` command family for status, enable/disable, last score, weights
+- Automatic T computation after generation using LLM creature state
+- Optional display of T score after each generation
+
+**Confidence Levels**:
+- High: T >= 0.75 (reliable)
+- Medium: T >= 0.50 (moderate confidence)
+- Low: T >= 0.25 (use with caution)
+- Very Low: T < 0.25 (highly uncertain)
 
 #### 26.6.5 QAM - Quantization-Aware Matmul ✅ COMPLETE
 **Goal**: Keep weights in Q8_0 format in memory, dequantize on-the-fly during matmul (~4x memory reduction)
@@ -708,4 +727,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (Metal GPU + QAM complete, ~4x memory savings)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (Chat templates + Truthfulness weighting complete)*
