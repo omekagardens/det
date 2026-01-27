@@ -531,6 +531,16 @@ T = (w_g*G + w_a*a*G + w_e*T_consist + w_c*C_user) / (1 + q_claim)
 - `truth weights` - Component weights (DET-rigorous)
 - `truth falsifiers` - Falsifier check results
 
+**Known Limitation - Process vs Content**:
+The truthfulness system measures *process reliability* (grounding, consistency, coherence)
+but NOT *factual correctness*. A confident hallucination can score T=0.73 because:
+- It "paid" for claims with F (grounding ✓)
+- It was internally consistent (low entropy ✓)
+- It tried to answer the user's question (coherence ✓)
+
+This is by design - DET measures HOW output was generated, not WHAT was said.
+To catch factual errors, see Phase 26.13 (Semantic Verification).
+
 #### 26.6.5 QAM - Quantization-Aware Matmul ✅ COMPLETE
 **Goal**: Keep weights in Q8_0 format in memory, dequantize on-the-fly during matmul (~4x memory reduction)
 
@@ -702,6 +712,46 @@ All top 5 predictions match HuggingFace. Small remaining differences are expecte
 | Hidden attention | Attention is auditable effect |
 | Post-hoc justification | Atomic commits, no retroactive changes |
 
+#### 26.13 Semantic Verification (Future)
+**Goal**: Detect factual errors and hallucinations that pass process-based truthfulness checks
+
+**Problem**: Current truthfulness (26.6) measures *process* not *content*. A confident
+hallucination can score T=0.73 because it was internally consistent and "paid" for claims.
+
+**Approaches to Explore**:
+
+1. **Trace Stability Testing**
+   - Re-ask the same question with paraphrasing
+   - Hallucinations are unstable (different answer each time)
+   - Ground truth is stable (same answer regardless of phrasing)
+   - Update `trace_stability` grounding signal based on actual re-generation
+
+2. **Semantic Coherence with Question**
+   - Did the answer actually address what was asked?
+   - "Schrödinger equation" → physics, not fake UN rankings
+   - Requires question-answer alignment scoring
+
+3. **External Verification Creature**
+   - FactCheckerCreature.ex that verifies claims
+   - For math: bond to CalculatorCreature and compare
+   - For facts: could use retrieval or known-fact database
+
+4. **Entropy Anomaly Detection**
+   - Hallucinations often have *too-low* entropy (overconfident)
+   - Real uncertainty should show in logit distribution
+   - Flag outputs where model is "suspiciously certain"
+
+5. **Constraint Propagation**
+   - User states constraints ("this is about physics")
+   - Violations increase q_claim debt
+   - Already partially implemented in GroundingSignals
+
+**DET-Native Approach**:
+- Verification is another creature with its own F budget
+- Claims create bonds to verification requests
+- Unverified claims accumulate debt until verified
+- Verification costs F (can't verify everything)
+
 ---
 
 ## Design Principles
@@ -749,4 +799,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (MVP COMPLETE: coherent generation working)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (MVP COMPLETE + Truthfulness 26.6 working, 26.13 Semantic Verification planned)*
