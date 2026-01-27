@@ -479,35 +479,55 @@ is the remaining substrate integration work.
 
 **Key**: Even when using external sampling, wrap it in DET choose semantics.
 
-#### 26.6 Truthfulness Weighting ✅ CORE COMPLETE
-**Goal**: Compute reliability score T for each output
+#### 26.6 Truthfulness Weighting ✅ DET-RIGOROUS COMPLETE
+**Goal**: Compute reliability score T for each output using DET-compliant physics
 
-- [x] TruthfulnessEvaluator Python class
+- [x] TruthfulnessEvaluator Python class (DET-rigorous)
+- [x] ClaimLedger for earned epistemic debt (q_claim)
+- [x] GroundingSignals for DET-native evidence (delta_f, stability, c_user)
+- [x] Agency gated by grounding factor G
+- [x] Entropy normalized locally by K_eff (no global constant)
+- [x] Falsifier checks (F_T1 through F_T4)
+- [x] Calibration infrastructure with falsifier tracking
 - [ ] TruthfulnessCreature.ex (Existence-Lang wrapper)
-- [ ] Per-token truthfulness from layer states (requires C-level hooks)
-- [x] Composite score from: debt (q), agency (a), attention entropy, bond coherence
-- [ ] Truthfulness vector output (factual_grounding, logical_coherence, etc.)
-- [x] Calibration infrastructure (add_calibration_sample, get_calibration_stats)
+- [ ] Per-token layer state hooks (requires C-level changes)
 
-**Formula**: `T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C`
+**DET-Rigorous Formula**:
+```
+T_ground = f(paid_claims, trace_stability, C_user)  # Grounding factor G
+T_consist = 1 - H_norm  (where H_norm = H / log(K_eff + ε))
+T = (w_g*G + w_a*a*G + w_e*T_consist + w_c*C_user) / (1 + q_claim)
+```
 
-**Implementation** (`src/python/det/inference.py`):
-- `TruthfulnessScore`: Dataclass with composite score and component breakdown
-- `TruthfulnessWeights`: Configurable weights (w_debt=0.25, w_agency=0.30, w_entropy=0.25, w_coherence=0.20)
-- `TruthfulnessEvaluator`: Core evaluator class with evaluate() and evaluate_from_det_state()
-- `get_truthfulness_evaluator()`: Global singleton access
-- `Model.generate_with_truthfulness()`: Generation with T score
+**Key DET Principles**:
+- `q_claim` is EARNED from unpaid assertions, never injected
+- Agency amplifies truth ONLY when coupled to grounding (a*G)
+- Entropy normalized locally by K_eff (no hidden global H_MAX)
+- Coherence is user-specific (C_user), not generic
 
-**DET-OS Integration** (`src/python/det_os_boot.py`):
-- `truth` command family for status, enable/disable, last score, weights
-- Automatic T computation after generation using LLM creature state
-- Optional display of T score after each generation
+**Grounding Signals (DET-Native, Local, Auditable)**:
+- `delta_f_claim`: F expenditure for claims (paid = grounded)
+- `trace_stability`: Output stability under perturbation
+- `c_user`: Bond coherence with user's context/constraints
+- `constraint_violations`: Violations of stated constraints
 
-**Confidence Levels**:
-- High: T >= 0.75 (reliable)
-- Medium: T >= 0.50 (moderate confidence)
-- Low: T >= 0.25 (use with caution)
-- Very Low: T < 0.25 (highly uncertain)
+**Falsifier Targets**:
+- F_T1: Reward hacking - T raised without grounding evidence (G < 0.3, T > 0.6)
+- F_T2: Overconfidence - Low entropy + low stability + high T
+- F_T3: Coherence misuse - High C_user alone yields high T
+- F_T4: Agency ungated - High agency without grounding contribution
+
+**Weights** (normalized):
+- `w_grounding`: 0.35 (paid claims, stability)
+- `w_agency`: 0.20 (gated by G)
+- `w_consistency`: 0.25 (entropy-based)
+- `w_coherence`: 0.20 (user-specific)
+
+**DET-OS Commands**:
+- `truth status` - Settings, last score, grounding factor
+- `truth last` - Detailed breakdown with falsifier checks
+- `truth weights` - Component weights (DET-rigorous)
+- `truth falsifiers` - Falsifier check results
 
 #### 26.6.5 QAM - Quantization-Aware Matmul ✅ COMPLETE
 **Goal**: Keep weights in Q8_0 format in memory, dequantize on-the-fly during matmul (~4x memory reduction)
