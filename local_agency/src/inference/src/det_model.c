@@ -956,6 +956,10 @@ int32_t det_model_sample_ex(DetModel* model, const DetTensor* logits,
     return token;
 }
 
+/* Forward declaration for stats recording (Phase 26.6) */
+static void det_stats_record(DetModel* model, int32_t token_id,
+                             const float* probs, int32_t k_eff, float entropy);
+
 /* Struct for sorting (probability, token_index) pairs */
 typedef struct {
     float prob;
@@ -1063,6 +1067,14 @@ int32_t det_choose_token(DetModel* model,
         probs[i] /= sum;
     }
 
+    /* Compute entropy before sampling (for truthfulness) */
+    float entropy = 0.0f;
+    for (int i = 0; i < cutoff; i++) {
+        if (probs[i] > 1e-10f) {
+            entropy -= probs[i] * logf(probs[i]);
+        }
+    }
+
     /* Sample from distribution */
     float r = random_float(&rng_state);
     cumsum = 0.0f;
@@ -1073,6 +1085,11 @@ int32_t det_choose_token(DetModel* model,
             sampled = indices[i];
             break;
         }
+    }
+
+    /* Record stats if model has stats buffer (Phase 26.6) */
+    if (model && model->gen_stats.stats) {
+        det_stats_record(model, sampled, probs, cutoff, entropy);
     }
 
     /* Update global RNG state */
@@ -1238,4 +1255,99 @@ const char* det_model_metal_device(void) {
     }
 #endif
     return "CPU only";
+}
+
+/* ==========================================================================
+ * PER-TOKEN STATS (Phase 26.6 - Truthfulness Hooks)
+ * ========================================================================== */
+
+void det_stats_start(DetModel* model, int32_t capacity) {
+    if (!model || capacity <= 0) return;
+
+    /* Free existing stats if any */
+    det_stats_clear(model);
+
+    /* Allocate stats buffer */
+    model->gen_stats.stats = calloc(capacity, sizeof(DetTokenStats));
+    model->gen_stats.count = 0;
+    model->gen_stats.capacity = capacity;
+}
+
+DetTokenStats* det_stats_get(DetModel* model, int32_t* count) {
+    if (!model || !model->gen_stats.stats) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    if (count) *count = model->gen_stats.count;
+    return model->gen_stats.stats;
+}
+
+void det_stats_aggregate(DetModel* model,
+                         float* mean_entropy,
+                         float* mean_k_eff,
+                         float* min_entropy) {
+    if (!model || !model->gen_stats.stats || model->gen_stats.count == 0) {
+        if (mean_entropy) *mean_entropy = 0.0f;
+        if (mean_k_eff) *mean_k_eff = 0.0f;
+        if (min_entropy) *min_entropy = 0.0f;
+        return;
+    }
+
+    float sum_entropy = 0.0f;
+    float sum_k_eff = 0.0f;
+    float min_ent = model->gen_stats.stats[0].entropy;
+
+    for (int i = 0; i < model->gen_stats.count; i++) {
+        DetTokenStats* s = &model->gen_stats.stats[i];
+        sum_entropy += s->entropy;
+        sum_k_eff += (float)s->k_eff;
+        if (s->entropy < min_ent) min_ent = s->entropy;
+    }
+
+    int n = model->gen_stats.count;
+    if (mean_entropy) *mean_entropy = sum_entropy / n;
+    if (mean_k_eff) *mean_k_eff = sum_k_eff / n;
+    if (min_entropy) *min_entropy = min_ent;
+}
+
+void det_stats_clear(DetModel* model) {
+    if (!model) return;
+    if (model->gen_stats.stats) {
+        free(model->gen_stats.stats);
+        model->gen_stats.stats = NULL;
+    }
+    model->gen_stats.count = 0;
+    model->gen_stats.capacity = 0;
+}
+
+/**
+ * Record stats for a sampled token (internal helper)
+ *
+ * Called from det_choose_token when model has stats enabled.
+ */
+static void det_stats_record(DetModel* model,
+                             int32_t token_id,
+                             const float* probs,
+                             int32_t k_eff,
+                             float entropy) {
+    if (!model || !model->gen_stats.stats) return;
+    if (model->gen_stats.count >= model->gen_stats.capacity) return;
+
+    DetTokenStats* s = &model->gen_stats.stats[model->gen_stats.count];
+    s->token_id = token_id;
+    s->entropy = entropy;
+    s->entropy_raw = entropy;  /* For now, same as entropy */
+    s->k_eff = k_eff;
+
+    /* Find top_prob (prob of selected token in sorted probs) */
+    s->top_prob = probs[0];  /* Highest prob after sorting */
+
+    /* Compute top5 mass */
+    s->top5_mass = 0.0f;
+    int top5 = (k_eff < 5) ? k_eff : 5;
+    for (int i = 0; i < top5; i++) {
+        s->top5_mass += probs[i];
+    }
+
+    model->gen_stats.count++;
 }

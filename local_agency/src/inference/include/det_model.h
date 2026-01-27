@@ -146,6 +146,38 @@ typedef struct {
     float* temp;        /* [n_ctx, n_embd] for output projection */
 } DetScratchBuffers;
 
+/* ==========================================================================
+ * PER-TOKEN STATS (Phase 26.6 - Truthfulness Hooks)
+ * ========================================================================== */
+
+/**
+ * Per-token statistics for truthfulness evaluation
+ *
+ * Captured during sampling to provide real entropy/k_eff values
+ * instead of hardcoded estimates.
+ */
+typedef struct {
+    float entropy;          /* Logit distribution entropy (after temperature) */
+    float entropy_raw;      /* Raw entropy (before temperature) */
+    int32_t k_eff;          /* Effective candidates (nucleus set size) */
+    float top_prob;         /* Probability of selected token */
+    float top5_mass;        /* Total probability mass in top 5 tokens */
+    int32_t token_id;       /* The selected token */
+} DetTokenStats;
+
+/**
+ * Buffer for per-generation token stats
+ */
+typedef struct {
+    DetTokenStats* stats;   /* Array of per-token stats */
+    int32_t count;          /* Number of tokens generated */
+    int32_t capacity;       /* Maximum capacity */
+} DetGenerationStats;
+
+/* ==========================================================================
+ * MODEL CONTEXT
+ * ========================================================================== */
+
 /** Model inference context */
 typedef struct DetModel {
     /* Configuration */
@@ -172,6 +204,9 @@ typedef struct DetModel {
     /* RoPE sin/cos cache */
     DetTensor* rope_sin;
     DetTensor* rope_cos;
+
+    /* Per-token stats for truthfulness (Phase 26.6) */
+    DetGenerationStats gen_stats;
 } DetModel;
 
 /* ==========================================================================
@@ -296,6 +331,42 @@ int32_t det_choose_token(DetModel* model,
                          float temperature, float top_p,
                          float* det_presence,  /* Optional DET presence values */
                          uint64_t seed);
+
+/* ==========================================================================
+ * PER-TOKEN STATS API (Phase 26.6 - Truthfulness Hooks)
+ * ========================================================================== */
+
+/**
+ * Start collecting token stats for a generation
+ *
+ * capacity: Maximum tokens to track (stats buffer size)
+ */
+void det_stats_start(DetModel* model, int32_t capacity);
+
+/**
+ * Get collected token stats
+ *
+ * Returns array of DetTokenStats, sets count to number of tokens.
+ * Returns NULL if stats not started.
+ */
+DetTokenStats* det_stats_get(DetModel* model, int32_t* count);
+
+/**
+ * Get aggregated stats for generation
+ *
+ * mean_entropy: Average entropy across all tokens
+ * mean_k_eff: Average effective candidates
+ * min_entropy: Minimum entropy (most confident token)
+ */
+void det_stats_aggregate(DetModel* model,
+                         float* mean_entropy,
+                         float* mean_k_eff,
+                         float* min_entropy);
+
+/**
+ * Clear stats buffer (call before new generation)
+ */
+void det_stats_clear(DetModel* model);
 
 /* ==========================================================================
  * UTILITIES

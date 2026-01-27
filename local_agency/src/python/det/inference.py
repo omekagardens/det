@@ -56,6 +56,18 @@ class DetModelConfig(ctypes.Structure):
     ]
 
 
+class DetTokenStats(ctypes.Structure):
+    """Matches DetTokenStats in det_model.h (Phase 26.6)"""
+    _fields_ = [
+        ("entropy", ctypes.c_float),       # Logit distribution entropy (after temperature)
+        ("entropy_raw", ctypes.c_float),   # Raw entropy (before temperature)
+        ("k_eff", ctypes.c_int32),         # Effective candidates (nucleus set size)
+        ("top_prob", ctypes.c_float),      # Probability of selected token
+        ("top5_mass", ctypes.c_float),     # Total probability mass in top 5 tokens
+        ("token_id", ctypes.c_int32),      # The selected token
+    ]
+
+
 # =============================================================================
 # LIBRARY LOADING
 # =============================================================================
@@ -207,6 +219,24 @@ def _setup_bindings(lib: ctypes.CDLL):
 
     lib.det_get_inference_mode.argtypes = []
     lib.det_get_inference_mode.restype = ctypes.c_int
+
+    # Per-token stats API (Phase 26.6)
+    lib.det_stats_start.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+    lib.det_stats_start.restype = None
+
+    lib.det_stats_get.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]
+    lib.det_stats_get.restype = ctypes.POINTER(DetTokenStats)
+
+    lib.det_stats_aggregate.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_float),  # mean_entropy
+        ctypes.POINTER(ctypes.c_float),  # mean_k_eff
+        ctypes.POINTER(ctypes.c_float),  # min_entropy
+    ]
+    lib.det_stats_aggregate.restype = None
+
+    lib.det_stats_clear.argtypes = [ctypes.c_void_p]
+    lib.det_stats_clear.restype = None
 
     # Metal backend
     try:
@@ -586,6 +616,76 @@ class Model:
             )
 
         return text, score
+
+    # =========================================================================
+    # PER-TOKEN STATS API (Phase 26.6)
+    # =========================================================================
+
+    def stats_start(self, capacity: int = 1024):
+        """
+        Start collecting per-token stats for truthfulness evaluation.
+
+        Must be called before generation to track real entropy and k_eff.
+
+        Args:
+            capacity: Maximum tokens to track (default 1024)
+        """
+        self._lib.det_stats_start(self._handle, capacity)
+
+    def stats_clear(self):
+        """Clear stats buffer for new generation."""
+        self._lib.det_stats_clear(self._handle)
+
+    def stats_get(self) -> List[dict]:
+        """
+        Get per-token stats from the last generation.
+
+        Returns:
+            List of dicts with 'entropy', 'entropy_raw', 'k_eff',
+            'top_prob', 'top5_mass', 'token_id' for each token.
+        """
+        count = ctypes.c_int32()
+        stats_ptr = self._lib.det_stats_get(self._handle, ctypes.byref(count))
+
+        if not stats_ptr or count.value == 0:
+            return []
+
+        result = []
+        for i in range(count.value):
+            stat = stats_ptr[i]
+            result.append({
+                'entropy': stat.entropy,
+                'entropy_raw': stat.entropy_raw,
+                'k_eff': stat.k_eff,
+                'top_prob': stat.top_prob,
+                'top5_mass': stat.top5_mass,
+                'token_id': stat.token_id,
+            })
+        return result
+
+    def stats_aggregate(self) -> dict:
+        """
+        Get aggregated stats for the last generation.
+
+        Returns:
+            Dict with 'mean_entropy', 'mean_k_eff', 'min_entropy'
+        """
+        mean_entropy = ctypes.c_float()
+        mean_k_eff = ctypes.c_float()
+        min_entropy = ctypes.c_float()
+
+        self._lib.det_stats_aggregate(
+            self._handle,
+            ctypes.byref(mean_entropy),
+            ctypes.byref(mean_k_eff),
+            ctypes.byref(min_entropy)
+        )
+
+        return {
+            'mean_entropy': mean_entropy.value,
+            'mean_k_eff': mean_k_eff.value,
+            'min_entropy': min_entropy.value,
+        }
 
 
 # =============================================================================

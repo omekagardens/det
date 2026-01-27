@@ -492,7 +492,12 @@ is the remaining substrate integration work.
 - [x] Falsifier checks (F_T1 through F_T4)
 - [x] Calibration infrastructure with falsifier tracking
 - [x] TruthfulnessCreature.ex (Existence-Lang wrapper) ✅
-- [ ] Per-token layer state hooks (requires C-level changes)
+- [x] Per-token layer state hooks ✅
+  - `DetTokenStats` struct: entropy, entropy_raw, k_eff, top_prob, top5_mass
+  - C API: `det_stats_start()`, `det_stats_get()`, `det_stats_aggregate()`, `det_stats_clear()`
+  - Real entropy computed in `det_choose_token()` during nucleus sampling
+  - Python bindings: `Model.stats_start()`, `stats_get()`, `stats_aggregate()`, `stats_clear()`
+  - det_os_boot.py uses real entropy and k_eff instead of hardcoded estimates
 
 **DET-Rigorous Formula**:
 ```
@@ -799,4 +804,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (MVP COMPLETE + Truthfulness 26.6 working, 26.13 Semantic Verification planned)*
+*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (MVP COMPLETE + Truthfulness 26.6 COMPLETE with per-token stats, 26.13 Semantic Verification planned)*

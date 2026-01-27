@@ -999,10 +999,11 @@ class DETRuntime:
         print(f"    q_creature (info):   {r.get('q_creature', 0):.4f}  (structural debt)")
         print(f"    Agency a:            {r.get('agency', 0):.4f}")
 
-        print(f"\n  \033[36mConsistency:\033[0m")
-        print(f"    Entropy H:           {r.get('entropy', 0):.4f}")
+        print(f"\n  \033[36mConsistency (Phase 26.6 - Real Stats from C Layer):\033[0m")
+        print(f"    Mean Entropy H:      {r.get('real_entropy', r.get('entropy', 0)):.4f}")
+        print(f"    Min Entropy:         {r.get('min_entropy', 0):.4f}  (most confident token)")
         print(f"    H_normalized:        {r.get('entropy_normalized', 0):.4f}  (H / log(K_eff))")
-        print(f"    K_eff:               {r.get('k_eff', 0)}  (effective candidates)")
+        print(f"    Mean K_eff:          {r.get('real_k_eff', r.get('k_eff', 0))}  (effective candidates)")
 
         # Get component breakdown from creature
         components = r.get('components', {})
@@ -1082,10 +1083,17 @@ class DETRuntime:
                     sys.stdout.flush()
 
                 print()  # Newline before streaming output
+
+                # Start stats collection for real entropy (Phase 26.6)
+                self.native_model.stats_start(capacity=512)
+
                 self.native_model.generate(
                     formatted_prompt, max_tokens=256, params=params, callback=on_token
                 )
                 print()  # Newline after streaming
+
+                # Get real entropy from token stats (Phase 26.6)
+                gen_stats = self.native_model.stats_aggregate()
 
                 # Compute truthfulness score via primitives directly (Phase 26.6)
                 # (Creature kernels add indirection; primitives are more reliable)
@@ -1113,15 +1121,18 @@ class DETRuntime:
                             min_cost=0.1
                         )
 
-                    # Evaluate with actual DET state
+                    # Evaluate with actual DET state and real entropy (Phase 26.6)
                     agency = det_state.get('a', 0.7) if det_state else 0.7
                     q_creature = det_state.get('q', 0.0) if det_state else 0.0
-                    k_eff = 40  # Default top_k from SamplingParams
+
+                    # Use real entropy from token stats (Phase 26.6)
+                    real_entropy = gen_stats.get('mean_entropy', 0.5) if gen_stats else 0.5
+                    real_k_eff = int(gen_stats.get('mean_k_eff', 40)) if gen_stats else 40
 
                     eval_result = reg.primitives['truth_evaluate'].handler(
                         agency=agency,
-                        entropy=0.5,  # Estimate (would need logit entropy)
-                        k_eff=k_eff,
+                        entropy=real_entropy,  # Real entropy from C layer
+                        k_eff=real_k_eff,      # Real k_eff from C layer
                         q_creature=q_creature,
                         num_tokens=token_count[0]
                     )
@@ -1129,6 +1140,10 @@ class DETRuntime:
                     if eval_result and 'total' in eval_result:
                         self.last_truth_result = eval_result
                         self.last_truth_result['num_tokens'] = token_count[0]
+                        # Store real stats from C layer (Phase 26.6)
+                        self.last_truth_result['real_entropy'] = real_entropy
+                        self.last_truth_result['real_k_eff'] = real_k_eff
+                        self.last_truth_result['min_entropy'] = gen_stats.get('min_entropy', 0.0) if gen_stats else 0.0
 
                         if self.truthfulness_enabled:
                             self._show_truthfulness_score_compact(self.last_truth_result)
