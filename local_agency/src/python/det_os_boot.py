@@ -1131,14 +1131,44 @@ class DETRuntime:
                 reg = get_registry()
                 reg.primitives['model_stats_start'].handler(512)
 
+                # Start trace recording (Phase 26.5)
+                agency = det_state.get('a', 0.7) if det_state else 0.7
+                presence = det_state.get('P', 1.0) if det_state else 1.0
+                reg.primitives['trace_start_generation'].handler(
+                    prompt[:200], agency, presence
+                )
+
+                # Track token texts for trace recording
+                token_texts = []
+                original_callback = on_token
+                def tracing_callback(text, token_id):
+                    token_texts.append((text, token_id))
+                    original_callback(text, token_id)
+
                 # Streaming generation uses shared model directly (callbacks need direct access)
                 self.native_model.generate(
-                    formatted_prompt, max_tokens=256, params=params, callback=on_token
+                    formatted_prompt, max_tokens=256, params=params, callback=tracing_callback
                 )
                 print()  # Newline after streaming
 
                 # Get real entropy from token stats via primitive
                 gen_stats = reg.primitives['model_stats_aggregate'].handler()
+
+                # Record token choice traces (Phase 26.5)
+                try:
+                    token_stats = self.native_model.stats_get()
+                    for i, stat in enumerate(token_stats):
+                        token_text = token_texts[i][0] if i < len(token_texts) else ""
+                        reg.primitives['trace_record_choice'].handler(
+                            stat.token_id, token_text,
+                            stat.entropy, stat.entropy_raw, stat.k_eff,
+                            stat.top_prob, stat.top5_mass,
+                            agency, presence, 0.7  # temperature
+                        )
+                    reg.primitives['trace_end_generation'].handler(token_count[0] * 0.1)
+                except Exception as trace_err:
+                    if self.verbose:
+                        print(f"\033[90m[Trace recording: {trace_err}]\033[0m")
 
                 # Compute truthfulness score via primitives (Phase 26.6)
                 try:
