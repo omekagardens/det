@@ -1671,6 +1671,33 @@ class DETRuntime:
                         print(f"No model loaded or slice failed: {e}")
                     continue
 
+                # Token Choice Trace commands (Phase 26.5)
+                elif cmd_lower == "trace" or cmd_lower == "trace stats":
+                    self._trace_stats()
+                    continue
+
+                elif cmd_lower == "trace recent":
+                    self._trace_recent()
+                    continue
+
+                elif cmd_lower.startswith("trace show"):
+                    args = cmd_lower[10:].strip().split()
+                    if args:
+                        try:
+                            gen_id = int(args[0])
+                            self._trace_show(gen_id)
+                        except ValueError:
+                            print("Usage: trace show <generation_id>")
+                    else:
+                        print("Usage: trace show <generation_id>")
+                    continue
+
+                elif cmd_lower == "trace clear":
+                    reg = get_registry()
+                    reg.primitives['trace_clear'].handler()
+                    print("Token choice traces cleared.")
+                    continue
+
                 # Collider commands (Phase 20.5)
                 elif cmd_lower == "collider" or cmd_lower == "collider help":
                     self._collider_help()
@@ -1828,6 +1855,12 @@ class DETRuntime:
   cache reset       Reset cache for new conversation
   cache shift <N>   Keep only last N tokens (sliding window)
   cache slice <s> <e>  Keep positions [start, end)
+
+\033[33mToken Choice Traces (Phase 26.5):\033[0m
+  trace             Show trace ledger statistics
+  trace recent      List recent generations with traces
+  trace show <id>   Show detailed trace for generation ID
+  trace clear       Clear all recorded traces
 
 \033[33mCollider (Phase 20.5):\033[0m
   collider          Show collider commands
@@ -2066,6 +2099,105 @@ class DETRuntime:
             print(f"\n  \033[33mWarning: Cache nearing capacity.")
             print(f"  Use 'cache shift <N>' to keep last N tokens, or")
             print(f"  'cache reset' to clear for new conversation.\033[0m")
+        print()
+
+    # =========================================================================
+    # Token Choice Trace Methods (Phase 26.5)
+    # =========================================================================
+
+    def _trace_stats(self):
+        """Display token choice trace statistics."""
+        print("\n\033[33mToken Choice Trace Ledger:\033[0m")
+
+        try:
+            reg = get_registry()
+            stats = reg.primitives['trace_stats'].handler()
+
+            print(f"  Generations:   {stats['generations']}")
+            print(f"  Total Traces:  {stats['total_traces']}")
+
+            if stats['total_traces'] > 0:
+                print(f"  Mean Entropy:  {stats['mean_entropy']:.3f}")
+                print(f"  Mean K_eff:    {stats['mean_k_eff']:.1f}")
+
+                # Show witness counts
+                if stats.get('witness_counts'):
+                    print("\n  Witness Distribution:")
+                    from det.eis.primitives import TokenChoiceWitness
+                    for w_val, count in sorted(stats['witness_counts'].items()):
+                        try:
+                            name = TokenChoiceWitness(w_val).name
+                        except ValueError:
+                            name = f"UNKNOWN({w_val})"
+                        pct = count * 100 / stats['total_traces']
+                        print(f"    {name}: {count} ({pct:.1f}%)")
+            else:
+                print("\n  No traces recorded yet. Generate some text first.")
+        except Exception as e:
+            print(f"  Error getting trace stats: {e}")
+        print()
+
+    def _trace_recent(self, count: int = 10):
+        """Show recent generation traces."""
+        print("\n\033[33mRecent Generations:\033[0m")
+
+        try:
+            reg = get_registry()
+            recent = reg.primitives['trace_get_recent'].handler(count)
+
+            if not recent:
+                print("  No generations recorded yet.")
+            else:
+                for gen in recent:
+                    print(f"\n  \033[36mGeneration {gen['generation_id']}\033[0m")
+                    print(f"    Tokens:  {gen['total_tokens']}")
+                    print(f"    Entropy: {gen['mean_entropy']:.3f}")
+                    print(f"    Output:  {gen['output_preview']}")
+        except Exception as e:
+            print(f"  Error getting recent traces: {e}")
+        print()
+
+    def _trace_show(self, generation_id: int):
+        """Show detailed trace for a generation."""
+        print(f"\n\033[33mGeneration {generation_id} Details:\033[0m")
+
+        try:
+            reg = get_registry()
+            gen = reg.primitives['trace_get_generation'].handler(generation_id)
+
+            if gen.get('error'):
+                print(f"  {gen['error']}")
+                return
+
+            print(f"  Prompt:  {gen['prompt']}")
+            print(f"  Output:  {gen['output']}")
+            print(f"  Tokens:  {gen['total_tokens']}")
+            print(f"  Entropy: mean={gen['mean_entropy']:.3f}")
+            print(f"  K_eff:   mean={gen['mean_k_eff']:.1f}")
+            print(f"  F Cost:  {gen['f_cost']:.2f}")
+
+            if gen.get('traces'):
+                print(f"\n  Token Traces (first {len(gen['traces'])}):")
+                from det.eis.primitives import TokenChoiceWitness
+                for t in gen['traces'][:20]:  # Show first 20
+                    # Color by witness type
+                    w_name = t['witness']
+                    if 'CONFIDENT' in w_name:
+                        color = "\033[32m"  # Green
+                    elif 'UNCERTAIN' in w_name:
+                        color = "\033[31m"  # Red
+                    elif 'NARROW' in w_name:
+                        color = "\033[33m"  # Yellow
+                    else:
+                        color = "\033[0m"
+
+                    text_repr = repr(t['token_text'])[:10]
+                    print(f"    [{t['position']:3d}] {color}{w_name:16}\033[0m "
+                          f"H={t['entropy']:.2f} k={t['k_eff']:3d} {text_repr}")
+        except Exception as e:
+            print(f"  Error: {e}")
+            import traceback
+            traceback.print_exc()
         print()
 
     def _send_to_creature(self, target: str, primitive: str, args: list):

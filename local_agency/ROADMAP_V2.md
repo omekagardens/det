@@ -475,7 +475,7 @@ src/existence/
 
 **Performance Critical**: KV cache correctness + efficiency is where decode speed lives.
 
-#### 26.5 DET-Native Sampler ✅ COMPLETE
+#### 26.5 DET-Native Sampler ✅ FULLY COMPLETE
 **Goal**: The sacred DET integration point
 
 - [x] `det_choose_token(logits, temperature, top_p, top_k)` C primitive
@@ -485,7 +485,17 @@ src/existence/
 - [x] DET agency modulates temperature (in SamplerCreature.ex)
 - [x] DET structure modulates consistency (in SamplerCreature.ex)
 - [x] Presence-gated generation (low P → refuse to generate)
-- [ ] Choice committed as witness/trace ← TODO (full substrate integration)
+- [x] Choice committed as witness/trace ✅ COMPLETE
+
+**Token Choice Trace System (Phase 26.5 Completion)**:
+- [x] `TokenChoiceWitness` enum: CHOICE_OK, CHOICE_UNCERTAIN, CHOICE_CONFIDENT, CHOICE_NARROW, CHOICE_BROAD, CHOICE_REFUSED
+- [x] `TokenChoiceTrace` dataclass: Full metadata for each token choice (entropy, k_eff, agency, presence, witness)
+- [x] `GenerationTrace` dataclass: Complete generation audit trail
+- [x] `TraceLedger` class: Records all token choices for auditability
+- [x] Trace primitives: `trace_start_generation`, `trace_record_choice`, `trace_end_generation`, `trace_get_generation`, `trace_get_recent`, `trace_stats`, `trace_clear`
+- [x] `model_chat` primitive auto-records traces with witness classification
+- [x] DET-OS commands: `trace`, `trace recent`, `trace show <id>`, `trace clear`
+- [x] Substrate token types: TOK_CHOICE_* values in substrate_types.h
 
 **SamplerCreature.ex** implements the sacred integration point where:
 - Agency (a) modulates temperature: higher a → more exploration
@@ -493,10 +503,14 @@ src/existence/
 - Presence (P) gates generation: P < 0.1 → entity fading, refuse to sample
 - DET presence bias vector influences token selection
 
-**Note**: Core DET integration complete. Witness/trace recording for full auditability
-is the remaining substrate integration work.
+**Witness Classification**:
+- CHOICE_CONFIDENT (H_norm < 0.3): Low entropy, high confidence choice
+- CHOICE_UNCERTAIN (H_norm > 0.7): High entropy, uncertain choice
+- CHOICE_NARROW (k_eff < 5): Concentrated distribution
+- CHOICE_BROAD (k_eff > 50): Diffuse distribution
+- CHOICE_OK: Normal choice within expected ranges
 
-**Key**: Even when using external sampling, wrap it in DET choose semantics.
+**Key**: Every token choice is now committed as a DET-compliant witness trace with full auditability.
 
 #### 26.6 Truthfulness Weighting ✅ DET-RIGOROUS COMPLETE
 **Goal**: Compute reliability score T for each output using DET-compliant physics

@@ -64,6 +64,242 @@ class PrimitiveSpec:
     return_type: str = "any"
 
 
+# =============================================================================
+# TOKEN CHOICE TRACE SYSTEM (Phase 26.5)
+# =============================================================================
+# Records token choices as DET-compliant traces with full metadata for
+# auditability. Each choice becomes a witness that can be replayed/verified.
+
+class TokenChoiceWitness(IntEnum):
+    """Witness tokens for token choice outcomes (matches substrate_types.h)."""
+    CHOICE_OK        = 0x0300  # Token sampled successfully
+    CHOICE_UNCERTAIN = 0x0301  # High entropy choice (H_norm > 0.7)
+    CHOICE_CONFIDENT = 0x0302  # Low entropy choice (H_norm < 0.3)
+    CHOICE_NARROW    = 0x0303  # Small k_eff (< 5, concentrated)
+    CHOICE_BROAD     = 0x0304  # Large k_eff (> 50, diffuse)
+    CHOICE_REFUSED   = 0x0305  # Choice refused (low presence/agency)
+
+
+@dataclass
+class TokenChoiceTrace:
+    """
+    A single token choice committed as a DET trace.
+
+    This is the atomic unit of auditability for token generation.
+    Each trace captures the full state at the moment of choice.
+    """
+    # Identity
+    trace_id: int                    # Unique trace ID
+    generation_id: int               # Which generation this belongs to
+    position: int                    # Position in sequence (0-indexed)
+
+    # The choice
+    token_id: int                    # Selected token ID
+    token_text: str                  # Decoded token text
+
+    # Distribution state at choice
+    entropy: float                   # H after temperature scaling
+    entropy_raw: float               # H before temperature
+    k_eff: int                       # Effective vocabulary size (nucleus)
+    top_prob: float                  # P(chosen token)
+    top5_mass: float                 # Sum of top-5 probabilities
+
+    # DET state at choice
+    agency: float                    # Creature agency when choice made
+    presence: float                  # Creature presence when choice made
+    temperature: float               # Sampling temperature used
+
+    # Witness classification
+    witness_token: int               # TokenChoiceWitness value
+
+    # Timing
+    timestamp: float                 # Unix timestamp of choice
+
+
+@dataclass
+class GenerationTrace:
+    """
+    A complete generation as a sequence of token choice traces.
+
+    This is the full audit trail for a single generation request.
+    """
+    generation_id: int               # Unique generation ID
+    prompt: str                      # Input prompt
+    output: str                      # Generated output
+    token_traces: List[TokenChoiceTrace] = field(default_factory=list)
+
+    # Aggregate stats
+    total_tokens: int = 0
+    mean_entropy: float = 0.0
+    mean_k_eff: float = 0.0
+    min_entropy: float = 1.0
+    max_entropy: float = 0.0
+
+    # DET state
+    agency_start: float = 0.7
+    presence_start: float = 1.0
+    f_cost: float = 0.0
+
+    # Timing
+    start_time: float = 0.0
+    end_time: float = 0.0
+
+
+class TraceLedger:
+    """
+    Ledger of all token choice traces for auditability.
+
+    Maintains a complete record of every token choice, enabling:
+    - Replay: Verify choices were deterministic given seed
+    - Audit: Inspect distribution state at any choice
+    - Analysis: Compute aggregate truthfulness metrics
+    """
+
+    def __init__(self, max_generations: int = 1000):
+        self.generations: List[GenerationTrace] = []
+        self.max_generations = max_generations
+        self._next_trace_id = 0
+        self._next_generation_id = 0
+        self._current_generation: Optional[GenerationTrace] = None
+
+    def start_generation(self, prompt: str, agency: float = 0.7,
+                         presence: float = 1.0) -> int:
+        """Start a new generation trace."""
+        gen_id = self._next_generation_id
+        self._next_generation_id += 1
+
+        self._current_generation = GenerationTrace(
+            generation_id=gen_id,
+            prompt=prompt,
+            output="",
+            agency_start=agency,
+            presence_start=presence,
+            start_time=time.time()
+        )
+        return gen_id
+
+    def record_choice(self, token_id: int, token_text: str,
+                      entropy: float, entropy_raw: float, k_eff: int,
+                      top_prob: float, top5_mass: float,
+                      agency: float, presence: float, temperature: float) -> TokenChoiceTrace:
+        """Record a single token choice as a trace."""
+        if self._current_generation is None:
+            # Auto-start if needed
+            self.start_generation("", agency, presence)
+
+        # Classify the choice
+        h_norm = entropy / (max(1, k_eff) + 1e-6)  # Normalized entropy
+        if h_norm > 0.7:
+            witness = TokenChoiceWitness.CHOICE_UNCERTAIN
+        elif h_norm < 0.3:
+            witness = TokenChoiceWitness.CHOICE_CONFIDENT
+        elif k_eff < 5:
+            witness = TokenChoiceWitness.CHOICE_NARROW
+        elif k_eff > 50:
+            witness = TokenChoiceWitness.CHOICE_BROAD
+        else:
+            witness = TokenChoiceWitness.CHOICE_OK
+
+        trace = TokenChoiceTrace(
+            trace_id=self._next_trace_id,
+            generation_id=self._current_generation.generation_id,
+            position=len(self._current_generation.token_traces),
+            token_id=token_id,
+            token_text=token_text,
+            entropy=entropy,
+            entropy_raw=entropy_raw,
+            k_eff=k_eff,
+            top_prob=top_prob,
+            top5_mass=top5_mass,
+            agency=agency,
+            presence=presence,
+            temperature=temperature,
+            witness_token=witness.value,
+            timestamp=time.time()
+        )
+
+        self._next_trace_id += 1
+        self._current_generation.token_traces.append(trace)
+        self._current_generation.output += token_text
+
+        return trace
+
+    def end_generation(self, f_cost: float = 0.0) -> GenerationTrace:
+        """Finalize and store the current generation trace."""
+        if self._current_generation is None:
+            raise RuntimeError("No generation in progress")
+
+        gen = self._current_generation
+        gen.end_time = time.time()
+        gen.f_cost = f_cost
+        gen.total_tokens = len(gen.token_traces)
+
+        # Compute aggregates
+        if gen.token_traces:
+            entropies = [t.entropy for t in gen.token_traces]
+            k_effs = [t.k_eff for t in gen.token_traces]
+            gen.mean_entropy = sum(entropies) / len(entropies)
+            gen.mean_k_eff = sum(k_effs) / len(k_effs)
+            gen.min_entropy = min(entropies)
+            gen.max_entropy = max(entropies)
+
+        # Store and rotate if needed
+        self.generations.append(gen)
+        if len(self.generations) > self.max_generations:
+            self.generations = self.generations[-self.max_generations:]
+
+        self._current_generation = None
+        return gen
+
+    def get_generation(self, generation_id: int) -> Optional[GenerationTrace]:
+        """Get a generation trace by ID."""
+        for gen in self.generations:
+            if gen.generation_id == generation_id:
+                return gen
+        return None
+
+    def get_recent(self, count: int = 10) -> List[GenerationTrace]:
+        """Get the most recent generation traces."""
+        return self.generations[-count:]
+
+    def get_trace(self, trace_id: int) -> Optional[TokenChoiceTrace]:
+        """Get a specific token choice trace by ID."""
+        for gen in self.generations:
+            for trace in gen.token_traces:
+                if trace.trace_id == trace_id:
+                    return trace
+        return None
+
+    def clear(self):
+        """Clear all traces."""
+        self.generations = []
+        self._current_generation = None
+
+    def stats(self) -> dict:
+        """Get summary statistics for the ledger."""
+        if not self.generations:
+            return {"generations": 0, "total_traces": 0}
+
+        total_traces = sum(len(g.token_traces) for g in self.generations)
+        all_entropies = [t.entropy for g in self.generations for t in g.token_traces]
+        all_k_effs = [t.k_eff for g in self.generations for t in g.token_traces]
+
+        # Count witness types
+        witness_counts = {}
+        for g in self.generations:
+            for t in g.token_traces:
+                w = t.witness_token
+                witness_counts[w] = witness_counts.get(w, 0) + 1
+
+        return {
+            "generations": len(self.generations),
+            "total_traces": total_traces,
+            "mean_entropy": sum(all_entropies) / len(all_entropies) if all_entropies else 0,
+            "mean_k_eff": sum(all_k_effs) / len(all_k_effs) if all_k_effs else 0,
+            "witness_counts": witness_counts
+        }
+
+
 class PrimitiveRegistry:
     """
     Registry of all available primitives.
@@ -76,6 +312,9 @@ class PrimitiveRegistry:
         self.primitives: Dict[str, PrimitiveSpec] = {}
         self.call_history: List[PrimitiveCall] = []
         self.total_cost: float = 0.0
+
+        # Token choice trace ledger (Phase 26.5)
+        self.trace_ledger: TraceLedger = TraceLedger()
 
         # Configuration
         self.ollama_url: str = "http://localhost:11434"
@@ -1371,6 +1610,77 @@ class PrimitiveRegistry:
             return_type="void"
         ))
 
+        # === Token Choice Trace Primitives (Phase 26.5) ===
+        self.register(PrimitiveSpec(
+            name="trace_start_generation",
+            handler=self._trace_start_generation,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Start a new generation trace",
+            arg_types=["string", "float", "float"],
+            return_type="int"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="trace_record_choice",
+            handler=self._trace_record_choice,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Record a token choice as witness trace",
+            arg_types=["int", "string", "float", "float", "int", "float", "float", "float", "float", "float"],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="trace_end_generation",
+            handler=self._trace_end_generation,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Finalize and store current generation trace",
+            arg_types=["float"],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="trace_get_generation",
+            handler=self._trace_get_generation,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get a generation trace by ID",
+            arg_types=["int"],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="trace_get_recent",
+            handler=self._trace_get_recent,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get recent generation traces",
+            arg_types=["int"],
+            return_type="list"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="trace_stats",
+            handler=self._trace_stats,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get trace ledger statistics",
+            arg_types=[],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="trace_clear",
+            handler=self._trace_clear,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Clear all traces",
+            arg_types=[],
+            return_type="void"
+        ))
+
         # === GPU Status ===
         self.register(PrimitiveSpec(
             name="metal_status",
@@ -1615,12 +1925,13 @@ class PrimitiveRegistry:
 
     def _model_chat(self, user_message: str, system_message: str = "",
                     max_tokens: int = 256, temperature: float = 0.7,
-                    top_p: float = 0.9) -> dict:
+                    top_p: float = 0.9, agency: float = 0.7,
+                    presence: float = 1.0) -> dict:
         """
-        Chat generation with template, stats, and structured output.
+        Chat generation with template, stats, trace recording, and structured output.
 
         This is the recommended primitive for chat-style generation.
-        Handles: chat template formatting, stats collection, sampling params.
+        Handles: chat template formatting, stats collection, trace recording, sampling params.
 
         Args:
             user_message: User's input message
@@ -1628,12 +1939,15 @@ class PrimitiveRegistry:
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             top_p: Nucleus sampling threshold
+            agency: DET agency for trace recording
+            presence: DET presence for trace recording
 
         Returns:
             dict with:
                 - text: Generated response text
                 - token_count: Number of tokens generated
                 - stats: {mean_entropy, mean_k_eff, min_entropy}
+                - trace: {generation_id, witness_counts}
         """
         self._init_inference_backend()
 
@@ -1659,28 +1973,59 @@ class PrimitiveRegistry:
             top_p=float(top_p)
         )
 
-        # Start stats collection
+        # Start stats collection and trace (Phase 26.5)
         self._inference_model.stats_start(capacity=512)
+        gen_id = self.trace_ledger.start_generation(
+            user_message[:200],  # Truncate for storage
+            float(agency),
+            float(presence)
+        )
 
         # Generate (non-streaming)
-        token_count = [0]
-        def count_tokens(text, token_id):
-            token_count[0] += 1
+        token_texts = []
+        def collect_tokens(text, token_id):
+            token_texts.append((text, token_id))
 
         text = self._inference_model.generate(
             formatted_prompt,
             max_tokens=int(max_tokens),
             params=params,
-            callback=count_tokens
+            callback=collect_tokens
         )
 
-        # Get stats
+        # Get per-token stats and record traces (Phase 26.5)
+        token_stats = self._inference_model.stats_get()
+
+        # Record each token choice as a trace
+        for i, stat in enumerate(token_stats):
+            token_text = token_texts[i][0] if i < len(token_texts) else ""
+            self.trace_ledger.record_choice(
+                token_id=stat.token_id,
+                token_text=token_text,
+                entropy=stat.entropy,
+                entropy_raw=stat.entropy_raw,
+                k_eff=stat.k_eff,
+                top_prob=stat.top_prob,
+                top5_mass=stat.top5_mass,
+                agency=float(agency),
+                presence=float(presence),
+                temperature=float(temperature)
+            )
+
+        # End trace and get summary
+        trace_summary = self.trace_ledger.end_generation(f_cost=1.0)
+
+        # Get aggregate stats
         stats = self._inference_model.stats_aggregate()
 
         return {
             "text": text,
-            "token_count": token_count[0],
-            "stats": stats
+            "token_count": len(token_texts),
+            "stats": stats,
+            "trace": {
+                "generation_id": trace_summary["generation_id"],
+                "witness_counts": trace_summary["witness_counts"]
+            }
         }
 
     def _model_generate_step(self, tokens: list, temperature: float = 0.7,
@@ -1896,6 +2241,118 @@ class PrimitiveRegistry:
             return {"error": "No evaluation performed yet"}
 
         return self._last_truth_score.falsifier_flags or {}
+
+    # =========================================================================
+    # Token Choice Trace Primitives (Phase 26.5)
+    # =========================================================================
+
+    def _trace_start_generation(self, prompt: str, agency: float = 0.7,
+                                 presence: float = 1.0) -> int:
+        """Start a new generation trace."""
+        return self.trace_ledger.start_generation(str(prompt), float(agency), float(presence))
+
+    def _trace_record_choice(self, token_id: int, token_text: str,
+                              entropy: float, entropy_raw: float, k_eff: int,
+                              top_prob: float, top5_mass: float,
+                              agency: float, presence: float, temperature: float) -> dict:
+        """
+        Record a token choice as a witness trace.
+
+        This is the sacred integration point where token choices become
+        DET-compliant witnesses committed to the trace ledger.
+        """
+        trace = self.trace_ledger.record_choice(
+            token_id=int(token_id),
+            token_text=str(token_text),
+            entropy=float(entropy),
+            entropy_raw=float(entropy_raw),
+            k_eff=int(k_eff),
+            top_prob=float(top_prob),
+            top5_mass=float(top5_mass),
+            agency=float(agency),
+            presence=float(presence),
+            temperature=float(temperature)
+        )
+
+        # Return witness info
+        return {
+            "trace_id": trace.trace_id,
+            "witness_token": trace.witness_token,
+            "witness_name": TokenChoiceWitness(trace.witness_token).name,
+            "entropy": trace.entropy,
+            "k_eff": trace.k_eff
+        }
+
+    def _trace_end_generation(self, f_cost: float = 0.0) -> dict:
+        """Finalize and store current generation trace."""
+        gen = self.trace_ledger.end_generation(float(f_cost))
+
+        # Count witnesses by type
+        witness_counts = {}
+        for t in gen.token_traces:
+            w = t.witness_token
+            witness_counts[w] = witness_counts.get(w, 0) + 1
+
+        return {
+            "generation_id": gen.generation_id,
+            "total_tokens": gen.total_tokens,
+            "mean_entropy": gen.mean_entropy,
+            "mean_k_eff": gen.mean_k_eff,
+            "min_entropy": gen.min_entropy,
+            "max_entropy": gen.max_entropy,
+            "f_cost": gen.f_cost,
+            "duration_ms": (gen.end_time - gen.start_time) * 1000,
+            "witness_counts": witness_counts
+        }
+
+    def _trace_get_generation(self, generation_id: int) -> dict:
+        """Get a generation trace by ID."""
+        gen = self.trace_ledger.get_generation(int(generation_id))
+        if gen is None:
+            return {"error": f"Generation {generation_id} not found"}
+
+        return {
+            "generation_id": gen.generation_id,
+            "prompt": gen.prompt[:100] + "..." if len(gen.prompt) > 100 else gen.prompt,
+            "output": gen.output[:200] + "..." if len(gen.output) > 200 else gen.output,
+            "total_tokens": gen.total_tokens,
+            "mean_entropy": gen.mean_entropy,
+            "mean_k_eff": gen.mean_k_eff,
+            "f_cost": gen.f_cost,
+            "traces": [
+                {
+                    "trace_id": t.trace_id,
+                    "position": t.position,
+                    "token_id": t.token_id,
+                    "token_text": t.token_text,
+                    "entropy": t.entropy,
+                    "k_eff": t.k_eff,
+                    "witness": TokenChoiceWitness(t.witness_token).name
+                }
+                for t in gen.token_traces[:50]  # Limit to first 50 for display
+            ]
+        }
+
+    def _trace_get_recent(self, count: int = 10) -> list:
+        """Get recent generation traces."""
+        gens = self.trace_ledger.get_recent(int(count))
+        return [
+            {
+                "generation_id": g.generation_id,
+                "total_tokens": g.total_tokens,
+                "mean_entropy": g.mean_entropy,
+                "output_preview": g.output[:50] + "..." if len(g.output) > 50 else g.output
+            }
+            for g in gens
+        ]
+
+    def _trace_stats(self) -> dict:
+        """Get trace ledger statistics."""
+        return self.trace_ledger.stats()
+
+    def _trace_clear(self) -> None:
+        """Clear all traces."""
+        self.trace_ledger.clear()
 
 
 # Global registry instance

@@ -182,6 +182,14 @@ typedef enum {
     TOK_COV_DRIFT    = 0x0231,
     TOK_COV_BROKEN   = 0x0232,
 
+    /* Token choice witnesses (Phase 26.5) */
+    TOK_CHOICE_OK        = 0x0300,  /* Token sampled successfully */
+    TOK_CHOICE_UNCERTAIN = 0x0301,  /* High entropy choice (H > 0.7) */
+    TOK_CHOICE_CONFIDENT = 0x0302,  /* Low entropy choice (H < 0.3) */
+    TOK_CHOICE_NARROW    = 0x0303,  /* Small k_eff (concentrated distribution) */
+    TOK_CHOICE_BROAD     = 0x0304,  /* Large k_eff (diffuse distribution) */
+    TOK_CHOICE_REFUSED   = 0x0305,  /* Choice refused (low presence/agency) */
+
     /* Phase violation */
     TOK_PHASE_VIOLATION = 0xFF00,
 } TokenValue;
