@@ -1329,6 +1329,37 @@ class PrimitiveRegistry:
             return_type="dict"
         ))
 
+        # === Per-Token Stats (Phase 26.6) ===
+        self.register(PrimitiveSpec(
+            name="model_stats_start",
+            handler=self._model_stats_start,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Start collecting per-token stats",
+            arg_types=["int"],
+            return_type="void"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_stats_aggregate",
+            handler=self._model_stats_aggregate,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Get aggregated stats (mean_entropy, mean_k_eff, min_entropy)",
+            arg_types=[],
+            return_type="dict"
+        ))
+
+        self.register(PrimitiveSpec(
+            name="model_stats_clear",
+            handler=self._model_stats_clear,
+            base_cost=0.001,
+            min_agency=0.0,
+            description="Clear stats buffer",
+            arg_types=[],
+            return_type="void"
+        ))
+
         # === GPU Status ===
         self.register(PrimitiveSpec(
             name="metal_status",
@@ -1608,6 +1639,37 @@ class PrimitiveRegistry:
             "is_eos": is_eos
         }
 
+    def _model_stats_start(self, capacity: int = 512) -> None:
+        """Start collecting per-token stats (Phase 26.6)."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            raise RuntimeError("No model loaded")
+
+        self._inference_model.stats_start(int(capacity))
+
+    def _model_stats_aggregate(self) -> dict:
+        """Get aggregated stats from last generation (Phase 26.6)."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            return {
+                "mean_entropy": 0.0,
+                "mean_k_eff": 0.0,
+                "min_entropy": 0.0
+            }
+
+        return self._inference_model.stats_aggregate()
+
+    def _model_stats_clear(self) -> None:
+        """Clear stats buffer (Phase 26.6)."""
+        self._init_inference_backend()
+
+        if self._inference_model is None:
+            return
+
+        self._inference_model.stats_clear()
+
     def _metal_status(self) -> dict:
         """Get Metal GPU status."""
         self._init_inference_backend()
@@ -1765,6 +1827,43 @@ def get_registry() -> PrimitiveRegistry:
     if _registry is None:
         _registry = PrimitiveRegistry()
     return _registry
+
+
+def get_shared_model():
+    """
+    Get the shared model instance from the primitive registry.
+
+    This allows det_os_boot.py to use the same model as the primitives,
+    enabling proper DET architecture while still allowing direct model
+    access for streaming and stats collection.
+
+    Returns:
+        Model instance or None if not loaded
+    """
+    reg = get_registry()
+    reg._init_inference_backend()
+    return reg._inference_model
+
+
+def load_shared_model(path: str):
+    """
+    Load a model through the primitive registry.
+
+    This ensures the model is shared between det_os_boot.py and primitives.
+
+    Args:
+        path: Path to GGUF model file
+
+    Returns:
+        Model instance
+
+    Raises:
+        RuntimeError: If native inference not available
+        FileNotFoundError: If model file not found
+    """
+    reg = get_registry()
+    reg._model_load(path)
+    return reg._inference_model
 
 
 def call_primitive(name: str, args: List[Any],

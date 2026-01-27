@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from det.lang.bytecode_cache import BytecodeCache, load_creature as cache_load_creature
 from det.eis.creature_runner import CreatureRunner, CompiledCreatureData, CreatureState
-from det.eis.primitives import get_registry
+from det.eis.primitives import get_registry, get_shared_model, load_shared_model
 
 # Native inference (Phase 26)
 try:
@@ -796,7 +796,8 @@ class DETRuntime:
         try:
             import time
             start = time.time()
-            self.native_model = NativeModel(path)
+            # Use shared model through primitives (unified instance)
+            self.native_model = load_shared_model(path)
             elapsed = time.time() - start
             print(f"\033[32mModel loaded in {elapsed:.2f}s\033[0m")
             print(f"  {self.native_model.info}")  # info is a property
@@ -816,7 +817,7 @@ class DETRuntime:
 
             # Auto-enable native mode
             self.native_enabled = True
-            print("\033[33mNative inference enabled. Use 'ask' to generate.\033[0m")
+            print("\033[33mNative inference enabled (shared model instance).\033[0m")
 
         except Exception as e:
             print(f"\033[31mFailed to load model: {e}\033[0m")
@@ -828,6 +829,10 @@ class DETRuntime:
         if not NATIVE_INFERENCE_AVAILABLE:
             print("\033[31mNative inference not available.\033[0m")
             return
+
+        # Check for shared model if we don't have one locally
+        if not self.native_model:
+            self.native_model = get_shared_model()
 
         if not self.native_model:
             print("\033[33mNo model loaded. Use 'native load <path>' first.\033[0m")
