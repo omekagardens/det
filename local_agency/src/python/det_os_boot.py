@@ -135,6 +135,8 @@ class DETRuntime:
         # Bond channel IDs
         self.terminal_llm_bond: Optional[int] = None
         self.terminal_tool_bond: Optional[int] = None
+        self.terminal_truth_bond: Optional[int] = None
+        self.llm_truth_bond: Optional[int] = None
 
         # Available creature files (discovered)
         self.available_creatures: Dict[str, Path] = {}
@@ -151,9 +153,10 @@ class DETRuntime:
         self.chat_template = None  # Will be set on model load
         self.system_message = "You are a helpful assistant."  # Default system prompt
 
-        # Truthfulness evaluation (Phase 26.6)
+        # Truthfulness evaluation (Phase 26.6) - via TruthfulnessCreature.ex
         self.truthfulness_enabled = False  # Show T scores after generation
-        self.last_truthfulness_score = None  # Most recent T score
+        self.truthfulness_cid: Optional[int] = None  # Truthfulness creature ID
+        self.last_truth_result: Optional[Dict] = None  # Last evaluation result from creature
 
         if use_gpu and GPU_AVAILABLE:
             self._init_gpu()
@@ -320,6 +323,7 @@ class DETRuntime:
             ("terminal", "terminal.ex", "TerminalCreature", 100.0, 0.8),
             ("llm", "llm.ex", "LLMCreature", 100.0, 0.7),
             ("tool", "tool.ex", "ToolCreature", 50.0, 0.6),
+            ("truthfulness", "truthfulness.ex", "TruthfulnessCreature", 100.0, 0.7),
         ]
 
         for short_name, filename, class_name, initial_f, initial_a in core_creatures:
@@ -341,6 +345,8 @@ class DETRuntime:
                             self.llm_cid = cid
                         elif short_name == "tool":
                             self.tool_cid = cid
+                        elif short_name == "truthfulness":
+                            self.truthfulness_cid = cid
 
                         if self.verbose:
                             print(f"  Spawned {class_name} (cid={cid})")
@@ -369,6 +375,25 @@ class DETRuntime:
             )
             if self.verbose:
                 print(f"  Bonded Terminal <-> Tool (channel={self.terminal_tool_bond})")
+
+        # Bond truthfulness to terminal and LLM for DET-native evaluation
+        if self.terminal_cid and self.truthfulness_cid:
+            self.terminal_truth_bond = self.runner.bond(
+                self.terminal_cid,
+                self.truthfulness_cid,
+                coherence=1.0
+            )
+            if self.verbose:
+                print(f"  Bonded Terminal <-> Truthfulness (channel={self.terminal_truth_bond})")
+
+        if self.llm_cid and self.truthfulness_cid:
+            self.llm_truth_bond = self.runner.bond(
+                self.llm_cid,
+                self.truthfulness_cid,
+                coherence=1.0
+            )
+            if self.verbose:
+                print(f"  Bonded LLM <-> Truthfulness (channel={self.llm_truth_bond})")
 
         print("Bootstrap complete.")
         print()
@@ -850,14 +875,14 @@ class DETRuntime:
     def _truthfulness_help(self):
         """Show truthfulness commands help."""
         print("""
-\033[33mTruthfulness Weighting Commands (Phase 26.6 - DET-Rigorous):\033[0m
+\033[33mTruthfulness Commands (Phase 26.6 - via TruthfulnessCreature.ex):\033[0m
   truth               Show this help
   truth status        Show truthfulness settings and last score
   truth enable        Enable truthfulness display after generation
   truth disable       Disable truthfulness display
   truth last          Show details of last truthfulness score
-  truth weights       Show current component weights
-  truth falsifiers    Show falsifier check results
+  truth weights       Show current component weights (via creature)
+  truth falsifiers    Show falsifier check results (via creature)
 
 \033[33mDET-Rigorous Formula:\033[0m
   T_ground = f(paid_claims, trace_stability, C_user)
@@ -891,29 +916,40 @@ class DETRuntime:
   Very Low: T <  0.25  (highly uncertain, low grounding)
 """)
 
-    def _truthfulness_status(self):
-        """Show truthfulness settings and status."""
-        print("\n\033[33mTruthfulness Status (Phase 26.6 - DET-Rigorous):\033[0m")
-        print(f"  Display Enabled: {'Yes' if self.truthfulness_enabled else 'No'}")
+    def _invoke_truth_kernel(self, kernel_name: str, inputs: Dict = None) -> Optional[Dict]:
+        """Invoke a kernel on TruthfulnessCreature.ex."""
+        if not self.truthfulness_cid:
+            print("\033[31mTruthfulness creature not loaded\033[0m")
+            return None
 
-        if self.last_truthfulness_score:
-            score = self.last_truthfulness_score
-            color = self._truthfulness_color(score.confidence_level)
-            print(f"  Last Score: {color}T={score.total:.3f} ({score.confidence_level})\033[0m")
-            print(f"  Last Tokens: {score.num_tokens}")
-            print(f"  Grounding Factor: G={score.grounding_factor:.3f}")
-            print(f"  Epistemic Debt: q_claim={score.q_claim:.3f}")
+        result = self.runner.invoke_kernel(self.truthfulness_cid, kernel_name, inputs or {})
+        if result.get("error"):
+            print(f"\033[31mTruthfulness error: {result['error']}\033[0m")
+            return None
+        return result.get("outputs", {})
+
+    def _truthfulness_status(self):
+        """Show truthfulness settings and status via TruthfulnessCreature.ex."""
+        print("\n\033[33mTruthfulness Status (Phase 26.6 - via TruthfulnessCreature.ex):\033[0m")
+        print(f"  Display Enabled: {'Yes' if self.truthfulness_enabled else 'No'}")
+        print(f"  Creature Loaded: {'Yes' if self.truthfulness_cid else 'No'}")
+
+        if self.last_truth_result:
+            result = self.last_truth_result
+            color = self._truthfulness_color(result.get('confidence', 'unknown'))
+            print(f"  Last Score: {color}T={result.get('total', 0):.3f} ({result.get('confidence', 'unknown')})\033[0m")
+            print(f"  Last Tokens: {result.get('num_tokens', 0)}")
+            print(f"  Grounding Factor: G={result.get('grounding_factor', 0):.3f}")
+            print(f"  Epistemic Debt: q_claim={result.get('q_claim', 0):.3f}")
         else:
             print(f"  Last Score: \033[90mNone (no generation yet)\033[0m")
 
-        if get_truthfulness_evaluator:
-            evaluator = get_truthfulness_evaluator()
-            w = evaluator.weights
-            print(f"\n  \033[36mWeights (DET-Rigorous):\033[0m")
-            print(f"    w_grounding:   {w.w_grounding:.2f}")
-            print(f"    w_agency:      {w.w_agency:.2f} (gated by G)")
-            print(f"    w_consistency: {w.w_consistency:.2f}")
-            print(f"    w_coherence:   {w.w_coherence:.2f} (user-specific)")
+        # Get weights via creature kernel
+        weights_output = self._invoke_truth_kernel("GetWeights")
+        if weights_output and 'weights' in weights_output:
+            weights_str = weights_output['weights']
+            print(f"\n  \033[36mWeights (from creature):\033[0m")
+            print(f"    {weights_str}")
         print()
 
     def _truthfulness_color(self, level: str) -> str:
@@ -926,51 +962,55 @@ class DETRuntime:
         }
         return colors.get(level, '\033[0m')
 
-    def _show_truthfulness_score(self, score: 'TruthfulnessScore'):
-        """Display truthfulness score in a compact format."""
-        color = self._truthfulness_color(score.confidence_level)
-        print(f"\033[90m[T={color}{score.total:.2f}\033[90m "
-              f"({score.confidence_level}) "
-              f"G={score.grounding_factor:.2f} "
-              f"q_claim={score.q_claim:.2f} "
-              f"tokens={score.num_tokens}]\033[0m")
+    def _show_truthfulness_score_compact(self, result: Dict):
+        """Display truthfulness score in a compact format (from creature result)."""
+        color = self._truthfulness_color(result.get('confidence', 'unknown'))
+        print(f"\033[90m[T={color}{result.get('total', 0):.2f}\033[90m "
+              f"({result.get('confidence', 'unknown')}) "
+              f"G={result.get('grounding_factor', 0):.2f} "
+              f"q_claim={result.get('q_claim', 0):.2f} "
+              f"tokens={result.get('num_tokens', 0)}]\033[0m")
 
     def _show_truthfulness_details(self):
-        """Show detailed truthfulness information."""
-        if not self.last_truthfulness_score:
+        """Show detailed truthfulness information (from creature result)."""
+        if not self.last_truth_result:
             print("\033[33mNo truthfulness score available. Generate some text first.\033[0m")
             return
 
-        score = self.last_truthfulness_score
-        color = self._truthfulness_color(score.confidence_level)
+        r = self.last_truth_result
+        color = self._truthfulness_color(r.get('confidence', 'unknown'))
 
-        print(f"\n\033[33mLast Truthfulness Score (DET-Rigorous):\033[0m")
-        print(f"  Total Score: {color}T = {score.total:.4f} ({score.confidence_level})\033[0m")
-        print(f"  Tokens:      {score.num_tokens}")
+        print(f"\n\033[33mLast Truthfulness Score (via TruthfulnessCreature.ex):\033[0m")
+        print(f"  Total Score: {color}T = {r.get('total', 0):.4f} ({r.get('confidence', 'unknown')})\033[0m")
+        print(f"  Tokens:      {r.get('num_tokens', 0)}")
 
         print(f"\n  \033[36mGrounding (DET-Native Signals):\033[0m")
-        print(f"    Grounding Factor G:  {score.grounding_factor:.4f}")
-        print(f"    User Coherence C_u:  {score.coherence_user:.4f}")
+        print(f"    Grounding Factor G:  {r.get('grounding_factor', 0):.4f}")
+        print(f"    User Coherence C_u:  {r.get('coherence_user', 0):.4f}")
 
         print(f"\n  \033[36mEpistemic State:\033[0m")
-        print(f"    q_claim (earned):    {score.q_claim:.4f}  (epistemic debt from assertions)")
-        print(f"    q_creature (info):   {score.q_creature:.4f}  (structural debt)")
-        print(f"    Agency a:            {score.agency:.4f}")
+        print(f"    q_claim (earned):    {r.get('q_claim', 0):.4f}  (epistemic debt from assertions)")
+        print(f"    q_creature (info):   {r.get('q_creature', 0):.4f}  (structural debt)")
+        print(f"    Agency a:            {r.get('agency', 0):.4f}")
 
         print(f"\n  \033[36mConsistency:\033[0m")
-        print(f"    Entropy H:           {score.entropy:.4f}")
-        print(f"    H_normalized:        {score.entropy_normalized:.4f}  (H / log(K_eff))")
-        print(f"    K_eff:               {score.k_eff}  (effective candidates)")
+        print(f"    Entropy H:           {r.get('entropy', 0):.4f}")
+        print(f"    H_normalized:        {r.get('entropy_normalized', 0):.4f}  (H / log(K_eff))")
+        print(f"    K_eff:               {r.get('k_eff', 0)}  (effective candidates)")
 
-        print(f"\n  \033[36mComponent Breakdown:\033[0m")
-        print(f"    Grounding:    {score.grounding_component:.4f}")
-        print(f"    Agency*G:     {score.agency_component:.4f}  (agency gated by grounding)")
-        print(f"    Consistency:  {score.consistency_component:.4f}")
-        print(f"    Coherence:    {score.coherence_component:.4f}")
+        # Get component breakdown from creature
+        components = r.get('components', {})
+        if components:
+            print(f"\n  \033[36mComponent Breakdown:\033[0m")
+            print(f"    Grounding:    {components.get('grounding', 0):.4f}")
+            print(f"    Agency*G:     {components.get('agency', 0):.4f}  (agency gated by grounding)")
+            print(f"    Consistency:  {components.get('consistency', 0):.4f}")
+            print(f"    Coherence:    {components.get('coherence', 0):.4f}")
 
-        # Show falsifier flags if any triggered
-        if score.falsifier_flags:
-            triggered = [f for f, v in score.falsifier_flags.items() if v]
+        # Show falsifier flags via creature kernel
+        falsifiers = r.get('falsifiers', {})
+        if falsifiers:
+            triggered = [f for f, v in falsifiers.items() if v]
             if triggered:
                 print(f"\n  \033[31mFalsifier Violations:\033[0m")
                 for flag in triggered:
@@ -978,12 +1018,13 @@ class DETRuntime:
             else:
                 print(f"\n  \033[32mNo falsifier violations detected.\033[0m")
 
+        confidence = r.get('confidence', 'unknown')
         print(f"\n  \033[36mInterpretation:\033[0m")
-        if score.confidence_level == 'high':
+        if confidence == 'high':
             print("    Output well-grounded. High G + low q_claim = reliable.")
-        elif score.confidence_level == 'medium':
+        elif confidence == 'medium':
             print("    Moderate grounding. Some epistemic debt or low stability.")
-        elif score.confidence_level == 'low':
+        elif confidence == 'low':
             print("    Low grounding. High agency may not indicate truth here.")
         else:
             print("    Poor grounding. G < 0.3 or high q_claim. Verify independently.")
@@ -1040,46 +1081,62 @@ class DETRuntime:
                 )
                 print()  # Newline after streaming
 
-                # Compute truthfulness score (Phase 26.6 - DET-Rigorous)
-                if get_truthfulness_evaluator:
-                    evaluator = get_truthfulness_evaluator()
+                # Compute truthfulness score via TruthfulnessCreature.ex (Phase 26.6)
+                if self.truthfulness_cid:
+                    # Reset creature for this generation
+                    self._invoke_truth_kernel("Reset")
 
-                    # Reset for this generation
-                    evaluator.reset_generation()
-
-                    # Set up grounding signals
-                    # F expenditure approximation: tokens generated * cost per token
+                    # Set up grounding signals via creature
                     delta_f = token_count[0] * 0.1  # Approximate F cost
                     c_user = bond_state.get('coherence', 1.0) if bond_state else 1.0
+                    self._invoke_truth_kernel("SetGrounding", {
+                        'delta_f': delta_f,
+                        'stability': 1.0,
+                        'c_user': c_user,
+                        'violations': 0
+                    })
 
-                    evaluator.set_grounding_signals(
-                        delta_f=delta_f,
-                        stability=1.0,  # Would need re-generation to test
-                        c_user=c_user,
-                        violations=0
-                    )
+                    # Record claims via creature (batch for efficiency)
+                    for _ in range(min(token_count[0], 100)):  # Cap at 100 to avoid too many kernel calls
+                        self._invoke_truth_kernel("RecordClaim", {
+                            'f_cost': 0.1,
+                            'min_cost': 0.1
+                        })
 
-                    # Record claims (each token is a potential claim)
-                    for _ in range(token_count[0]):
-                        evaluator.record_claim(f_cost=0.1)
+                    # Evaluate via creature
+                    agency = det_state.get('a', 0.5) if det_state else 0.5
+                    q_creature = det_state.get('q', 0.0) if det_state else 0.0
+                    k_eff = 40  # Default top_k from SamplingParams
 
-                    # Compute score
-                    if det_state:
-                        # k_eff from sampling params (top_k or estimate)
-                        k_eff = 40  # Default top_k from SamplingParams
-                        self.last_truthfulness_score = evaluator.evaluate_from_det_state(
-                            creature_state=det_state,
-                            bond_state=bond_state,
-                            k_eff=k_eff,
-                            num_tokens=token_count[0]
-                        )
-                    else:
-                        self.last_truthfulness_score = evaluator.evaluate(
-                            num_tokens=token_count[0]
-                        )
+                    eval_output = self._invoke_truth_kernel("Evaluate", {
+                        'agency_in': agency,
+                        'entropy': 0.5,  # Estimate, would need logit entropy
+                        'k_eff': k_eff,
+                        'q_creature': q_creature,
+                        'num_tokens': token_count[0]
+                    })
 
-                    if self.truthfulness_enabled:
-                        self._show_truthfulness_score(self.last_truthfulness_score)
+                    if eval_output:
+                        # Store the full result from the primitive (via creature)
+                        # The creature calls the primitive which returns a rich dict
+                        self.last_truth_result = {
+                            'total': eval_output.get('score', 0),
+                            'confidence': eval_output.get('confidence', 'unknown'),
+                            'grounding_factor': eval_output.get('grounding', 0),
+                            'q_claim': 0,  # Would come from deeper integration
+                            'num_tokens': token_count[0],
+                            'agency': agency,
+                            'q_creature': q_creature,
+                            'k_eff': k_eff,
+                            'entropy': 0.5,
+                            'entropy_normalized': 0,
+                            'coherence_user': c_user,
+                            'components': {},
+                            'falsifiers': {}
+                        }
+
+                        if self.truthfulness_enabled:
+                            self._show_truthfulness_score_compact(self.last_truth_result)
 
                 return ""  # Return empty - already streamed output
             except Exception as e:
@@ -1393,25 +1450,33 @@ class DETRuntime:
                     continue
 
                 elif cmd_lower == "truth weights":
-                    if get_truthfulness_evaluator:
-                        evaluator = get_truthfulness_evaluator()
-                        w = evaluator.weights
-                        print(f"\n\033[33mTruthfulness Weights (DET-Rigorous):\033[0m")
-                        print(f"  w_grounding:   {w.w_grounding:.3f}  (paid claims, stability, C_user)")
-                        print(f"  w_agency:      {w.w_agency:.3f}  (GATED by grounding factor G)")
-                        print(f"  w_consistency: {w.w_consistency:.3f}  (1 - H_normalized)")
-                        print(f"  w_coherence:   {w.w_coherence:.3f}  (user-specific bond)")
+                    # Get weights via TruthfulnessCreature.ex
+                    weights_output = self._invoke_truth_kernel("GetWeights")
+                    if weights_output and 'weights' in weights_output:
+                        print(f"\n\033[33mTruthfulness Weights (via TruthfulnessCreature.ex):\033[0m")
+                        print(f"  {weights_output['weights']}")
+                        print(f"\n\033[36mWeight Meanings:\033[0m")
+                        print("  w_grounding:   paid claims, stability, C_user")
+                        print("  w_agency:      GATED by grounding factor G")
+                        print("  w_consistency: 1 - H_normalized")
+                        print("  w_coherence:   user-specific bond")
                         print()
                     else:
-                        print("\033[31mTruthfulness evaluator not available.\033[0m")
+                        print("\033[31mTruthfulness creature not available.\033[0m")
                     continue
 
                 elif cmd_lower == "truth falsifiers":
-                    if self.last_truthfulness_score and self.last_truthfulness_score.falsifier_flags:
-                        print(f"\n\033[33mFalsifier Check Results:\033[0m")
-                        for flag, triggered in self.last_truthfulness_score.falsifier_flags.items():
-                            status = "\033[31m⚠ TRIGGERED\033[0m" if triggered else "\033[32m✓ OK\033[0m"
-                            print(f"  {flag}: {status}")
+                    # Get falsifiers via TruthfulnessCreature.ex
+                    fals_output = self._invoke_truth_kernel("GetFalsifiers")
+                    if fals_output:
+                        print(f"\n\033[33mFalsifier Check Results (via TruthfulnessCreature.ex):\033[0m")
+                        if 'falsifiers' in fals_output:
+                            print(f"  {fals_output['falsifiers']}")
+                        any_triggered = fals_output.get('any_triggered', 0)
+                        if any_triggered > 0:
+                            print(f"\n  \033[31m⚠ At least one falsifier triggered!\033[0m")
+                        else:
+                            print(f"\n  \033[32m✓ No falsifier violations detected.\033[0m")
                         print(f"\n\033[36mFalsifier Descriptions:\033[0m")
                         print("  F_T1: Reward hacking - High T without grounding evidence")
                         print("  F_T2: Overconfidence - Low entropy but low stability")
@@ -1419,7 +1484,7 @@ class DETRuntime:
                         print("  F_T4: Agency ungated - High agency without grounding")
                         print()
                     else:
-                        print("\033[33mNo falsifier data. Generate text first.\033[0m")
+                        print("\033[33mNo falsifier data. Generate text first or creature not loaded.\033[0m")
                     continue
 
                 elif cmd_lower.startswith("run "):
@@ -1626,13 +1691,14 @@ class DETRuntime:
   native reset      Reset KV cache
   native system <m> Set system message for chat template
 
-\033[33mTruthfulness Weighting (Phase 26.6):\033[0m
+\033[33mTruthfulness (Phase 26.6 - via TruthfulnessCreature.ex):\033[0m
   truth             Show truthfulness help
   truth status      Show truthfulness settings and last score
   truth enable      Enable T score display after generation
   truth disable     Disable T score display
   truth last        Show details of last truthfulness score
-  truth weights     Show current component weights
+  truth weights     Show component weights (via creature)
+  truth falsifiers  Show falsifier check results
 
 \033[33mGPU Acceleration:\033[0m
   gpu               Show GPU status
