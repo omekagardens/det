@@ -455,7 +455,8 @@ class Model:
 
     def generate(self, prompt: str, max_tokens: int = 256,
                  params: SamplingParams = None,
-                 callback: Callable[[str, int], None] = None) -> str:
+                 callback: Callable[[str, int], None] = None,
+                 det_state: dict = None) -> str:
         """
         Generate text from prompt.
 
@@ -464,6 +465,7 @@ class Model:
             max_tokens: Maximum tokens to generate
             params: Sampling parameters
             callback: Called for each token (text, token_id)
+            det_state: Optional DET creature state for truthfulness evaluation
 
         Returns:
             Generated text
@@ -496,6 +498,68 @@ class Model:
             logits = self.forward([token])
 
         return self.detokenize(generated)
+
+    def generate_with_truthfulness(self, prompt: str, max_tokens: int = 256,
+                                    params: SamplingParams = None,
+                                    callback: Callable[[str, int], None] = None,
+                                    det_state: dict = None,
+                                    bond_state: dict = None) -> tuple:
+        """
+        Generate text with truthfulness evaluation.
+
+        Args:
+            prompt: Input prompt text
+            max_tokens: Maximum tokens to generate
+            params: Sampling parameters
+            callback: Called for each token (text, token_id)
+            det_state: DET creature state dict with 'F', 'a', 'q'
+            bond_state: Optional bond state dict with 'coherence' or 'C'
+
+        Returns:
+            Tuple of (generated_text, TruthfulnessScore)
+        """
+        if params is None:
+            params = SamplingParams()
+
+        # Tokenize prompt
+        tokens = self.tokenize(prompt)
+
+        # Forward pass on prompt
+        logits = self.forward(tokens)
+
+        # Generate tokens
+        generated = []
+        for _ in range(max_tokens):
+            token = self.sample(logits, params)
+
+            if token == self.eos_token or token < 0:
+                break
+
+            generated.append(token)
+
+            # Callback for streaming
+            if callback:
+                text = self.token_to_text(token)
+                callback(text, token)
+
+            # Forward next token
+            logits = self.forward([token])
+
+        text = self.detokenize(generated)
+
+        # Compute truthfulness score
+        evaluator = get_truthfulness_evaluator()
+        if det_state:
+            score = evaluator.evaluate_from_det_state(
+                creature_state=det_state,
+                bond_state=bond_state,
+                num_tokens=len(generated)
+            )
+        else:
+            # Default state if not provided
+            score = evaluator.evaluate(num_tokens=len(generated))
+
+        return text, score
 
 
 # =============================================================================
@@ -736,3 +800,274 @@ def detect_template_from_vocab(model: 'Model') -> ChatTemplate:
 
     # Default to ChatML
     return CHAT_TEMPLATES['chatml']
+
+
+# =============================================================================
+# TRUTHFULNESS WEIGHTING (Phase 26.6)
+# =============================================================================
+
+@dataclass
+class TruthfulnessScore:
+    """
+    Composite truthfulness score for generated output.
+
+    The truthfulness system provides a reliability estimate for LLM outputs
+    based on DET physics principles:
+    - Debt (q): Structure accumulates from ungrounded claims
+    - Agency (a): Higher agency = more grounded in real capabilities
+    - Entropy (H): Lower attention entropy = more confident/focused generation
+    - Coherence (C): Bond coherence reflects relational grounding
+
+    Formula: T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C
+    """
+
+    # Overall truthfulness score [0, 1]
+    total: float
+
+    # Component scores
+    debt_component: float      # Lower debt → higher truth
+    agency_component: float    # Higher agency → higher truth
+    entropy_component: float   # Lower entropy → higher confidence
+    coherence_component: float # Higher coherence → higher truth
+
+    # Raw values (for debugging/calibration)
+    debt: float          # q value
+    agency: float        # a value
+    entropy: float       # H value (attention entropy)
+    coherence: float     # C value (bond coherence)
+
+    # Metadata
+    num_tokens: int
+    confidence_level: str  # 'high', 'medium', 'low', 'very_low'
+
+    def __repr__(self):
+        return (f"TruthfulnessScore(T={self.total:.3f}, "
+                f"confidence={self.confidence_level}, "
+                f"debt={self.debt:.3f}, agency={self.agency:.3f})")
+
+
+@dataclass
+class TruthfulnessWeights:
+    """Weights for truthfulness components."""
+    w_debt: float = 0.25      # Weight for debt component
+    w_agency: float = 0.30    # Weight for agency component
+    w_entropy: float = 0.25   # Weight for entropy component
+    w_coherence: float = 0.20 # Weight for coherence component
+
+    def normalize(self):
+        """Ensure weights sum to 1.0."""
+        total = self.w_debt + self.w_agency + self.w_entropy + self.w_coherence
+        if total > 0:
+            self.w_debt /= total
+            self.w_agency /= total
+            self.w_entropy /= total
+            self.w_coherence /= total
+
+
+class TruthfulnessEvaluator:
+    """
+    Evaluates truthfulness of LLM outputs using DET physics.
+
+    This is the sacred integration point where DET theory provides
+    a principled reliability estimate for generated content.
+
+    Anti-hallucination mechanisms:
+    - Reward hacking: F expenditure tracks real compute
+    - False confidence: Agency from structure, not assertion
+    - Ungrounded claims: Debt (q) accumulation
+    - Post-hoc justification: Atomic commits, auditable trace
+    """
+
+    # Thresholds for confidence levels
+    CONFIDENCE_THRESHOLDS = {
+        'high': 0.75,
+        'medium': 0.50,
+        'low': 0.25,
+    }
+
+    # Maximum expected entropy (for normalization)
+    # For vocab_size ~150k, H_max ≈ log2(150000) ≈ 17.2
+    # But practical attention entropy is much lower
+    H_MAX = 8.0  # Practical maximum for attention entropy
+
+    def __init__(self, weights: TruthfulnessWeights = None):
+        """Initialize evaluator with optional custom weights."""
+        self.weights = weights or TruthfulnessWeights()
+        self.weights.normalize()
+
+        # Calibration data (accumulated for future calibration)
+        self._calibration_samples: List[dict] = []
+
+    def evaluate(self,
+                 debt: float = 0.0,
+                 agency: float = 0.5,
+                 entropy: float = 0.0,
+                 coherence: float = 1.0,
+                 num_tokens: int = 0) -> TruthfulnessScore:
+        """
+        Compute truthfulness score from DET state.
+
+        Args:
+            debt: Structure/debt value q (0 = no debt, higher = more debt)
+            agency: Agency value a (0 = no agency, 1 = full agency)
+            entropy: Attention entropy H (0 = fully confident, higher = uncertain)
+            coherence: Bond coherence C (0 = disconnected, 1 = fully coherent)
+            num_tokens: Number of tokens generated (for context)
+
+        Returns:
+            TruthfulnessScore with composite score and components
+        """
+        w = self.weights
+
+        # Compute components
+        # Debt component: lower debt → higher score
+        debt_component = w.w_debt / (1.0 + debt)
+
+        # Agency component: higher agency → higher score
+        # Clamp agency to [0, 1]
+        agency_clamped = max(0.0, min(1.0, agency))
+        agency_component = w.w_agency * agency_clamped
+
+        # Entropy component: lower entropy → higher score
+        # Normalize entropy to [0, 1] range
+        entropy_normalized = min(1.0, entropy / self.H_MAX)
+        entropy_component = w.w_entropy * (1.0 - entropy_normalized)
+
+        # Coherence component: higher coherence → higher score
+        coherence_clamped = max(0.0, min(1.0, coherence))
+        coherence_component = w.w_coherence * coherence_clamped
+
+        # Total score
+        total = (debt_component + agency_component +
+                 entropy_component + coherence_component)
+
+        # Clamp to [0, 1]
+        total = max(0.0, min(1.0, total))
+
+        # Determine confidence level
+        if total >= self.CONFIDENCE_THRESHOLDS['high']:
+            confidence_level = 'high'
+        elif total >= self.CONFIDENCE_THRESHOLDS['medium']:
+            confidence_level = 'medium'
+        elif total >= self.CONFIDENCE_THRESHOLDS['low']:
+            confidence_level = 'low'
+        else:
+            confidence_level = 'very_low'
+
+        return TruthfulnessScore(
+            total=total,
+            debt_component=debt_component,
+            agency_component=agency_component,
+            entropy_component=entropy_component,
+            coherence_component=coherence_component,
+            debt=debt,
+            agency=agency,
+            entropy=entropy,
+            coherence=coherence,
+            num_tokens=num_tokens,
+            confidence_level=confidence_level
+        )
+
+    def evaluate_from_det_state(self,
+                                 creature_state: dict,
+                                 bond_state: dict = None,
+                                 attention_entropy: float = None,
+                                 num_tokens: int = 0) -> TruthfulnessScore:
+        """
+        Evaluate truthfulness from DET creature and bond state.
+
+        Args:
+            creature_state: Dict with 'F', 'a', 'q' from creature
+            bond_state: Optional dict with 'coherence' from bonds
+            attention_entropy: Optional attention entropy from model internals
+            num_tokens: Number of tokens generated
+
+        Returns:
+            TruthfulnessScore
+        """
+        debt = creature_state.get('q', 0.0)
+        agency = creature_state.get('a', 0.5)
+
+        # Default entropy to 0 if not provided (optimistic)
+        entropy = attention_entropy if attention_entropy is not None else 0.0
+
+        # Default coherence to 1.0 if not provided
+        coherence = 1.0
+        if bond_state:
+            coherence = bond_state.get('coherence', bond_state.get('C', 1.0))
+
+        return self.evaluate(
+            debt=debt,
+            agency=agency,
+            entropy=entropy,
+            coherence=coherence,
+            num_tokens=num_tokens
+        )
+
+    def add_calibration_sample(self,
+                                score: TruthfulnessScore,
+                                ground_truth_correct: bool,
+                                metadata: dict = None):
+        """
+        Add a calibration sample for future weight tuning.
+
+        Args:
+            score: TruthfulnessScore that was computed
+            ground_truth_correct: Whether the output was actually correct
+            metadata: Optional additional context (prompt, response, etc.)
+        """
+        self._calibration_samples.append({
+            'score': score,
+            'correct': ground_truth_correct,
+            'metadata': metadata or {}
+        })
+
+    def get_calibration_stats(self) -> dict:
+        """Get statistics from calibration samples."""
+        if not self._calibration_samples:
+            return {'num_samples': 0}
+
+        correct_samples = [s for s in self._calibration_samples if s['correct']]
+        incorrect_samples = [s for s in self._calibration_samples if not s['correct']]
+
+        avg_score_correct = (
+            sum(s['score'].total for s in correct_samples) / len(correct_samples)
+            if correct_samples else 0.0
+        )
+        avg_score_incorrect = (
+            sum(s['score'].total for s in incorrect_samples) / len(incorrect_samples)
+            if incorrect_samples else 0.0
+        )
+
+        return {
+            'num_samples': len(self._calibration_samples),
+            'num_correct': len(correct_samples),
+            'num_incorrect': len(incorrect_samples),
+            'avg_score_correct': avg_score_correct,
+            'avg_score_incorrect': avg_score_incorrect,
+            'score_separation': avg_score_correct - avg_score_incorrect,
+        }
+
+
+# Global evaluator instance
+_truthfulness_evaluator: Optional[TruthfulnessEvaluator] = None
+
+
+def get_truthfulness_evaluator() -> TruthfulnessEvaluator:
+    """Get or create the global truthfulness evaluator."""
+    global _truthfulness_evaluator
+    if _truthfulness_evaluator is None:
+        _truthfulness_evaluator = TruthfulnessEvaluator()
+    return _truthfulness_evaluator
+
+
+def evaluate_truthfulness(debt: float = 0.0,
+                          agency: float = 0.5,
+                          entropy: float = 0.0,
+                          coherence: float = 1.0,
+                          num_tokens: int = 0) -> TruthfulnessScore:
+    """Convenience function to evaluate truthfulness."""
+    return get_truthfulness_evaluator().evaluate(
+        debt=debt, agency=agency, entropy=entropy,
+        coherence=coherence, num_tokens=num_tokens
+    )

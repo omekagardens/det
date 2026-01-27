@@ -43,7 +43,9 @@ try:
         Model as NativeModel, metal_status, SamplingParams,
         set_inference_mode, get_inference_mode,
         INFERENCE_MODE_F32, INFERENCE_MODE_Q8_0,
-        QwenChatTemplate, get_chat_template, detect_template_from_vocab
+        QwenChatTemplate, get_chat_template, detect_template_from_vocab,
+        TruthfulnessEvaluator, TruthfulnessScore, TruthfulnessWeights,
+        get_truthfulness_evaluator, evaluate_truthfulness
     )
     NATIVE_INFERENCE_AVAILABLE = True
 except ImportError:
@@ -58,6 +60,11 @@ except ImportError:
     QwenChatTemplate = None
     get_chat_template = None
     detect_template_from_vocab = None
+    TruthfulnessEvaluator = None
+    TruthfulnessScore = None
+    TruthfulnessWeights = None
+    get_truthfulness_evaluator = None
+    evaluate_truthfulness = None
 
 # Optional GPU backend
 try:
@@ -143,6 +150,10 @@ class DETRuntime:
         self.native_enabled = False
         self.chat_template = None  # Will be set on model load
         self.system_message = "You are a helpful assistant."  # Default system prompt
+
+        # Truthfulness evaluation (Phase 26.6)
+        self.truthfulness_enabled = False  # Show T scores after generation
+        self.last_truthfulness_score = None  # Most recent T score
 
         if use_gpu and GPU_AVAILABLE:
             self._init_gpu()
@@ -832,6 +843,116 @@ class DETRuntime:
         except Exception as e:
             print(f"\033[31mReset failed: {e}\033[0m")
 
+    # =========================================================================
+    # Phase 26.6: Truthfulness Evaluation Methods
+    # =========================================================================
+
+    def _truthfulness_help(self):
+        """Show truthfulness commands help."""
+        print("""
+\033[33mTruthfulness Weighting Commands (Phase 26.6):\033[0m
+  truth               Show this help
+  truth status        Show truthfulness settings and last score
+  truth enable        Enable truthfulness display after generation
+  truth disable       Disable truthfulness display
+  truth last          Show details of last truthfulness score
+  truth weights       Show current component weights
+
+\033[33mTruthfulness Formula:\033[0m
+  T = w_debt/(1+q) + w_agency*a + w_entropy*(1-H/H_max) + w_coherence*C
+
+\033[33mComponents:\033[0m
+  Debt (q):      Structure/debt from ungrounded claims. Lower = better.
+  Agency (a):    Real capability grounding. Higher = better.
+  Entropy (H):   Attention entropy/uncertainty. Lower = more confident.
+  Coherence (C): Bond coherence/relational grounding. Higher = better.
+
+\033[33mConfidence Levels:\033[0m
+  High:     T >= 0.75  (reliable)
+  Medium:   T >= 0.50  (moderate confidence)
+  Low:      T >= 0.25  (use with caution)
+  Very Low: T <  0.25  (highly uncertain)
+
+\033[33mAnti-Hallucination Integration:\033[0m
+  DET physics provides principled reliability estimates:
+  - F expenditure tracks real compute (no reward hacking)
+  - Agency from structure, not assertion (no false confidence)
+  - Debt accumulates from ungrounded claims
+  - Atomic commits prevent post-hoc justification
+""")
+
+    def _truthfulness_status(self):
+        """Show truthfulness settings and status."""
+        print("\n\033[33mTruthfulness Status (Phase 26.6):\033[0m")
+        print(f"  Display Enabled: {'Yes' if self.truthfulness_enabled else 'No'}")
+
+        if self.last_truthfulness_score:
+            score = self.last_truthfulness_score
+            color = self._truthfulness_color(score.confidence_level)
+            print(f"  Last Score: {color}T={score.total:.3f} ({score.confidence_level})\033[0m")
+            print(f"  Last Tokens: {score.num_tokens}")
+        else:
+            print(f"  Last Score: \033[90mNone (no generation yet)\033[0m")
+
+        if get_truthfulness_evaluator:
+            evaluator = get_truthfulness_evaluator()
+            w = evaluator.weights
+            print(f"\n  \033[36mWeights:\033[0m")
+            print(f"    w_debt:      {w.w_debt:.2f}")
+            print(f"    w_agency:    {w.w_agency:.2f}")
+            print(f"    w_entropy:   {w.w_entropy:.2f}")
+            print(f"    w_coherence: {w.w_coherence:.2f}")
+        print()
+
+    def _truthfulness_color(self, level: str) -> str:
+        """Get ANSI color for confidence level."""
+        colors = {
+            'high': '\033[32m',      # Green
+            'medium': '\033[33m',    # Yellow
+            'low': '\033[91m',       # Light red
+            'very_low': '\033[31m',  # Red
+        }
+        return colors.get(level, '\033[0m')
+
+    def _show_truthfulness_score(self, score: 'TruthfulnessScore'):
+        """Display truthfulness score in a compact format."""
+        color = self._truthfulness_color(score.confidence_level)
+        print(f"\033[90m[T={color}{score.total:.2f}\033[90m "
+              f"({score.confidence_level}) "
+              f"debt={score.debt:.2f} "
+              f"agency={score.agency:.2f} "
+              f"tokens={score.num_tokens}]\033[0m")
+
+    def _show_truthfulness_details(self):
+        """Show detailed truthfulness information."""
+        if not self.last_truthfulness_score:
+            print("\033[33mNo truthfulness score available. Generate some text first.\033[0m")
+            return
+
+        score = self.last_truthfulness_score
+        color = self._truthfulness_color(score.confidence_level)
+
+        print(f"\n\033[33mLast Truthfulness Score:\033[0m")
+        print(f"  Total Score: {color}T = {score.total:.4f} ({score.confidence_level})\033[0m")
+        print(f"  Tokens:      {score.num_tokens}")
+
+        print(f"\n  \033[36mComponent Breakdown:\033[0m")
+        print(f"    Debt component:      {score.debt_component:.4f}  (raw q={score.debt:.4f})")
+        print(f"    Agency component:    {score.agency_component:.4f}  (raw a={score.agency:.4f})")
+        print(f"    Entropy component:   {score.entropy_component:.4f}  (raw H={score.entropy:.4f})")
+        print(f"    Coherence component: {score.coherence_component:.4f}  (raw C={score.coherence:.4f})")
+
+        print(f"\n  \033[36mInterpretation:\033[0m")
+        if score.confidence_level == 'high':
+            print("    Output appears reliable. DET state indicates good grounding.")
+        elif score.confidence_level == 'medium':
+            print("    Output has moderate reliability. Some uncertainty present.")
+        elif score.confidence_level == 'low':
+            print("    Use output with caution. Significant uncertainty detected.")
+        else:
+            print("    Output highly uncertain. Consider verifying independently.")
+        print()
+
     def send_to_llm(self, prompt: str) -> Optional[str]:
         """Send a message to LLM creature via bond and get response.
 
@@ -852,6 +973,20 @@ class DETRuntime:
                 else:
                     formatted_prompt = prompt
 
+                # Get DET state from LLM creature for truthfulness evaluation
+                det_state = None
+                bond_state = None
+                if self.llm_cid:
+                    det_state = self.runner.get_creature_state(self.llm_cid)
+                    # Get bond coherence if bonded to terminal
+                    if self.terminal_llm_bond is not None:
+                        channel = self.runner.channels.get(self.terminal_llm_bond)
+                        if channel:
+                            bond_state = {'coherence': channel.coherence}
+
+                # Track tokens for truthfulness
+                token_count = [0]
+
                 # Streaming callback to show progress
                 def on_token(text, token_id):
                     # Stop on <|im_end|> token (151645 for Qwen)
@@ -859,6 +994,7 @@ class DETRuntime:
                     # we also filter out the token text just in case
                     if "<|im_end|>" in text or "<|im_start|>" in text:
                         return
+                    token_count[0] += 1
                     sys.stdout.write(f"\033[32m{text}\033[0m")
                     sys.stdout.flush()
 
@@ -867,6 +1003,18 @@ class DETRuntime:
                     formatted_prompt, max_tokens=256, params=params, callback=on_token
                 )
                 print()  # Newline after streaming
+
+                # Compute truthfulness score (Phase 26.6)
+                if get_truthfulness_evaluator and det_state:
+                    evaluator = get_truthfulness_evaluator()
+                    self.last_truthfulness_score = evaluator.evaluate_from_det_state(
+                        creature_state=det_state,
+                        bond_state=bond_state,
+                        num_tokens=token_count[0]
+                    )
+                    if self.truthfulness_enabled:
+                        self._show_truthfulness_score(self.last_truthfulness_score)
+
                 return ""  # Return empty - already streamed output
             except Exception as e:
                 print(f"\033[31m[Native inference failed: {e}]\033[0m")
@@ -1155,6 +1303,43 @@ class DETRuntime:
                         print(f"Current system message: \"{self.system_message}\"")
                     continue
 
+                # Phase 26.6: Truthfulness Commands
+                elif cmd_lower == "truth" or cmd_lower == "truth help":
+                    self._truthfulness_help()
+                    continue
+
+                elif cmd_lower == "truth status":
+                    self._truthfulness_status()
+                    continue
+
+                elif cmd_lower == "truth enable":
+                    self.truthfulness_enabled = True
+                    print("\033[32mTruthfulness display enabled.\033[0m")
+                    continue
+
+                elif cmd_lower == "truth disable":
+                    self.truthfulness_enabled = False
+                    print("\033[33mTruthfulness display disabled.\033[0m")
+                    continue
+
+                elif cmd_lower == "truth last":
+                    self._show_truthfulness_details()
+                    continue
+
+                elif cmd_lower == "truth weights":
+                    if get_truthfulness_evaluator:
+                        evaluator = get_truthfulness_evaluator()
+                        w = evaluator.weights
+                        print(f"\n\033[33mTruthfulness Weights:\033[0m")
+                        print(f"  w_debt:      {w.w_debt:.3f}")
+                        print(f"  w_agency:    {w.w_agency:.3f}")
+                        print(f"  w_entropy:   {w.w_entropy:.3f}")
+                        print(f"  w_coherence: {w.w_coherence:.3f}")
+                        print()
+                    else:
+                        print("\033[31mTruthfulness evaluator not available.\033[0m")
+                    continue
+
                 elif cmd_lower.startswith("run "):
                     command = user_input[4:].strip()
                     print(f"\033[33m[Sending to Tool via bond...]\033[0m")
@@ -1358,6 +1543,14 @@ class DETRuntime:
   native generate   Generate text directly
   native reset      Reset KV cache
   native system <m> Set system message for chat template
+
+\033[33mTruthfulness Weighting (Phase 26.6):\033[0m
+  truth             Show truthfulness help
+  truth status      Show truthfulness settings and last score
+  truth enable      Enable T score display after generation
+  truth disable     Disable T score display
+  truth last        Show details of last truthfulness score
+  truth weights     Show current component weights
 
 \033[33mGPU Acceleration:\033[0m
   gpu               Show GPU status
