@@ -302,6 +302,89 @@ static DetTensor* get_weight_smart(GgufContext* gguf, const char* full_name) {
     return gguf_get_tensor_f32(gguf, full_name);
 }
 
+/**
+ * Split fused QKV tensor into separate Q, K, V tensors.
+ * Fused layout: [n_embd, q_dim + kv_dim + kv_dim] where:
+ *   q_dim = n_head * head_dim = n_embd
+ *   kv_dim = n_head_kv * head_dim
+ *
+ * Returns newly allocated tensors via out_q, out_k, out_v.
+ */
+static int split_fused_qkv(DetTensor* fused, int n_embd, int n_head, int n_head_kv,
+                           DetTensor** out_q, DetTensor** out_k, DetTensor** out_v) {
+    if (!fused || fused->ndim != 2) return -1;
+
+    int head_dim = n_embd / n_head;
+    int q_dim = n_embd;                    /* n_head * head_dim */
+    int kv_dim = n_head_kv * head_dim;
+
+    /* Verify fused tensor dimensions */
+    int fused_total = (int)fused->shape[1];
+    int expected = q_dim + kv_dim + kv_dim;
+    if (fused_total != expected) {
+        fprintf(stderr, "Fused QKV size mismatch: got %d, expected %d\n", fused_total, expected);
+        return -1;
+    }
+
+    /* Create output tensors */
+    int32_t q_shape[2] = {(int32_t)fused->shape[0], q_dim};
+    int32_t kv_shape[2] = {(int32_t)fused->shape[0], kv_dim};
+
+    *out_q = det_tensor_create(2, q_shape, DET_DTYPE_F32);
+    *out_k = det_tensor_create(2, kv_shape, DET_DTYPE_F32);
+    *out_v = det_tensor_create(2, kv_shape, DET_DTYPE_F32);
+
+    if (!*out_q || !*out_k || !*out_v) {
+        det_tensor_release(*out_q);
+        det_tensor_release(*out_k);
+        det_tensor_release(*out_v);
+        return -1;
+    }
+
+    /* Copy data: fused is [n_embd, q+k+v], each row has Q then K then V */
+    float* fused_data = (float*)fused->data;
+    float* q_data = (float*)(*out_q)->data;
+    float* k_data = (float*)(*out_k)->data;
+    float* v_data = (float*)(*out_v)->data;
+
+    int rows = (int)fused->shape[0];
+    for (int row = 0; row < rows; row++) {
+        float* src = fused_data + row * fused_total;
+        memcpy(q_data + row * q_dim, src, q_dim * sizeof(float));
+        memcpy(k_data + row * kv_dim, src + q_dim, kv_dim * sizeof(float));
+        memcpy(v_data + row * kv_dim, src + q_dim + kv_dim, kv_dim * sizeof(float));
+    }
+
+    return 0;
+}
+
+/**
+ * Load QKV weights - handles both separate and fused layouts.
+ * Phi3/Phi4 use fused attn_qkv, other models use separate attn_q/k/v.
+ */
+static void load_qkv_weights(GgufContext* gguf, int layer, DetModel* model, DetLayerWeights* lw) {
+    /* Try separate weights first (most common) */
+    lw->wq = get_layer_weight_smart(gguf, layer, "attn_q");
+    lw->wk = get_layer_weight_smart(gguf, layer, "attn_k");
+    lw->wv = get_layer_weight_smart(gguf, layer, "attn_v");
+
+    /* If we got separate weights, we're done */
+    if (lw->wq && lw->wk && lw->wv) return;
+
+    /* Try fused QKV (Phi3/Phi4 style) */
+    DetTensor* fused = get_layer_weight_smart(gguf, layer, "attn_qkv");
+    if (fused) {
+        if (split_fused_qkv(fused, model->config.n_embd, model->config.n_head,
+                           model->config.n_head_kv, &lw->wq, &lw->wk, &lw->wv) == 0) {
+            /* Successfully split - free the fused tensor */
+            det_tensor_release(fused);
+            return;
+        }
+        /* Split failed - keep NULL weights */
+        det_tensor_release(fused);
+    }
+}
+
 DetModel* det_model_load(const char* path) {
     /* Initialize Metal GPU if available */
     init_metal_if_available();
@@ -340,8 +423,16 @@ DetModel* det_model_load(const char* path) {
     /* Get normalization epsilon based on architecture */
     model->config.norm_eps = gguf_get_f32(gguf, "llama.attention.layer_norm_rms_epsilon", 0.0f);
     if (model->config.norm_eps == 0.0f) {
-        /* Try Qwen2 format */
-        model->config.norm_eps = gguf_get_f32(gguf, "qwen2.attention.layer_norm_rms_epsilon", 1e-6f);
+        model->config.norm_eps = gguf_get_f32(gguf, "qwen2.attention.layer_norm_rms_epsilon", 0.0f);
+    }
+    if (model->config.norm_eps == 0.0f) {
+        model->config.norm_eps = gguf_get_f32(gguf, "qwen3.attention.layer_norm_rms_epsilon", 0.0f);
+    }
+    if (model->config.norm_eps == 0.0f) {
+        model->config.norm_eps = gguf_get_f32(gguf, "phi3.attention.layer_norm_rms_epsilon", 0.0f);
+    }
+    if (model->config.norm_eps == 0.0f) {
+        model->config.norm_eps = 1e-6f;  /* Default fallback */
     }
 
     /* Validate config */
@@ -390,16 +481,18 @@ DetModel* det_model_load(const char* path) {
         layer->attn_norm = get_layer_weight(gguf, i, "attn_norm");
         layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
 
-        /* Attention projections - can be Q8_0 in QAM mode */
-        layer->wq = get_layer_weight_smart(gguf, i, "attn_q");
-        layer->wk = get_layer_weight_smart(gguf, i, "attn_k");
-        layer->wv = get_layer_weight_smart(gguf, i, "attn_v");
+        /* Attention projections - handles both separate and fused QKV */
+        load_qkv_weights(gguf, i, model, layer);
         layer->wo = get_layer_weight_smart(gguf, i, "attn_output");
 
         /* QKV biases (Qwen2 uses these) - always F32 */
         layer->bq = get_layer_bias(gguf, i, "attn_q");
         layer->bk = get_layer_bias(gguf, i, "attn_k");
         layer->bv = get_layer_bias(gguf, i, "attn_v");
+
+        /* QK-Norm weights (Qwen3 uses these) - always F32 */
+        layer->q_norm = get_layer_weight(gguf, i, "attn_q_norm");
+        layer->k_norm = get_layer_weight(gguf, i, "attn_k_norm");
 
         /* FFN projections - can be Q8_0 in QAM mode */
         layer->w1 = get_layer_weight_smart(gguf, i, "ffn_gate");
@@ -472,6 +565,8 @@ void det_model_free(DetModel* model) {
             det_tensor_release(layer->bq);
             det_tensor_release(layer->bk);
             det_tensor_release(layer->bv);
+            det_tensor_release(layer->q_norm);
+            det_tensor_release(layer->k_norm);
             det_tensor_release(layer->ffn_norm);
             det_tensor_release(layer->w1);
             det_tensor_release(layer->w2);
@@ -732,6 +827,44 @@ DetTensor* det_model_forward(DetModel* model,
                 }
             }
 
+            /* QK-Norm: Apply RMSNorm to each head's Q and K vectors (Qwen3) */
+            if (lw->q_norm && lw->k_norm) {
+                float* q_norm_w = (float*)lw->q_norm->data;
+                float* k_norm_w = (float*)lw->k_norm->data;
+
+                /* Q-Norm: normalize each head's query vector */
+                for (int t = 0; t < num_tokens; t++) {
+                    for (int h = 0; h < cfg->n_head; h++) {
+                        float* head_q = q + t * cfg->n_embd + h * head_dim;
+                        /* RMSNorm for this head */
+                        float sq_sum = 0.0f;
+                        for (int d = 0; d < head_dim; d++) {
+                            sq_sum += head_q[d] * head_q[d];
+                        }
+                        float rms = sqrtf(sq_sum / head_dim + cfg->norm_eps);
+                        for (int d = 0; d < head_dim; d++) {
+                            head_q[d] = (head_q[d] / rms) * q_norm_w[d];
+                        }
+                    }
+                }
+
+                /* K-Norm: normalize each KV head's key vector */
+                for (int t = 0; t < num_tokens; t++) {
+                    for (int h = 0; h < cfg->n_head_kv; h++) {
+                        float* head_k = k + t * kv_dim + h * head_dim;
+                        /* RMSNorm for this head */
+                        float sq_sum = 0.0f;
+                        for (int d = 0; d < head_dim; d++) {
+                            sq_sum += head_k[d] * head_k[d];
+                        }
+                        float rms = sqrtf(sq_sum / head_dim + cfg->norm_eps);
+                        for (int d = 0; d < head_dim; d++) {
+                            head_k[d] = (head_k[d] / rms) * k_norm_w[d];
+                        }
+                    }
+                }
+            }
+
             /* Apply RoPE to Q and K */
             for (int t = 0; t < num_tokens; t++) {
                 float* qt = q + t * cfg->n_embd;
@@ -878,14 +1011,23 @@ DetTensor* det_model_forward(DetModel* model,
             }
         }
 
-        /* FFN (SwiGLU)
-         * W1 (gate) shape: [n_ff out, n_embd in]
-         * W2 (down) shape: [n_embd out, n_ff in]
-         * W3 (up) shape: [n_ff out, n_embd in]
+        /* FFN - two variants supported:
+         *
+         * 1. SwiGLU (LLaMA/Qwen): gate + up + down
+         *    W1 (gate) shape: [n_ff out, n_embd in]
+         *    W2 (down) shape: [n_embd out, n_ff in]
+         *    W3 (up) shape: [n_ff out, n_embd in]
+         *    output = down(SiLU(gate(x)) * up(x))
+         *
+         * 2. Simple MLP (Phi): up + down with GELU
+         *    W3 (up) shape: [n_ff out, n_embd in]
+         *    W2 (down) shape: [n_embd out, n_ff in]
+         *    output = down(GELU(up(x)))
          *
          * Uses smart projection for both F32 and Q8_0 weights.
          */
         if (lw->w1 && lw->w2 && lw->w3) {
+            /* SwiGLU variant (has gate projection) */
             /* Batched gate projection: ffn_gate[T,n_ff] = hidden[T,n_embd] @ W1^T */
             batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
 
@@ -913,6 +1055,24 @@ DetTensor* det_model_forward(DetModel* model,
 
             /* Batched down projection: hidden[T,n_embd] = ffn_gate[T,n_ff] @ W2^T */
             batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+        } else if (lw->w2 && lw->w3) {
+            /* Simple MLP variant (Phi - no gate, uses GELU) */
+            /* Batched up projection: ffn_up[T,n_ff] = hidden[T,n_embd] @ W3^T */
+            batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+
+            /* GELU activation */
+            {
+                int ffn_total = num_tokens * cfg->n_ff;
+                for (int i = 0; i < ffn_total; i++) {
+                    float x = ffn_up[i];
+                    /* GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))) */
+                    float x3 = x * x * x;
+                    ffn_up[i] = 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x3)));
+                }
+            }
+
+            /* Batched down projection: hidden[T,n_embd] = ffn_up[T,n_ff] @ W2^T */
+            batched_proj_smart(hidden, ffn_up, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
         }
 
         /* Add FFN residual */

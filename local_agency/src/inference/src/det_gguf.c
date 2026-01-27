@@ -372,8 +372,27 @@ GgufContext* gguf_open(const char* path) {
 
     /* Extract common model parameters */
     ctx->model_arch = gguf_get_string(ctx, "general.architecture");
-    ctx->n_vocab = gguf_get_u32(ctx, "llama.vocab_size", 0);
-    if (ctx->n_vocab == 0) ctx->n_vocab = gguf_get_u32(ctx, "qwen2.vocab_size", 0);
+
+    /* Helper macro to try multiple architecture prefixes */
+    #define TRY_ARCHS_U32(param, key, def) \
+        ctx->param = gguf_get_u32(ctx, "llama." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "qwen2." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "qwen3." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "phi3." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "gemma." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "mistral." key, 0); \
+        if (ctx->param == 0) ctx->param = def
+
+    #define TRY_ARCHS_F32(param, key, def) \
+        ctx->param = gguf_get_f32(ctx, "llama." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "qwen2." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "qwen3." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "phi3." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "gemma." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "mistral." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = def
+
+    TRY_ARCHS_U32(n_vocab, "vocab_size", 0);
 
     /* Fallback: get vocab size from tokenizer.ggml.tokens array length */
     if (ctx->n_vocab == 0) {
@@ -383,28 +402,19 @@ GgufContext* gguf_open(const char* path) {
         }
     }
 
-    ctx->n_ctx = gguf_get_u32(ctx, "llama.context_length", 2048);
-    if (ctx->n_ctx == 2048) ctx->n_ctx = gguf_get_u32(ctx, "qwen2.context_length", 2048);
-
-    ctx->n_embd = gguf_get_u32(ctx, "llama.embedding_length", 0);
-    if (ctx->n_embd == 0) ctx->n_embd = gguf_get_u32(ctx, "qwen2.embedding_length", 0);
-
-    ctx->n_head = gguf_get_u32(ctx, "llama.attention.head_count", 0);
-    if (ctx->n_head == 0) ctx->n_head = gguf_get_u32(ctx, "qwen2.attention.head_count", 0);
-
-    ctx->n_head_kv = gguf_get_u32(ctx, "llama.attention.head_count_kv", ctx->n_head);
-    if (ctx->n_head_kv == ctx->n_head) ctx->n_head_kv = gguf_get_u32(ctx, "qwen2.attention.head_count_kv", ctx->n_head);
-
-    ctx->n_layer = gguf_get_u32(ctx, "llama.block_count", 0);
-    if (ctx->n_layer == 0) ctx->n_layer = gguf_get_u32(ctx, "qwen2.block_count", 0);
-
-    ctx->n_ff = gguf_get_u32(ctx, "llama.feed_forward_length", 0);
-    if (ctx->n_ff == 0) ctx->n_ff = gguf_get_u32(ctx, "qwen2.feed_forward_length", 0);
-
-    ctx->rope_freq_base = gguf_get_f32(ctx, "llama.rope.freq_base", 10000.0f);
-    if (ctx->rope_freq_base == 10000.0f) ctx->rope_freq_base = gguf_get_f32(ctx, "qwen2.rope.freq_base", 10000.0f);
+    TRY_ARCHS_U32(n_ctx, "context_length", 2048);
+    TRY_ARCHS_U32(n_embd, "embedding_length", 0);
+    TRY_ARCHS_U32(n_head, "attention.head_count", 0);
+    TRY_ARCHS_U32(n_head_kv, "attention.head_count_kv", 0);
+    if (ctx->n_head_kv == 0) ctx->n_head_kv = ctx->n_head;  /* Default to n_head */
+    TRY_ARCHS_U32(n_layer, "block_count", 0);
+    TRY_ARCHS_U32(n_ff, "feed_forward_length", 0);
+    TRY_ARCHS_F32(rope_freq_base, "rope.freq_base", 10000.0f);
 
     ctx->rope_freq_scale = gguf_get_f32(ctx, "llama.rope.scale_linear", 1.0f);
+
+    #undef TRY_ARCHS_U32
+    #undef TRY_ARCHS_F32
 
     return ctx;
 }
@@ -741,6 +751,7 @@ DetModelArch gguf_detect_arch(const GgufContext* ctx) {
 
     if (strcmp(ctx->model_arch, "llama") == 0) return DET_ARCH_LLAMA;
     if (strcmp(ctx->model_arch, "qwen2") == 0) return DET_ARCH_QWEN2;
+    if (strcmp(ctx->model_arch, "qwen3") == 0) return DET_ARCH_QWEN3;
     if (strcmp(ctx->model_arch, "phi3") == 0) return DET_ARCH_PHI3;
     if (strcmp(ctx->model_arch, "gemma") == 0) return DET_ARCH_GEMMA;
     if (strcmp(ctx->model_arch, "mistral") == 0) return DET_ARCH_MISTRAL;
@@ -752,6 +763,7 @@ const char* det_arch_name(DetModelArch arch) {
     switch (arch) {
         case DET_ARCH_LLAMA:   return "llama";
         case DET_ARCH_QWEN2:   return "qwen2";
+        case DET_ARCH_QWEN3:   return "qwen3";
         case DET_ARCH_PHI3:    return "phi3";
         case DET_ARCH_GEMMA:   return "gemma";
         case DET_ARCH_MISTRAL: return "mistral";

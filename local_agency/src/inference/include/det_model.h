@@ -95,6 +95,10 @@ typedef struct {
     DetTensor* bk;          /* Key bias [n_head_kv * head_dim] */
     DetTensor* bv;          /* Value bias [n_head_kv * head_dim] */
 
+    /* QK-Norm (Qwen3 uses these) - per-head normalization */
+    DetTensor* q_norm;      /* Query normalization [head_dim] */
+    DetTensor* k_norm;      /* Key normalization [head_dim] */
+
     /* Attention normalization */
     DetTensor* attn_norm;   /* Pre-attention RMSNorm weights */
 
