@@ -528,3 +528,256 @@ kernel void matmul_q8_0_transposed_f32(
 
     C[row * N + col] = sum;
 }
+
+/* ==========================================================================
+ * SSM (MAMBA) KERNELS
+ * ========================================================================== */
+
+/**
+ * SSM Selective Scan - Core Mamba recurrence
+ *
+ * Implements: h_new = A_bar * h_old + B_bar * x
+ *             y = C * h + D * x
+ *
+ * Where A_bar = exp(delta * A), B_bar = delta * B
+ *
+ * This kernel processes one (i, j) state element per thread.
+ * For batch/sequence processing, launch seq_len times or use parallel scan.
+ *
+ * x: [d_inner] input at current timestep
+ * delta: [d_inner] discretization timestep
+ * A: [d_inner, d_state] log-space A matrix (negative values)
+ * B: [d_state] input projection at current timestep
+ * C: [d_state] output projection at current timestep
+ * D: [d_inner] skip connection
+ * h: [d_inner, d_state] hidden state (updated in-place)
+ * y: [d_inner] output (accumulated)
+ */
+kernel void ssm_scan_step_f32(
+    device const float* x [[buffer(0)]],
+    device const float* delta [[buffer(1)]],
+    device const float* A [[buffer(2)]],
+    device const float* B [[buffer(3)]],
+    device const float* C [[buffer(4)]],
+    device const float* D [[buffer(5)]],
+    device float* h [[buffer(6)]],
+    device float* y [[buffer(7)]],
+    constant uint& d_inner [[buffer(8)]],
+    constant uint& d_state [[buffer(9)]],
+    uint2 gid [[thread_position_in_grid]])  // (i, j) = (inner_dim, state_dim)
+{
+    uint i = gid.x;  // Inner dimension index
+    uint j = gid.y;  // State dimension index
+
+    if (i >= d_inner || j >= d_state) return;
+
+    // Read values
+    float x_i = x[i];
+    float dt = delta[i];
+    float A_ij = -exp(A[i * d_state + j]);  // A stored as log(-A)
+    float B_j = B[j];
+    float C_j = C[j];
+
+    // Discretization
+    float A_bar = exp(dt * A_ij);
+    float B_bar = dt * B_j;
+
+    // State update: h_new = A_bar * h_old + B_bar * x
+    uint h_idx = i * d_state + j;
+    float h_old = h[h_idx];
+    float h_new = A_bar * h_old + B_bar * x_i;
+    h[h_idx] = h_new;
+
+    // Output contribution (atomically add to y[i])
+    // Note: For production, use threadgroup reduction instead of atomic
+    float y_contrib = C_j * h_new;
+
+    // Atomic add for thread safety (Metal 2.0+)
+    // For better performance, use parallel reduction
+    device atomic_float* y_atomic = (device atomic_float*)&y[i];
+    atomic_fetch_add_explicit(y_atomic, y_contrib, memory_order_relaxed);
+}
+
+/**
+ * SSM output with skip connection: y += D * x
+ */
+kernel void ssm_skip_add_f32(
+    device float* y [[buffer(0)]],
+    device const float* x [[buffer(1)]],
+    device const float* D [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    y[gid] += D[gid] * x[gid];
+}
+
+/**
+ * Causal 1D convolution for SSM preprocessing
+ *
+ * out[t, c] = sum_{k=0}^{d_conv-1} w[c, k] * x[t-k, c]
+ *
+ * Handles boundary conditions and maintains state for autoregressive.
+ *
+ * x: [seq_len, d_inner] input
+ * w: [d_inner, d_conv] weights (per-channel)
+ * bias: [d_inner] bias (optional, can be nullptr check before launch)
+ * conv_state: [d_inner, d_conv-1] state from previous tokens
+ * out: [seq_len, d_inner] output
+ */
+kernel void conv1d_causal_f32(
+    device const float* x [[buffer(0)]],
+    device const float* w [[buffer(1)]],
+    device const float* bias [[buffer(2)]],
+    device float* conv_state [[buffer(3)]],
+    device float* out [[buffer(4)]],
+    constant uint& seq_len [[buffer(5)]],
+    constant uint& d_inner [[buffer(6)]],
+    constant uint& d_conv [[buffer(7)]],
+    uint2 gid [[thread_position_in_grid]])  // (t, c) = (time, channel)
+{
+    uint t = gid.x;  // Time index
+    uint c = gid.y;  // Channel index
+
+    if (t >= seq_len || c >= d_inner) return;
+
+    float sum = 0.0f;
+
+    // Convolution
+    for (uint k = 0; k < d_conv; k++) {
+        int src_t = int(t) - int(k);
+        float x_val;
+
+        if (src_t >= 0) {
+            x_val = x[src_t * d_inner + c];
+        } else if (conv_state != nullptr) {
+            // From state: index into [c, d_conv-1] buffer
+            int state_idx = src_t + int(d_conv - 1);
+            if (state_idx >= 0) {
+                x_val = conv_state[c * (d_conv - 1) + state_idx];
+            } else {
+                x_val = 0.0f;
+            }
+        } else {
+            x_val = 0.0f;
+        }
+
+        sum += w[c * d_conv + k] * x_val;
+    }
+
+    // Add bias
+    if (bias != nullptr) {
+        sum += bias[c];
+    }
+
+    out[t * d_inner + c] = sum;
+}
+
+/**
+ * Update convolution state for next sequence
+ *
+ * Shifts the last (d_conv-1) values from x into conv_state
+ */
+kernel void conv1d_update_state_f32(
+    device const float* x [[buffer(0)]],
+    device float* conv_state [[buffer(1)]],
+    constant uint& seq_len [[buffer(2)]],
+    constant uint& d_inner [[buffer(3)]],
+    constant uint& d_conv [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]])  // (k, c) = (state_pos, channel)
+{
+    uint k = gid.x;  // Position in state buffer
+    uint c = gid.y;  // Channel
+
+    if (k >= d_conv - 1 || c >= d_inner) return;
+
+    int src_t = int(seq_len) - int(d_conv - 1) + int(k);
+
+    if (src_t >= 0) {
+        conv_state[c * (d_conv - 1) + k] = x[src_t * d_inner + c];
+    }
+    // Otherwise keep existing state (shifted during next call)
+}
+
+/**
+ * Fused SiLU + Conv1d output for SSM preprocessing
+ *
+ * out = SiLU(conv1d_output)
+ */
+kernel void conv1d_silu_f32(
+    device float* out [[buffer(0)]],
+    uint gid [[thread_position_in_grid]])
+{
+    float x = out[gid];
+    out[gid] = x / (1.0f + exp(-x));
+}
+
+/**
+ * SSM gated output: y_out = y_ssm * SiLU(z)
+ *
+ * y_ssm: [seq_len, d_inner] SSM output
+ * z: [seq_len, d_inner] gate values
+ * y_out: [seq_len, d_inner] gated output
+ */
+kernel void ssm_gate_output_f32(
+    device const float* y_ssm [[buffer(0)]],
+    device const float* z [[buffer(1)]],
+    device float* y_out [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    float y = y_ssm[gid];
+    float g = z[gid];
+    float gate = g / (1.0f + exp(-g));  // SiLU
+    y_out[gid] = y * gate;
+}
+
+/**
+ * Parallel prefix scan for SSM (Blelloch scan)
+ *
+ * Used for batch processing multiple timesteps in parallel.
+ * Computes: y[t] = a[t] * y[t-1] + b[t] for all t in parallel
+ *
+ * This is the up-sweep phase.
+ */
+kernel void ssm_parallel_scan_upsweep_f32(
+    device float* a [[buffer(0)]],  // Multiplicative coefficients (A_bar)
+    device float* b [[buffer(1)]],  // Additive coefficients (B_bar * x)
+    constant uint& n [[buffer(2)]],  // Number of elements
+    constant uint& stride [[buffer(3)]],  // Current stride (2^d)
+    uint gid [[thread_position_in_grid]])
+{
+    uint idx = (gid + 1) * stride * 2 - 1;
+    if (idx >= n) return;
+
+    uint left_idx = idx - stride;
+
+    // Combine: (a_right, b_right) * (a_left, b_left) = (a_right * a_left, a_right * b_left + b_right)
+    float a_left = a[left_idx];
+    float b_left = b[left_idx];
+    float a_right = a[idx];
+    float b_right = b[idx];
+
+    a[idx] = a_right * a_left;
+    b[idx] = a_right * b_left + b_right;
+}
+
+/**
+ * Parallel prefix scan down-sweep phase
+ */
+kernel void ssm_parallel_scan_downsweep_f32(
+    device float* a [[buffer(0)]],
+    device float* b [[buffer(1)]],
+    constant uint& n [[buffer(2)]],
+    constant uint& stride [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    uint idx = (gid + 1) * stride * 2 - 1;
+    if (idx >= n) return;
+
+    uint left_idx = idx - stride;
+
+    float a_left = a[left_idx];
+    float b_left = b[left_idx];
+    float a_right = a[idx];
+
+    // Propagate: b_left = a_right * b_left + b_left_old (handled by storing temp)
+    b[left_idx] = a_right * b_left + b[idx];
+}

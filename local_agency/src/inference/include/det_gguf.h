@@ -309,6 +309,14 @@ typedef enum {
     DET_ARCH_PHI3,
     DET_ARCH_GEMMA,
     DET_ARCH_MISTRAL,
+    /* SSM/Mamba architectures */
+    DET_ARCH_MAMBA,         /* Pure Mamba (all SSM layers) */
+    DET_ARCH_MAMBA2,        /* Mamba-2 architecture */
+    DET_ARCH_JAMBA,         /* Hybrid Jamba (mixed attention+SSM) */
+    DET_ARCH_ZAMBA,         /* Zamba variant */
+    /* Hybrid SSM-Transformer architectures */
+    DET_ARCH_PHI4FLASH,     /* Phi-4-mini-flash-reasoning (SambaY) */
+    DET_ARCH_SAMBAY,        /* Generic SambaY hybrid architecture */
 } DetModelArch;
 
 /**

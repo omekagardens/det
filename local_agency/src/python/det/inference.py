@@ -1011,6 +1011,65 @@ class LlamaChatTemplate(ChatTemplate):
         return ["</s>"]
 
 
+class PhiChatTemplate(ChatTemplate):
+    """
+    Template for Phi-3/Phi-4 models including Phi-4-mini-flash.
+
+    Format:
+        <|system|>{system}<|end|>
+        <|user|>{user}<|end|>
+        <|assistant|>
+
+    Special tokens:
+        - <|user|>, <|assistant|>, <|system|> - role markers
+        - <|end|> - end of message
+        - <|endoftext|> - EOS token
+    """
+
+    DEFAULT_SYSTEM = "You are a helpful assistant."
+
+    def format_prompt(self, user_message: str, system_message: str = None) -> str:
+        """Format a single user message with optional system message."""
+        if system_message is None:
+            system_message = self.DEFAULT_SYSTEM
+
+        return (
+            f"<|system|>{system_message}<|end|>"
+            f"<|user|>{user_message}<|end|>"
+            f"<|assistant|>"
+        )
+
+    def format_conversation(self, messages: List[dict]) -> str:
+        """Format a list of messages."""
+        result = []
+
+        # Add system message if first message is system, otherwise use default
+        if messages and messages[0].get('role') == 'system':
+            system_content = messages[0].get('content', self.DEFAULT_SYSTEM)
+            result.append(f"<|system|>{system_content}<|end|>")
+            messages = messages[1:]
+        else:
+            result.append(f"<|system|>{self.DEFAULT_SYSTEM}<|end|>")
+
+        for msg in messages:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+
+            if role == 'user':
+                result.append(f"<|user|>{content}<|end|>")
+            elif role == 'assistant':
+                result.append(f"<|assistant|>{content}<|end|>")
+            # Skip system messages in the middle (already handled above)
+
+        # Add assistant prompt for generation
+        result.append("<|assistant|>")
+        return "".join(result)
+
+    @property
+    def stop_tokens(self) -> List[str]:
+        return ["<|end|>", "<|endoftext|>"]
+
+
 # Template registry
 CHAT_TEMPLATES = {
     'qwen': QwenChatTemplate(),
@@ -1020,6 +1079,10 @@ CHAT_TEMPLATES = {
     'llama': LlamaChatTemplate(),
     'llama2': LlamaChatTemplate(),
     'llama3': LlamaChatTemplate(),
+    'phi': PhiChatTemplate(),
+    'phi3': PhiChatTemplate(),
+    'phi4': PhiChatTemplate(),
+    'phi4flash': PhiChatTemplate(),
 }
 
 
@@ -1028,7 +1091,9 @@ def get_chat_template(model_name: str) -> ChatTemplate:
     model_lower = model_name.lower()
 
     # Check for known patterns
-    if 'qwen' in model_lower:
+    if 'phi' in model_lower:
+        return CHAT_TEMPLATES['phi']
+    elif 'qwen' in model_lower:
         return CHAT_TEMPLATES['qwen']
     elif 'llama' in model_lower:
         return CHAT_TEMPLATES['llama']
@@ -1040,8 +1105,15 @@ def get_chat_template(model_name: str) -> ChatTemplate:
 def detect_template_from_vocab(model: 'Model') -> ChatTemplate:
     """Auto-detect chat template by checking vocabulary for special tokens."""
     try:
+        # Check for Phi-style tokens first (more specific)
+        user_tokens = model.tokenize("<|user|>")
+        if len(user_tokens) == 1:  # Single token = recognized special token
+            return CHAT_TEMPLATES['phi']
+    except Exception:
+        pass
+
+    try:
         # Check if model has ChatML tokens (Qwen-style)
-        # Try to tokenize the special tokens
         im_start_tokens = model.tokenize("<|im_start|>")
         if len(im_start_tokens) == 1:  # Single token = recognized special token
             return CHAT_TEMPLATES['qwen']

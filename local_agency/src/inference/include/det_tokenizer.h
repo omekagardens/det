@@ -56,6 +56,13 @@ typedef struct {
     int32_t result;     /* Merged token ID */
 } DetBPEMerge;
 
+/** Added token entry (for special tokens like <|end|>) */
+typedef struct {
+    const char* text;   /* Token text (points to vocab entry) */
+    int32_t id;         /* Token ID */
+    int32_t len;        /* Pre-computed strlen for efficiency */
+} DetAddedToken;
+
 /** Tokenizer context */
 typedef struct DetTokenizer {
     /* Vocabulary */
@@ -75,6 +82,10 @@ typedef struct DetTokenizer {
     /* Lookup tables for fast encoding */
     void* token_to_id;      /* Hash table: text -> id */
     void* byte_tokens;      /* Byte fallback tokens (256 entries) */
+
+    /* Added tokens (special tokens matched before BPE) */
+    DetAddedToken* added_tokens;    /* Array of added tokens, sorted by length desc */
+    int32_t num_added_tokens;       /* Number of added tokens */
 
     /* Configuration */
     bool add_bos;           /* Add BOS token at start */

@@ -43,7 +43,7 @@ try:
         Model as NativeModel, metal_status, SamplingParams,
         set_inference_mode, get_inference_mode,
         INFERENCE_MODE_F32, INFERENCE_MODE_Q8_0,
-        QwenChatTemplate, get_chat_template, detect_template_from_vocab,
+        QwenChatTemplate, PhiChatTemplate, get_chat_template, detect_template_from_vocab,
         TruthfulnessEvaluator, TruthfulnessScore, TruthfulnessWeights,
         get_truthfulness_evaluator, evaluate_truthfulness
     )

@@ -10,6 +10,14 @@
 #include <stdio.h>
 #include <ctype.h>
 
+/* Token type constants (from GGUF/llama.cpp) */
+#define TOKEN_TYPE_NORMAL       0
+#define TOKEN_TYPE_UNKNOWN      1
+#define TOKEN_TYPE_CONTROL      2
+#define TOKEN_TYPE_USER_DEFINED 3
+#define TOKEN_TYPE_UNUSED       4
+#define TOKEN_TYPE_BYTE         5
+
 /* ==========================================================================
  * HASH TABLE FOR TOKEN LOOKUP
  * ========================================================================== */
@@ -82,6 +90,35 @@ static int32_t hash_get(HashTable* ht, const char* key, int32_t default_val) {
         e = e->next;
     }
     return default_val;
+}
+
+/* ==========================================================================
+ * ADDED TOKEN HELPERS
+ * ========================================================================== */
+
+/* Check if token is an "added token" that should be matched before BPE */
+static bool is_added_token(const DetVocabEntry* entry) {
+    if (!entry || !entry->text) return false;
+
+    /* Type 3 = USER_DEFINED (added tokens) */
+    if (entry->type == TOKEN_TYPE_USER_DEFINED) return true;
+
+    /* Also match <|...|> pattern (common for chat tokens) */
+    const char* text = entry->text;
+    size_t len = strlen(text);
+    if (len >= 4 && text[0] == '<' && text[1] == '|' &&
+        text[len-2] == '|' && text[len-1] == '>') {
+        return true;
+    }
+
+    return false;
+}
+
+/* Comparison function for sorting added tokens by length (descending) */
+static int compare_added_tokens(const void* a, const void* b) {
+    const DetAddedToken* ta = (const DetAddedToken*)a;
+    const DetAddedToken* tb = (const DetAddedToken*)b;
+    return tb->len - ta->len;  /* Descending order */
 }
 
 /* ==========================================================================
@@ -220,6 +257,38 @@ DetTokenizer* det_tokenizer_from_gguf(GgufContext* gguf) {
     tok->add_bos = gguf_get_u32(gguf, "tokenizer.ggml.add_bos_token", 1) != 0;
     tok->add_eos = false;
 
+    /* Build added tokens list for special token handling */
+    int32_t added_count = 0;
+    for (int32_t i = 0; i < tok->vocab_size; i++) {
+        if (is_added_token(&tok->vocab[i])) {
+            added_count++;
+        }
+    }
+
+    if (added_count > 0) {
+        tok->added_tokens = calloc(added_count, sizeof(DetAddedToken));
+        if (tok->added_tokens) {
+            int32_t j = 0;
+            for (int32_t i = 0; i < tok->vocab_size; i++) {
+                if (is_added_token(&tok->vocab[i])) {
+                    tok->added_tokens[j].text = tok->vocab[i].text;
+                    tok->added_tokens[j].id = i;
+                    tok->added_tokens[j].len = (int32_t)strlen(tok->vocab[i].text);
+                    j++;
+                }
+            }
+            tok->num_added_tokens = added_count;
+
+            /* Sort by length descending for longest-match-first */
+            qsort(tok->added_tokens, added_count, sizeof(DetAddedToken),
+                  compare_added_tokens);
+
+            /* Debug: print added tokens count */
+            fprintf(stderr, "Tokenizer: found %d added tokens for special token handling\n",
+                    added_count);
+        }
+    }
+
     return tok;
 }
 
@@ -250,6 +319,9 @@ void det_tokenizer_free(DetTokenizer* tok) {
     /* Free merges */
     free(tok->merges);
 
+    /* Free added tokens */
+    free(tok->added_tokens);
+
     /* Free hash table */
     hash_free(tok->token_to_id);
 
@@ -260,21 +332,93 @@ void det_tokenizer_free(DetTokenizer* tok) {
  * ENCODING
  * ========================================================================== */
 
-/* Simple greedy BPE tokenization */
-static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
-                            int32_t* tokens, int32_t max_tokens) {
+/* Forward declaration */
+static int32_t tokenize_bpe_segment(const DetTokenizer* tok, const char* text,
+                                     int32_t text_len, int32_t* tokens, int32_t max_tokens);
+
+/**
+ * Tokenize with added token handling
+ *
+ * Scans for special/added tokens first (like <|end|>, <|user|>), splits
+ * text at their boundaries, then tokenizes each segment with BPE.
+ */
+static int32_t tokenize_with_added_tokens(const DetTokenizer* tok, const char* text,
+                                           int32_t* tokens, int32_t max_tokens) {
     if (!tok || !text || !tokens) return DET_TOK_ERR_INVALID;
+    if (!tok->added_tokens || tok->num_added_tokens == 0) {
+        /* No added tokens - fall through to BPE */
+        return tokenize_bpe_segment(tok, text, (int32_t)strlen(text), tokens, max_tokens);
+    }
 
     int32_t num_tokens = 0;
     const char* p = text;
+    const char* text_end = text + strlen(text);
+
+    while (p < text_end && num_tokens < max_tokens) {
+        /* Try to match an added token at current position */
+        int32_t matched_id = -1;
+        int32_t matched_len = 0;
+
+        /* Scan through added tokens (sorted by length, so longest match wins) */
+        for (int32_t i = 0; i < tok->num_added_tokens; i++) {
+            const DetAddedToken* at = &tok->added_tokens[i];
+            if (p + at->len <= text_end &&
+                memcmp(p, at->text, at->len) == 0) {
+                matched_id = at->id;
+                matched_len = at->len;
+                break;  /* First match is longest due to sorting */
+            }
+        }
+
+        if (matched_id >= 0) {
+            /* Found an added token - emit it directly */
+            if (num_tokens >= max_tokens) return DET_TOK_ERR_OVERFLOW;
+            tokens[num_tokens++] = matched_id;
+            p += matched_len;
+        } else {
+            /* Find the next added token (or end of string) */
+            const char* next_added = text_end;
+            for (int32_t i = 0; i < tok->num_added_tokens; i++) {
+                const DetAddedToken* at = &tok->added_tokens[i];
+                const char* found = strstr(p + 1, at->text);
+                if (found && found < next_added) {
+                    next_added = found;
+                }
+            }
+
+            /* Tokenize the segment before the next added token */
+            int32_t segment_len = (int32_t)(next_added - p);
+            if (segment_len > 0) {
+                int32_t seg_tokens = tokenize_bpe_segment(tok, p, segment_len,
+                                                          tokens + num_tokens,
+                                                          max_tokens - num_tokens);
+                if (seg_tokens < 0) return seg_tokens;
+                num_tokens += seg_tokens;
+            }
+            p = next_added;
+        }
+    }
+
+    return num_tokens;
+}
+
+/* Simple greedy BPE tokenization (for a text segment) */
+static int32_t tokenize_bpe_segment(const DetTokenizer* tok, const char* text,
+                                     int32_t text_len, int32_t* tokens, int32_t max_tokens) {
+    if (!tok || !text || !tokens) return DET_TOK_ERR_INVALID;
+    if (text_len <= 0) return 0;
+
+    int32_t num_tokens = 0;
+    const char* p = text;
+    const char* text_end = text + text_len;
 
     /* First pass: split into initial tokens (characters/bytes) */
-    int32_t* work_tokens = malloc(strlen(text) * 4 * sizeof(int32_t));
+    int32_t* work_tokens = malloc(text_len * 4 * sizeof(int32_t));
     if (!work_tokens) return DET_TOK_ERR_ALLOC;
 
     int32_t work_count = 0;
 
-    while (*p) {
+    while (p < text_end) {
         /* Try to find longest matching token */
         int32_t best_id = -1;
         int best_len = 0;
@@ -284,7 +428,7 @@ static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
         const char* search_start = space_prefix ? (p + 1) : p;
 
         /* Try different lengths, longest first */
-        size_t search_len = strlen(search_start);
+        size_t search_len = (size_t)(text_end - search_start);
         for (int len = 16; len >= 1; len--) {
             /* Proper length check - don't try lengths beyond the string */
             if ((size_t)len > search_len) continue;
@@ -312,7 +456,7 @@ static int32_t tokenize_bpe(const DetTokenizer* tok, const char* text,
 
         /* If space-prefixed lookup failed, try without prefix */
         if (best_id < 0 && space_prefix) {
-            size_t p_len = strlen(p);
+            size_t p_len = (size_t)(text_end - p);
             for (int len = 16; len >= 1; len--) {
                 /* Proper length check */
                 if ((size_t)len > p_len) continue;
@@ -411,8 +555,8 @@ int32_t det_tokenize_ex(const DetTokenizer* tok, const char* text,
         tokens[pos++] = tok->special.bos_id;
     }
 
-    /* Tokenize text */
-    int32_t text_tokens = tokenize_bpe(tok, text, tokens + pos, max_tokens - pos);
+    /* Tokenize text (with added token handling) */
+    int32_t text_tokens = tokenize_with_added_tokens(tok, text, tokens + pos, max_tokens - pos);
     if (text_tokens < 0) return text_tokens;
     pos += text_tokens;
 
@@ -432,7 +576,7 @@ int32_t det_token_count(const DetTokenizer* tok, const char* text) {
     int32_t* temp = malloc(strlen(text) * 4 * sizeof(int32_t));
     if (!temp) return 0;
 
-    int32_t count = tokenize_bpe(tok, text, temp, (int32_t)(strlen(text) * 4));
+    int32_t count = tokenize_with_added_tokens(tok, text, temp, (int32_t)(strlen(text) * 4));
 
     free(temp);
     return (count > 0) ? count : 0;

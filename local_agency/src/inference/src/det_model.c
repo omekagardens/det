@@ -8,6 +8,7 @@
  */
 
 #include "det_model.h"
+#include "det_ssm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -266,6 +267,13 @@ static DetTensor* get_layer_bias(GgufContext* gguf, int layer, const char* name)
     return gguf_get_tensor_f32(gguf, full_name);
 }
 
+/* Get layer parameter by name (no .weight/.bias suffix) */
+static DetTensor* get_layer_param(GgufContext* gguf, int layer, const char* name) {
+    char full_name[256];
+    snprintf(full_name, sizeof(full_name), "blk.%d.%s", layer, name);
+    return gguf_get_tensor_f32(gguf, full_name);
+}
+
 /**
  * Smart weight loading based on inference mode.
  *
@@ -361,6 +369,8 @@ static int split_fused_qkv(DetTensor* fused, int n_embd, int n_head, int n_head_
 /**
  * Load QKV weights - handles both separate and fused layouts.
  * Phi3/Phi4 use fused attn_qkv, other models use separate attn_q/k/v.
+ *
+ * For SambaY cross-decoder attention, Wqkv only contains Q (K/V from cached SSM).
  */
 static void load_qkv_weights(GgufContext* gguf, int layer, DetModel* model, DetLayerWeights* lw) {
     /* Try separate weights first (most common) */
@@ -371,16 +381,37 @@ static void load_qkv_weights(GgufContext* gguf, int layer, DetModel* model, DetL
     /* If we got separate weights, we're done */
     if (lw->wq && lw->wk && lw->wv) return;
 
-    /* Try fused QKV (Phi3/Phi4 style) */
-    DetTensor* fused = get_layer_weight_smart(gguf, layer, "attn_qkv");
+    /* Try fused QKV (Phi3/Phi4 style) - force F32 for splitting */
+    char full_name[256];
+    snprintf(full_name, sizeof(full_name), "blk.%d.attn_qkv.weight", layer);
+    DetTensor* fused = gguf_get_tensor_f32(gguf, full_name);
+
     if (fused) {
-        if (split_fused_qkv(fused, model->config.n_embd, model->config.n_head,
-                           model->config.n_head_kv, &lw->wq, &lw->wk, &lw->wv) == 0) {
-            /* Successfully split - free the fused tensor */
-            det_tensor_release(fused);
+        int n_embd = model->config.n_embd;
+        int head_dim = n_embd / model->config.n_head;
+        int expected_qkv = n_embd + 2 * (model->config.n_head_kv * head_dim);
+
+        /* Check if this is Q-only (cross-decoder) or full QKV (self-decoder) */
+        if (fused->shape[1] == (uint64_t)n_embd) {
+            /* Q-only: cross-decoder attention
+             * K/V will come from cached SSM output at runtime
+             * Store as wq and leave wk/wv NULL */
+            lw->wq = fused;
+            lw->wk = NULL;
+            lw->wv = NULL;
+            lw->is_cross_decoder = true;  /* Mark for runtime handling */
             return;
+        } else if (fused->shape[1] == (uint64_t)expected_qkv) {
+            /* Full QKV: self-decoder attention */
+            if (split_fused_qkv(fused, n_embd, model->config.n_head,
+                               model->config.n_head_kv, &lw->wq, &lw->wk, &lw->wv) == 0) {
+                det_tensor_release(fused);
+                return;
+            }
+        } else {
+            fprintf(stderr, "Unexpected QKV size for layer %d: got %d, expected %d or %d\n",
+                    layer, (int)fused->shape[1], n_embd, expected_qkv);
         }
-        /* Split failed - keep NULL weights */
         det_tensor_release(fused);
     }
 }
@@ -474,30 +505,163 @@ DetModel* det_model_load(const char* path) {
     /* Load layer weights
      * Use smart loading for projection weights (can be Q8_0 in QAM mode)
      * Always F32 for norms (small tensors, not worth quantizing) */
+    model->n_attn_layers = 0;
+    model->n_ssm_layers = 0;
+
     for (int i = 0; i < model->config.n_layer; i++) {
         DetLayerWeights* layer = &model->weights.layers[i];
 
-        /* Normalization weights - always F32 */
-        layer->attn_norm = get_layer_weight(gguf, i, "attn_norm");
-        layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
+        /* Check if this is an SSM layer (Mamba) or attention layer */
+        layer->is_ssm_layer = det_is_ssm_layer(gguf, i);
 
-        /* Attention projections - handles both separate and fused QKV */
-        load_qkv_weights(gguf, i, model, layer);
-        layer->wo = get_layer_weight_smart(gguf, i, "attn_output");
+        if (layer->is_ssm_layer) {
+            /* Load SSM weights (Mamba layer) */
+            model->n_ssm_layers++;
 
-        /* QKV biases (Qwen2 uses these) - always F32 */
-        layer->bq = get_layer_bias(gguf, i, "attn_q");
-        layer->bk = get_layer_bias(gguf, i, "attn_k");
-        layer->bv = get_layer_bias(gguf, i, "attn_v");
+            /* SSM norm (pre-layer norm) */
+            layer->ssm_norm = get_layer_weight(gguf, i, "ssm_norm");
+            if (!layer->ssm_norm) {
+                layer->ssm_norm = get_layer_weight(gguf, i, "attn_norm");
+            }
 
-        /* QK-Norm weights (Qwen3 uses these) - always F32 */
-        layer->q_norm = get_layer_weight(gguf, i, "attn_q_norm");
-        layer->k_norm = get_layer_weight(gguf, i, "attn_k_norm");
+            /* SSM projections */
+            layer->ssm_in_proj = get_layer_weight_smart(gguf, i, "ssm_in");
+            layer->ssm_conv1d_weight = get_layer_weight(gguf, i, "ssm_conv1d");
+            layer->ssm_conv1d_bias = get_layer_bias(gguf, i, "ssm_conv1d");
+            layer->ssm_x_proj = get_layer_weight_smart(gguf, i, "ssm_x");
+            layer->ssm_dt_proj = get_layer_weight_smart(gguf, i, "ssm_dt");
+            layer->ssm_dt_proj_bias = get_layer_bias(gguf, i, "ssm_dt");
+            layer->ssm_A_log = get_layer_weight(gguf, i, "ssm_A_log");
+            layer->ssm_D = get_layer_weight(gguf, i, "ssm_D");
+            layer->ssm_out_proj = get_layer_weight_smart(gguf, i, "ssm_out");
 
-        /* FFN projections - can be Q8_0 in QAM mode */
-        layer->w1 = get_layer_weight_smart(gguf, i, "ffn_gate");
-        layer->w2 = get_layer_weight_smart(gguf, i, "ffn_down");
-        layer->w3 = get_layer_weight_smart(gguf, i, "ffn_up");
+            /* Precompute A_negexp = -exp(A_log) for major speedup in selective scan */
+            layer->ssm_A_negexp = NULL;
+            if (layer->ssm_A_log) {
+                int64_t A_size = layer->ssm_A_log->shape[0] * layer->ssm_A_log->shape[1];
+                layer->ssm_A_negexp = malloc(A_size * sizeof(float));
+                if (layer->ssm_A_negexp) {
+                    const float* A_log = (const float*)layer->ssm_A_log->data;
+                    for (int64_t j = 0; j < A_size; j++) {
+                        layer->ssm_A_negexp[j] = -expf(A_log[j]);
+                    }
+                }
+            }
+
+            /* FFN projections (SSM layers may also have FFN) */
+            layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
+            layer->w1 = get_layer_weight_smart(gguf, i, "ffn_gate");
+            layer->w2 = get_layer_weight_smart(gguf, i, "ffn_down");
+            layer->w3 = get_layer_weight_smart(gguf, i, "ffn_up");
+        } else {
+            /* Load attention weights (transformer layer) */
+            model->n_attn_layers++;
+
+            /* Normalization weights - always F32 */
+            layer->attn_norm = get_layer_weight(gguf, i, "attn_norm");
+            layer->ffn_norm = get_layer_weight(gguf, i, "ffn_norm");
+
+            /* Attention projections - handles both separate and fused QKV */
+            load_qkv_weights(gguf, i, model, layer);
+            layer->wo = get_layer_weight_smart(gguf, i, "attn_output");
+
+            /* QKV biases (Qwen2 uses these) - always F32 */
+            layer->bq = get_layer_bias(gguf, i, "attn_q");
+            layer->bk = get_layer_bias(gguf, i, "attn_k");
+            layer->bv = get_layer_bias(gguf, i, "attn_v");
+
+            /* QK-Norm weights (Qwen3 uses these) - always F32 */
+            layer->q_norm = get_layer_weight(gguf, i, "attn_q_norm");
+            layer->k_norm = get_layer_weight(gguf, i, "attn_k_norm");
+
+            /* Differential attention weights (phi4flash) - always F32
+             * Lambda params don't have .weight suffix in GGUF
+             * SubLN has .weight suffix */
+            layer->diff_lambda_q1 = get_layer_param(gguf, i, "diff_lambda_q1");
+            layer->diff_lambda_k1 = get_layer_param(gguf, i, "diff_lambda_k1");
+            layer->diff_lambda_q2 = get_layer_param(gguf, i, "diff_lambda_q2");
+            layer->diff_lambda_k2 = get_layer_param(gguf, i, "diff_lambda_k2");
+            layer->diff_subln = get_layer_weight(gguf, i, "diff_subln");
+            layer->use_diff_attn = (layer->diff_lambda_q1 != NULL);
+
+            /* FFN projections - can be Q8_0 in QAM mode */
+            layer->w1 = get_layer_weight_smart(gguf, i, "ffn_gate");
+            layer->w2 = get_layer_weight_smart(gguf, i, "ffn_down");
+            layer->w3 = get_layer_weight_smart(gguf, i, "ffn_up");
+        }
+    }
+
+    /* Set up SSM-specific structures if needed */
+    model->has_ssm_layers = (model->n_ssm_layers > 0);
+    if (model->has_ssm_layers) {
+        /* Get SSM config from GGUF */
+        model->ssm_config = det_ssm_config_from_gguf(gguf);
+
+        /* Create SSM cache with workspace for typical generation lengths */
+        int32_t max_workspace_seq = 2048;  /* Prompt + some generation */
+        model->ssm_cache = det_ssm_cache_create(
+            model->n_ssm_layers,
+            model->ssm_config.d_inner,
+            model->ssm_config.d_state,
+            model->ssm_config.d_conv,
+            model->ssm_config.dt_rank,
+            max_workspace_seq
+        );
+    }
+
+    /* Detect SambaY architecture (phi4flash, etc.) */
+    if (model->config.arch == DET_ARCH_PHI4FLASH ||
+        model->config.arch == DET_ARCH_SAMBAY) {
+        model->config.is_sambay = true;
+
+        /* Get sliding window size from GGUF metadata */
+        model->config.sliding_window = gguf_get_u32(gguf, "phi4.sliding_window", 512);
+        if (model->config.sliding_window == 512) {
+            model->config.sliding_window = gguf_get_u32(gguf, "attention.sliding_window", 512);
+        }
+
+        /* Get mb_per_layer (Mamba blocks per layer, 2 = every other layer uses Mamba) */
+        model->config.mb_per_layer = gguf_get_u32(gguf, "phi4.mb_per_layer", 2);
+
+        /* Configure layer types for SambaY pattern:
+         * The model has alternating Mamba/Attention throughout all 32 layers.
+         * Self-decoder (layers 0-15): standard Mamba/Attention
+         * Cross-decoder (layers 16-31): still alternating, but attention uses Q-only
+         *   with K/V derived from cached SSM output (GMU pattern)
+         *
+         * Layer type is already detected from tensors during loading:
+         * - is_ssm_layer: set by det_is_ssm_layer() based on presence of ssm_in.weight
+         * - is_cross_decoder: set by load_qkv_weights() based on QKV tensor shape
+         *
+         * Here we configure sliding window and mark second-half layers for cross-decoder.
+         */
+        int half_layers = model->config.n_layer / 2;
+        for (int i = 0; i < model->config.n_layer; i++) {
+            DetLayerWeights* layer = &model->weights.layers[i];
+
+            /* Keep is_ssm_layer as detected from tensor presence */
+            /* Keep is_cross_decoder as detected from QKV shape */
+
+            if (i < half_layers) {
+                /* Self-decoder: use sliding window for attention layers */
+                if (!layer->is_ssm_layer) {
+                    layer->use_sliding_window = true;
+                    layer->sliding_window_size = model->config.sliding_window;
+                }
+                layer->use_gmu = false;
+            } else {
+                /* Cross-decoder: attention layers use GMU pattern (Q-only + cached SSM) */
+                if (!layer->is_ssm_layer && layer->is_cross_decoder) {
+                    layer->use_gmu = true;
+                    layer->use_sliding_window = false;
+                }
+            }
+        }
+
+        printf("  SambaY architecture: %d self-decoder layers, %d cross-decoder layers\n",
+               half_layers, model->config.n_layer - half_layers);
+        printf("  Sliding window: %d, Mamba every %d layers\n",
+               model->config.sliding_window, model->config.mb_per_layer);
     }
 
     /* Create tokenizer */
@@ -540,10 +704,29 @@ DetModel* det_model_load(const char* path) {
     model->scratch.ffn_up = malloc(n_ctx * model->config.n_ff * sizeof(float));
     model->scratch.temp = malloc(n_ctx * model->config.n_embd * sizeof(float));
 
+    /* SambaY scratch buffer for cached SSM output (used by GMU) */
+    int d_inner = model->has_ssm_layers ? model->ssm_config.d_inner : model->config.n_embd * 2;
+    model->scratch.cached_ssm = malloc(n_ctx * d_inner * sizeof(float));
+
+    /* Count differential attention layers */
+    int n_diff_attn = 0;
+    for (int i = 0; i < model->config.n_layer; i++) {
+        if (model->weights.layers[i].use_diff_attn) {
+            n_diff_attn++;
+        }
+    }
+
     printf("Loaded model: %s\n", det_arch_name(model->config.arch));
     printf("  Layers: %d, Embedding: %d, Heads: %d, Vocab: %d\n",
            model->config.n_layer, model->config.n_embd,
            model->config.n_head, model->config.n_vocab);
+    if (model->has_ssm_layers) {
+        printf("  Layer types: %d attention, %d SSM (Mamba)\n",
+               model->n_attn_layers, model->n_ssm_layers);
+    }
+    if (n_diff_attn > 0) {
+        printf("  Differential attention: %d layers\n", n_diff_attn);
+    }
     printf("  Inference mode: %s\n",
            g_inference_mode == DET_INFERENCE_Q8_0 ? "Q8_0 (QAM)" : "F32");
 
@@ -557,6 +740,8 @@ void det_model_free(DetModel* model) {
     if (model->weights.layers) {
         for (int i = 0; i < model->weights.n_layers; i++) {
             DetLayerWeights* layer = &model->weights.layers[i];
+
+            /* Attention weights */
             det_tensor_release(layer->attn_norm);
             det_tensor_release(layer->wq);
             det_tensor_release(layer->wk);
@@ -567,10 +752,32 @@ void det_model_free(DetModel* model) {
             det_tensor_release(layer->bv);
             det_tensor_release(layer->q_norm);
             det_tensor_release(layer->k_norm);
+
+            /* Differential attention weights */
+            det_tensor_release(layer->diff_lambda_q1);
+            det_tensor_release(layer->diff_lambda_k1);
+            det_tensor_release(layer->diff_lambda_q2);
+            det_tensor_release(layer->diff_lambda_k2);
+            det_tensor_release(layer->diff_subln);
+
+            /* FFN weights */
             det_tensor_release(layer->ffn_norm);
             det_tensor_release(layer->w1);
             det_tensor_release(layer->w2);
             det_tensor_release(layer->w3);
+
+            /* SSM weights (Mamba) */
+            det_tensor_release(layer->ssm_in_proj);
+            det_tensor_release(layer->ssm_conv1d_weight);
+            det_tensor_release(layer->ssm_conv1d_bias);
+            det_tensor_release(layer->ssm_x_proj);
+            det_tensor_release(layer->ssm_dt_proj);
+            det_tensor_release(layer->ssm_dt_proj_bias);
+            det_tensor_release(layer->ssm_A_log);
+            free(layer->ssm_A_negexp);
+            det_tensor_release(layer->ssm_D);
+            det_tensor_release(layer->ssm_out_proj);
+            det_tensor_release(layer->ssm_norm);
         }
         free(model->weights.layers);
     }
@@ -586,6 +793,11 @@ void det_model_free(DetModel* model) {
     det_tensor_release(model->kv_cache.k);
     det_tensor_release(model->kv_cache.v);
 
+    /* Free SSM cache */
+    if (model->ssm_cache) {
+        det_ssm_cache_free(model->ssm_cache);
+    }
+
     /* Free scratch buffers */
     free(model->scratch.hidden);
     free(model->scratch.residual);
@@ -596,6 +808,7 @@ void det_model_free(DetModel* model) {
     free(model->scratch.ffn_gate);
     free(model->scratch.ffn_up);
     free(model->scratch.temp);
+    free(model->scratch.cached_ssm);
 
     /* Free workspace */
     det_workspace_destroy(model->workspace);
@@ -615,7 +828,14 @@ void det_model_free(DetModel* model) {
 
 void det_model_reset(DetModel* model) {
     if (!model) return;
+
+    /* Reset KV cache (attention layers) */
     model->kv_cache.seq_len = 0;
+
+    /* Reset SSM cache (Mamba layers) */
+    if (model->ssm_cache) {
+        det_ssm_cache_reset(model->ssm_cache);
+    }
 }
 
 /* ==========================================================================
@@ -753,19 +973,304 @@ DetTensor* det_model_forward(DetModel* model,
     double t_layers_start = g_debug_timing ? get_time_ms() : 0;
     double t_attn_total = 0, t_ffn_total = 0;
 
+    /* SSM layer counter for cache indexing */
+    int ssm_layer_idx = 0;
+
     /* Process each layer */
     for (int layer = 0; layer < cfg->n_layer; layer++) {
         DetLayerWeights* lw = &model->weights.layers[layer];
-
-        /* Skip layer if weights not loaded */
-        if (!lw->attn_norm || !lw->wq || !lw->wk || !lw->wv || !lw->wo) {
-            continue;
-        }
 
         double t_layer_start = g_debug_timing ? get_time_ms() : 0;
 
         /* Save residual */
         memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+        /* Dispatch based on layer type */
+        if (lw->is_ssm_layer) {
+            /* ============================================================
+             * SSM LAYER (Mamba) FORWARD PASS
+             * ============================================================ */
+
+            /* SSM pre-norm (RMSNorm) */
+            DetTensor* norm = lw->ssm_norm ? lw->ssm_norm : lw->attn_norm;
+            if (norm) {
+                float* norm_weight = (float*)norm->data;
+                for (int t = 0; t < num_tokens; t++) {
+                    float* h = hidden + t * cfg->n_embd;
+                    float ss = 0.0f;
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        ss += h[i] * h[i];
+                    }
+                    float scale_val = 1.0f / sqrtf(ss / cfg->n_embd + cfg->norm_eps);
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        h[i] = h[i] * scale_val * norm_weight[i];
+                    }
+                }
+            }
+
+            /* Detect cross-decoder SSM (YOCO-cross) based on in_proj size
+             * Cross-decoder SSM layers have smaller in_proj [d_inner, d_model]
+             * vs standard SSM with [2*d_inner, d_model].
+             * These layers use simplified SwiGLU with cached SSM values.
+             */
+            bool is_yoco_cross_ssm = false;
+            if (cfg->is_sambay && lw->ssm_in_proj) {
+                int d_inner = model->ssm_config.d_inner;
+                if ((int32_t)lw->ssm_in_proj->shape[1] == d_inner) {
+                    is_yoco_cross_ssm = true;
+                }
+            }
+
+            if (is_yoco_cross_ssm && model->scratch.cached_ssm) {
+                /* YOCO-cross SSM: Use simplified SwiGLU path
+                 * out = out_proj(SwiGLU(in_proj(x), cached_ssm))
+                 * This is the same as GMU attention layers. */
+                const float* in_proj_data = lw->ssm_in_proj ?
+                    (const float*)lw->ssm_in_proj->data : NULL;
+                const float* out_proj_data = lw->ssm_out_proj ?
+                    (const float*)lw->ssm_out_proj->data : NULL;
+
+                if (in_proj_data && out_proj_data) {
+                    det_gmu_swiglu(model->scratch.temp, hidden, model->scratch.cached_ssm,
+                                   in_proj_data, out_proj_data,
+                                   cfg->n_embd, model->ssm_config.d_inner, num_tokens);
+                }
+                ssm_layer_idx++;  /* Still count as SSM layer for stats */
+            } else {
+                /* Standard SSM forward pass */
+                DetTensor input_tensor = {
+                    .data = hidden,
+                    .ndim = 2,
+                    .shape = {num_tokens, cfg->n_embd, 0, 0},
+                    .dtype = DET_DTYPE_F32,
+                    .owns_data = false
+                };
+                DetTensor output_tensor = {
+                    .data = model->scratch.temp,
+                    .ndim = 2,
+                    .shape = {num_tokens, cfg->n_embd, 0, 0},
+                    .dtype = DET_DTYPE_F32,
+                    .owns_data = false
+                };
+
+                /* Build SSM weights struct */
+                DetSSMWeights ssm_weights = {
+                    .ssm_in_proj = lw->ssm_in_proj,
+                    .ssm_conv1d_weight = lw->ssm_conv1d_weight,
+                    .ssm_conv1d_bias = lw->ssm_conv1d_bias,
+                    .ssm_x_proj = lw->ssm_x_proj,
+                    .ssm_dt_proj = lw->ssm_dt_proj,
+                    .ssm_dt_proj_bias = lw->ssm_dt_proj_bias,
+                    .ssm_A_log = lw->ssm_A_log,
+                    .ssm_D = lw->ssm_D,
+                    .ssm_out_proj = lw->ssm_out_proj,
+                    .ssm_norm = lw->ssm_norm,
+                    .ssm_A_negexp = lw->ssm_A_negexp
+                };
+
+                /* For SambaY, the last SSM layer in self-decoder caches its output
+                 * BEFORE gating for use by cross-decoder GMU layers. */
+                float* ssm_cache_buf = NULL;
+                if (cfg->is_sambay) {
+                    int half_layers = cfg->n_layer / 2;
+                    int last_ssm_layer = (half_layers - 1) & ~1;  /* Last even layer in self-decoder */
+                    if (layer == last_ssm_layer) {
+                        ssm_cache_buf = model->scratch.cached_ssm;
+                    }
+                }
+
+                /* Run SSM forward pass */
+                det_ssm_forward(&output_tensor, &input_tensor, &ssm_weights,
+                               &model->ssm_config, model->ssm_cache, ssm_layer_idx,
+                               ssm_cache_buf);
+                ssm_layer_idx++;
+            }
+
+            /* Copy output to hidden */
+            memcpy(hidden, model->scratch.temp, num_tokens * cfg->n_embd * sizeof(float));
+
+            /* Add residual */
+            for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                hidden[i] += residual[i];
+            }
+
+            /* SSM layers may also have FFN - process it if present */
+            if (lw->ffn_norm && (lw->w2 || lw->w3)) {
+                /* Save residual for FFN */
+                memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+                /* FFN pre-norm */
+                float* norm_weight = (float*)lw->ffn_norm->data;
+                for (int t = 0; t < num_tokens; t++) {
+                    float* h = hidden + t * cfg->n_embd;
+                    float ss = 0.0f;
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        ss += h[i] * h[i];
+                    }
+                    float scale_val = 1.0f / sqrtf(ss / cfg->n_embd + cfg->norm_eps);
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        h[i] = h[i] * scale_val * norm_weight[i];
+                    }
+                }
+
+                /* Process FFN (same as attention layers) */
+                if (lw->w1 && lw->w2 && lw->w3) {
+                    /* SwiGLU variant */
+                    batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+                    batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    for (int i = 0; i < ffn_total; i++) {
+                        float g = ffn_gate[i];
+                        ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                    }
+                    batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+                } else if (lw->w2 && lw->w3) {
+                    /* Simple MLP */
+                    batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    for (int i = 0; i < ffn_total; i++) {
+                        float x = ffn_up[i];
+                        float x3 = x * x * x;
+                        ffn_up[i] = 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x3)));
+                    }
+                    batched_proj_smart(hidden, ffn_up, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+                }
+
+                /* Add FFN residual */
+                for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                    hidden[i] += residual[i];
+                }
+            }
+
+            if (g_debug_timing) {
+                double t_layer_end = get_time_ms();
+                t_attn_total += (t_layer_end - t_layer_start);
+            }
+
+            continue;  /* Skip to next layer */
+        }
+
+        /* ============================================================
+         * GMU LAYER (SambaY Cross-Decoder)
+         * ============================================================ */
+        if (lw->use_gmu && cfg->is_sambay) {
+            /* GMU reuses cached SSM output instead of full attention/SSM.
+             * This is the key efficiency of SambaY cross-decoder.
+             *
+             * GMU computation: out = out_proj(SwiGLU(in_proj(x), cached_ssm))
+             */
+
+            /* Pre-norm */
+            DetTensor* norm = lw->attn_norm ? lw->attn_norm : lw->ffn_norm;
+            if (norm) {
+                float* norm_weight = (float*)norm->data;
+                for (int t = 0; t < num_tokens; t++) {
+                    float* h = hidden + t * cfg->n_embd;
+                    float ss = 0.0f;
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        ss += h[i] * h[i];
+                    }
+                    float scale_val = 1.0f / sqrtf(ss / cfg->n_embd + cfg->norm_eps);
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        h[i] = h[i] * scale_val * norm_weight[i];
+                    }
+                }
+            }
+
+            /* GMU using cached SSM output
+             * If SSM in_proj and out_proj exist, use them for GMU
+             * Otherwise fallback to attention projections */
+            float* in_proj_data = NULL;
+            float* out_proj_data = NULL;
+            int d_inner = model->ssm_config.d_inner;
+
+            if (lw->ssm_in_proj && lw->ssm_out_proj) {
+                in_proj_data = (float*)lw->ssm_in_proj->data;
+                out_proj_data = (float*)lw->ssm_out_proj->data;
+            } else if (lw->wq && lw->wo) {
+                /* Fallback: use attention projections */
+                in_proj_data = (float*)lw->wq->data;
+                out_proj_data = (float*)lw->wo->data;
+                d_inner = cfg->n_embd;
+            }
+
+            if (in_proj_data && out_proj_data && model->scratch.cached_ssm) {
+                /* Run GMU */
+                det_gmu_swiglu(model->scratch.temp, hidden, model->scratch.cached_ssm,
+                               in_proj_data, out_proj_data,
+                               cfg->n_embd, d_inner, num_tokens);
+
+                /* Copy output to hidden */
+                memcpy(hidden, model->scratch.temp, num_tokens * cfg->n_embd * sizeof(float));
+            }
+
+            /* Add residual */
+            for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                hidden[i] += residual[i];
+            }
+
+            /* GMU layers also have FFN */
+            if (lw->ffn_norm && lw->w2) {
+                /* Save residual for FFN */
+                memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+                /* FFN pre-norm */
+                float* norm_weight = (float*)lw->ffn_norm->data;
+                for (int t = 0; t < num_tokens; t++) {
+                    float* h = hidden + t * cfg->n_embd;
+                    float ss = 0.0f;
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        ss += h[i] * h[i];
+                    }
+                    float scale_val = 1.0f / sqrtf(ss / cfg->n_embd + cfg->norm_eps);
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        h[i] = h[i] * scale_val * norm_weight[i];
+                    }
+                }
+
+                /* FFN (SwiGLU or simple) */
+                if (lw->w1 && lw->w2 && lw->w3) {
+                    batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+                    batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    for (int i = 0; i < ffn_total; i++) {
+                        float g = ffn_gate[i];
+                        ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                    }
+                    batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+                } else if (lw->w2 && lw->w3) {
+                    batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    for (int i = 0; i < ffn_total; i++) {
+                        float x = ffn_up[i];
+                        float x3 = x * x * x;
+                        ffn_up[i] = 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x3)));
+                    }
+                    batched_proj_smart(hidden, ffn_up, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+                }
+
+                /* Add FFN residual */
+                for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                    hidden[i] += residual[i];
+                }
+            }
+
+            if (g_debug_timing) {
+                double t_layer_end = get_time_ms();
+                t_attn_total += (t_layer_end - t_layer_start);
+            }
+
+            continue;  /* Skip to next layer */
+        }
+
+        /* ============================================================
+         * ATTENTION LAYER FORWARD PASS
+         * ============================================================ */
+
+        /* Skip layer if weights not loaded */
+        if (!lw->attn_norm || !lw->wq || !lw->wk || !lw->wv || !lw->wo) {
+            continue;
+        }
 
         /* Attention pre-norm (RMSNorm) */
         if (lw->attn_norm) {
@@ -919,55 +1424,213 @@ DetTensor* det_model_forward(DetModel* model,
                    v + t * kv_dim, kv_dim * sizeof(float));
         }
 
-        /* Attention computation (simplified) */
-        float scale = 1.0f / sqrtf((float)head_dim);
+        /* Attention computation */
         int seq_len = pos + num_tokens;
 
-        for (int t = 0; t < num_tokens; t++) {
-            float* qt = q + t * cfg->n_embd;
-            float* out = hidden + t * cfg->n_embd;
-            memset(out, 0, cfg->n_embd * sizeof(float));
+        if (lw->use_diff_attn) {
+            /* ==========================================================
+             * DIFFERENTIAL ATTENTION (phi4flash)
+             *
+             * Computes standard attention for each head, then pairs
+             * heads (0,1), (2,3), etc. and applies:
+             *   out = (attn_even - λ * attn_odd) * (1 - λ_init)
+             *
+             * λ = exp(λ_q1 · λ_k1) - exp(λ_q2 · λ_k2) + λ_init
+             * λ_init = 0.8 - 0.6 * exp(-0.3 * (layer + 1))
+             * ========================================================== */
+            float scale = 1.0f / sqrtf((float)head_dim);
 
-            /* For each head */
-            for (int h = 0; h < cfg->n_head; h++) {
-                int kv_head = h / (cfg->n_head / cfg->n_head_kv);  /* GQA mapping */
-                float* qh = qt + h * head_dim;
+            /* Compute lambda_init: λ_init = 0.8 - 0.6 * exp(-0.3 * (layer + 1)) */
+            float lambda_init = 0.8f - 0.6f * expf(-0.3f * (layer + 1));
+            float output_scale = 1.0f - lambda_init;
 
-                /* Compute attention scores */
-                for (int s = 0; s < seq_len; s++) {
-                    float* kh = k_cache + layer_offset + s * kv_dim + kv_head * head_dim;
-                    float score = 0.0f;
-                    for (int d = 0; d < head_dim; d++) {
-                        score += qh[d] * kh[d];
+            /* Get lambda weights */
+            float* lambda_q1 = lw->diff_lambda_q1 ? (float*)lw->diff_lambda_q1->data : NULL;
+            float* lambda_k1 = lw->diff_lambda_k1 ? (float*)lw->diff_lambda_k1->data : NULL;
+            float* lambda_q2 = lw->diff_lambda_q2 ? (float*)lw->diff_lambda_q2->data : NULL;
+            float* lambda_k2 = lw->diff_lambda_k2 ? (float*)lw->diff_lambda_k2->data : NULL;
+            float* subln_weight = lw->diff_subln ? (float*)lw->diff_subln->data : NULL;
+
+            /* Compute lambda once (shared across all heads):
+             * λ = exp(sum(λ_q1 * λ_k1)) - exp(sum(λ_q2 * λ_k2)) + λ_init */
+            float lambda = lambda_init;
+            if (lambda_q1 && lambda_k1 && lambda_q2 && lambda_k2) {
+                float dot1 = 0.0f, dot2 = 0.0f;
+                for (int d = 0; d < head_dim; d++) {
+                    dot1 += lambda_q1[d] * lambda_k1[d];
+                    dot2 += lambda_q2[d] * lambda_k2[d];
+                }
+                lambda = expf(dot1) - expf(dot2) + lambda_init;
+            }
+
+            for (int t = 0; t < num_tokens; t++) {
+                float* qt = q + t * cfg->n_embd;
+                float* out = hidden + t * cfg->n_embd;
+                memset(out, 0, cfg->n_embd * sizeof(float));
+
+                /* First pass: compute standard attention for each head */
+                for (int h = 0; h < cfg->n_head; h++) {
+                    int kv_head = h / (cfg->n_head / cfg->n_head_kv);
+                    float* qh = qt + h * head_dim;
+                    float* oh = out + h * head_dim;
+
+                    /* Compute attention scores */
+                    for (int s = 0; s < seq_len; s++) {
+                        float* kh = k_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                        float score = 0.0f;
+                        for (int d = 0; d < head_dim; d++) {
+                            score += qh[d] * kh[d];
+                        }
+                        att[s] = score * scale;
                     }
-                    att[s] = score * scale;
-                }
 
-                /* Causal mask */
-                for (int s = pos + t + 1; s < seq_len; s++) {
-                    att[s] = -1e9f;
-                }
+                    /* Causal mask */
+                    for (int s = pos + t + 1; s < seq_len; s++) {
+                        att[s] = -1e9f;
+                    }
 
-                /* Softmax */
-                float max_val = att[0];
-                for (int s = 1; s < seq_len; s++) {
-                    if (att[s] > max_val) max_val = att[s];
-                }
-                float sum = 0.0f;
-                for (int s = 0; s < seq_len; s++) {
-                    att[s] = expf(att[s] - max_val);
-                    sum += att[s];
-                }
-                for (int s = 0; s < seq_len; s++) {
-                    att[s] /= sum;
-                }
+                    /* Sliding window mask */
+                    if (lw->use_sliding_window && lw->sliding_window_size > 0) {
+                        int curr_pos = pos + t;
+                        int window_start = curr_pos - lw->sliding_window_size + 1;
+                        if (window_start > 0) {
+                            for (int s = 0; s < window_start; s++) {
+                                att[s] = -1e9f;
+                            }
+                        }
+                    }
 
-                /* Apply attention to values */
-                float* oh = out + h * head_dim;
-                for (int s = 0; s < seq_len; s++) {
-                    float* vh = v_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                    /* Softmax */
+                    float max_val = att[0];
+                    for (int s = 1; s < seq_len; s++) {
+                        if (att[s] > max_val) max_val = att[s];
+                    }
+                    float sum = 0.0f;
+                    for (int s = 0; s < seq_len; s++) {
+                        att[s] = expf(att[s] - max_val);
+                        sum += att[s];
+                    }
+                    for (int s = 0; s < seq_len; s++) {
+                        att[s] /= sum;
+                    }
+
+                    /* Apply attention to values */
                     for (int d = 0; d < head_dim; d++) {
-                        oh[d] += att[s] * vh[d];
+                        float val = 0.0f;
+                        for (int s = 0; s < seq_len; s++) {
+                            float* vh = v_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                            val += att[s] * vh[d];
+                        }
+                        oh[d] = val;
+                    }
+                }
+
+                /* Second pass: apply differential formula to head pairs
+                 * out[h1] = (out[h1] - lambda * out[h2]) * (1 - lambda_init)
+                 * out[h2] = out[h2] (unchanged, will be used by next layers)
+                 *
+                 * Actually, differential attention combines pairs into single output:
+                 * out_pair = (attn_even - lambda * attn_odd) * scale
+                 * This reduces 40 heads to 40 heads with differential mixing */
+                for (int h = 0; h < cfg->n_head; h += 2) {
+                    float* oh1 = out + h * head_dim;       /* Even head */
+                    float* oh2 = out + (h + 1) * head_dim; /* Odd head */
+
+                    /* Apply differential formula in place */
+                    for (int d = 0; d < head_dim; d++) {
+                        float v1 = oh1[d];
+                        float v2 = oh2[d];
+                        oh1[d] = (v1 - lambda * v2) * output_scale;
+                        oh2[d] = (v1 - lambda * v2) * output_scale; /* Same as h1 for now */
+                    }
+
+                    /* Apply SubLN to each head */
+                    if (subln_weight) {
+                        /* SubLN on oh1 */
+                        float sq_sum = 0.0f;
+                        for (int d = 0; d < head_dim; d++) {
+                            sq_sum += oh1[d] * oh1[d];
+                        }
+                        float rms = sqrtf(sq_sum / head_dim + cfg->norm_eps);
+                        for (int d = 0; d < head_dim; d++) {
+                            oh1[d] = (oh1[d] / rms) * subln_weight[d];
+                        }
+
+                        /* SubLN on oh2 (same values as oh1) */
+                        sq_sum = 0.0f;
+                        for (int d = 0; d < head_dim; d++) {
+                            sq_sum += oh2[d] * oh2[d];
+                        }
+                        rms = sqrtf(sq_sum / head_dim + cfg->norm_eps);
+                        for (int d = 0; d < head_dim; d++) {
+                            oh2[d] = (oh2[d] / rms) * subln_weight[d];
+                        }
+                    }
+                }
+            }
+        } else {
+            /* ==========================================================
+             * STANDARD ATTENTION
+             * ========================================================== */
+            float scale = 1.0f / sqrtf((float)head_dim);
+
+            for (int t = 0; t < num_tokens; t++) {
+                float* qt = q + t * cfg->n_embd;
+                float* out = hidden + t * cfg->n_embd;
+                memset(out, 0, cfg->n_embd * sizeof(float));
+
+                /* For each head */
+                for (int h = 0; h < cfg->n_head; h++) {
+                    int kv_head = h / (cfg->n_head / cfg->n_head_kv);  /* GQA mapping */
+                    float* qh = qt + h * head_dim;
+
+                    /* Compute attention scores */
+                    for (int s = 0; s < seq_len; s++) {
+                        float* kh = k_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                        float score = 0.0f;
+                        for (int d = 0; d < head_dim; d++) {
+                            score += qh[d] * kh[d];
+                        }
+                        att[s] = score * scale;
+                    }
+
+                    /* Causal mask */
+                    for (int s = pos + t + 1; s < seq_len; s++) {
+                        att[s] = -1e9f;
+                    }
+
+                    /* Sliding window mask (SambaY) */
+                    if (lw->use_sliding_window && lw->sliding_window_size > 0) {
+                        int curr_pos = pos + t;
+                        int window_start = curr_pos - lw->sliding_window_size + 1;
+                        if (window_start > 0) {
+                            for (int s = 0; s < window_start; s++) {
+                                att[s] = -1e9f;
+                            }
+                        }
+                    }
+
+                    /* Softmax */
+                    float max_val = att[0];
+                    for (int s = 1; s < seq_len; s++) {
+                        if (att[s] > max_val) max_val = att[s];
+                    }
+                    float sum = 0.0f;
+                    for (int s = 0; s < seq_len; s++) {
+                        att[s] = expf(att[s] - max_val);
+                        sum += att[s];
+                    }
+                    for (int s = 0; s < seq_len; s++) {
+                        att[s] /= sum;
+                    }
+
+                    /* Apply attention to values */
+                    float* oh = out + h * head_dim;
+                    for (int s = 0; s < seq_len; s++) {
+                        float* vh = v_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                        for (int d = 0; d < head_dim; d++) {
+                            oh[d] += att[s] * vh[d];
+                        }
                     }
                 }
             }

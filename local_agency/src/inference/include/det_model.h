@@ -17,6 +17,7 @@
 #include "det_tensor.h"
 #include "det_gguf.h"
 #include "det_tokenizer.h"
+#include "det_ssm.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -76,6 +77,11 @@ typedef struct {
     float norm_eps;         /* Normalization epsilon */
 
     DetModelArch arch;      /* Model architecture type */
+
+    /* SambaY/Hybrid architecture settings */
+    int32_t sliding_window; /* Sliding window attention size (0 = disabled) */
+    int32_t mb_per_layer;   /* Mamba blocks per layer (0 = no Mamba, 2 = every other) */
+    bool is_sambay;         /* True if SambaY architecture */
 } DetModelConfig;
 
 /* ==========================================================================
@@ -109,6 +115,34 @@ typedef struct {
 
     /* FFN normalization */
     DetTensor* ffn_norm;    /* Pre-FFN RMSNorm weights */
+
+    /* SSM weights (Mamba architecture) */
+    DetTensor* ssm_in_proj;       /* [d_model, 2*d_inner] */
+    DetTensor* ssm_conv1d_weight; /* [d_inner, 1, d_conv] */
+    DetTensor* ssm_conv1d_bias;   /* [d_inner] */
+    DetTensor* ssm_x_proj;        /* [d_inner, dt_rank + 2*d_state] */
+    DetTensor* ssm_dt_proj;       /* [dt_rank, d_inner] */
+    DetTensor* ssm_dt_proj_bias;  /* [d_inner] */
+    DetTensor* ssm_A_log;         /* [d_inner, d_state] */
+    DetTensor* ssm_D;             /* [d_inner] */
+    DetTensor* ssm_out_proj;      /* [d_inner, d_model] */
+    DetTensor* ssm_norm;          /* [d_model] */
+    float* ssm_A_negexp;          /* Precomputed -exp(A_log) [d_inner * d_state] */
+    bool is_ssm_layer;            /* True if this is an SSM layer (vs attention) */
+
+    /* Differential Attention (phi4flash) */
+    DetTensor* diff_lambda_q1;    /* [head_dim] lambda_q1 for differential attention */
+    DetTensor* diff_lambda_k1;    /* [head_dim] lambda_k1 for differential attention */
+    DetTensor* diff_lambda_q2;    /* [head_dim] lambda_q2 for differential attention */
+    DetTensor* diff_lambda_k2;    /* [head_dim] lambda_k2 for differential attention */
+    DetTensor* diff_subln;        /* [head_dim] SubLN (RMSNorm) after differential */
+    bool use_diff_attn;           /* True if layer uses differential attention */
+
+    /* SambaY layer type flags */
+    bool use_sliding_window;      /* Use sliding window attention */
+    bool is_cross_decoder;        /* Part of cross-decoder (second half) */
+    bool use_gmu;                 /* Use GMU instead of full SSM/attention */
+    int32_t sliding_window_size;  /* Per-layer sliding window (0 = full attention) */
 } DetLayerWeights;
 
 /** Model weights */
@@ -148,6 +182,8 @@ typedef struct {
     float* ffn_gate;    /* [n_ctx, n_ff] */
     float* ffn_up;      /* [n_ctx, n_ff] */
     float* temp;        /* [n_ctx, n_embd] for output projection */
+    /* SambaY/Hybrid buffers */
+    float* cached_ssm;  /* [n_ctx, d_inner] cached SSM output for GMU */
 } DetScratchBuffers;
 
 /* ==========================================================================
@@ -190,8 +226,19 @@ typedef struct DetModel {
     /* Weights (memory-mapped from GGUF) */
     DetModelWeights weights;
 
-    /* KV cache */
+    /* KV cache (for attention layers) */
     DetKVCache kv_cache;
+
+    /* SSM state cache (for Mamba layers) */
+    DetSSMCache* ssm_cache;
+
+    /* SSM configuration (for Mamba models) */
+    DetSSMConfig ssm_config;
+
+    /* Layer type counts */
+    int32_t n_attn_layers;      /* Number of attention layers */
+    int32_t n_ssm_layers;       /* Number of SSM layers */
+    bool has_ssm_layers;        /* True if model has any SSM layers */
 
     /* Pre-allocated scratch buffers (avoid malloc in forward pass) */
     DetScratchBuffers scratch;

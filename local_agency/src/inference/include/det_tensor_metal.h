@@ -127,6 +127,71 @@ int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_bl
 int tensor_metal_matmul_q8_0_transposed(const float *A, const uint8_t *B_q8, float *C,
                                          uint32_t M, uint32_t N, uint32_t K);
 
+/* ==========================================================================
+ * SSM (MAMBA) GPU OPERATIONS
+ * ========================================================================== */
+
+/**
+ * GPU-accelerated SSM selective scan step
+ *
+ * Computes one step of the SSM recurrence:
+ *   h_new = exp(delta * A) * h_old + delta * B * x
+ *   y = C * h_new + D * x
+ *
+ * x: [d_inner] input
+ * delta: [d_inner] time step
+ * A: [d_inner, d_state] log-space A matrix
+ * B: [d_state] input projection
+ * C: [d_state] output projection
+ * D: [d_inner] skip connection
+ * h: [d_inner, d_state] hidden state (updated in-place)
+ * y: [d_inner] output
+ */
+int tensor_metal_ssm_scan_step(const float *x, const float *delta,
+                                const float *A, const float *B,
+                                const float *C, const float *D,
+                                float *h, float *y,
+                                uint32_t d_inner, uint32_t d_state);
+
+/**
+ * GPU-accelerated causal 1D convolution
+ *
+ * x: [seq_len, d_inner] input
+ * w: [d_inner, d_conv] weights
+ * bias: [d_inner] bias (can be NULL)
+ * conv_state: [d_inner, d_conv-1] state (updated in-place)
+ * out: [seq_len, d_inner] output
+ */
+int tensor_metal_conv1d_causal(const float *x, const float *w, const float *bias,
+                                float *conv_state, float *out,
+                                uint32_t seq_len, uint32_t d_inner, uint32_t d_conv);
+
+/**
+ * GPU-accelerated SSM gated output: y_out = y_ssm * SiLU(z)
+ *
+ * y_ssm: [n] SSM output
+ * z: [n] gate values
+ * y_out: [n] gated output
+ */
+int tensor_metal_ssm_gate(const float *y_ssm, const float *z, float *y_out, uint32_t n);
+
+/**
+ * GPU-accelerated parallel prefix scan for batch SSM
+ *
+ * Processes multiple timesteps in parallel using work-efficient scan.
+ *
+ * a: [seq_len, d_inner, d_state] A_bar coefficients
+ * b: [seq_len, d_inner, d_state] B_bar * x coefficients
+ * y: [seq_len, d_inner] output
+ * h_init: [d_inner, d_state] initial hidden state
+ * h_final: [d_inner, d_state] final hidden state (output)
+ */
+int tensor_metal_ssm_parallel_scan(const float *a, const float *b,
+                                    const float *C, const float *D,
+                                    const float *x, float *y,
+                                    float *h_init, float *h_final,
+                                    uint32_t seq_len, uint32_t d_inner, uint32_t d_state);
+
 #ifdef __cplusplus
 }
 #endif

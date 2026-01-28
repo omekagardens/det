@@ -379,8 +379,10 @@ GgufContext* gguf_open(const char* path) {
         if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "qwen2." key, 0); \
         if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "qwen3." key, 0); \
         if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "phi3." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "phi4flash." key, 0); \
         if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "gemma." key, 0); \
         if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "mistral." key, 0); \
+        if (ctx->param == 0) ctx->param = gguf_get_u32(ctx, "mamba." key, 0); \
         if (ctx->param == 0) ctx->param = def
 
     #define TRY_ARCHS_F32(param, key, def) \
@@ -388,8 +390,10 @@ GgufContext* gguf_open(const char* path) {
         if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "qwen2." key, 0.0f); \
         if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "qwen3." key, 0.0f); \
         if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "phi3." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "phi4flash." key, 0.0f); \
         if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "gemma." key, 0.0f); \
         if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "mistral." key, 0.0f); \
+        if (ctx->param == 0.0f) ctx->param = gguf_get_f32(ctx, "mamba." key, 0.0f); \
         if (ctx->param == 0.0f) ctx->param = def
 
     TRY_ARCHS_U32(n_vocab, "vocab_size", 0);
@@ -755,6 +759,14 @@ DetModelArch gguf_detect_arch(const GgufContext* ctx) {
     if (strcmp(ctx->model_arch, "phi3") == 0) return DET_ARCH_PHI3;
     if (strcmp(ctx->model_arch, "gemma") == 0) return DET_ARCH_GEMMA;
     if (strcmp(ctx->model_arch, "mistral") == 0) return DET_ARCH_MISTRAL;
+    /* SSM/Mamba architectures */
+    if (strcmp(ctx->model_arch, "mamba") == 0) return DET_ARCH_MAMBA;
+    if (strcmp(ctx->model_arch, "mamba2") == 0) return DET_ARCH_MAMBA2;
+    if (strcmp(ctx->model_arch, "jamba") == 0) return DET_ARCH_JAMBA;
+    if (strcmp(ctx->model_arch, "zamba") == 0) return DET_ARCH_ZAMBA;
+    /* Hybrid SSM-Transformer architectures */
+    if (strcmp(ctx->model_arch, "phi4flash") == 0) return DET_ARCH_PHI4FLASH;
+    if (strcmp(ctx->model_arch, "sambay") == 0) return DET_ARCH_SAMBAY;
 
     return DET_ARCH_UNKNOWN;
 }
@@ -767,7 +779,13 @@ const char* det_arch_name(DetModelArch arch) {
         case DET_ARCH_PHI3:    return "phi3";
         case DET_ARCH_GEMMA:   return "gemma";
         case DET_ARCH_MISTRAL: return "mistral";
-        default:               return "unknown";
+        case DET_ARCH_MAMBA:     return "mamba";
+        case DET_ARCH_MAMBA2:    return "mamba2";
+        case DET_ARCH_JAMBA:     return "jamba";
+        case DET_ARCH_ZAMBA:     return "zamba";
+        case DET_ARCH_PHI4FLASH: return "phi4flash";
+        case DET_ARCH_SAMBAY:    return "sambay";
+        default:                 return "unknown";
     }
 }
 

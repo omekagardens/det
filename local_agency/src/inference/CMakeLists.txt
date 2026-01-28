@@ -27,6 +27,7 @@ set(INFERENCE_SOURCES
     src/det_gguf.c
     src/det_tokenizer.c
     src/det_model.c
+    src/det_ssm.c
 )
 
 set(INFERENCE_HEADERS
@@ -35,6 +36,7 @@ set(INFERENCE_HEADERS
     include/det_tokenizer.h
     include/det_model.h
     include/det_tensor_metal.h
+    include/det_ssm.h
 )
 
 # Metal sources (Apple only)
@@ -138,6 +140,11 @@ if(DET_INFERENCE_BUILD_TESTS)
     target_link_libraries(test_gguf det_inference_static ${PLATFORM_LIBS} m)
     target_include_directories(test_gguf PRIVATE include)
     add_test(NAME gguf_tests COMMAND test_gguf)
+
+    add_executable(test_ssm tests/test_ssm.c)
+    target_link_libraries(test_ssm det_inference_static ${PLATFORM_LIBS} m)
+    target_include_directories(test_ssm PRIVATE include)
+    add_test(NAME ssm_tests COMMAND test_ssm)
 endif()
 
 # =============================================================================
