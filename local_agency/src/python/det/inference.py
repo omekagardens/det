@@ -1106,8 +1106,10 @@ def detect_template_from_vocab(model: 'Model') -> ChatTemplate:
     """Auto-detect chat template by checking vocabulary for special tokens."""
     try:
         # Check for Phi-style tokens first (more specific)
+        # Note: tokenize() adds BOS token, so we check for <= 2 tokens
+        # (BOS + special token means the special token was recognized)
         user_tokens = model.tokenize("<|user|>")
-        if len(user_tokens) == 1:  # Single token = recognized special token
+        if len(user_tokens) <= 2:  # BOS + special token = recognized
             return CHAT_TEMPLATES['phi']
     except Exception:
         pass
@@ -1115,7 +1117,7 @@ def detect_template_from_vocab(model: 'Model') -> ChatTemplate:
     try:
         # Check if model has ChatML tokens (Qwen-style)
         im_start_tokens = model.tokenize("<|im_start|>")
-        if len(im_start_tokens) == 1:  # Single token = recognized special token
+        if len(im_start_tokens) <= 2:  # BOS + special token = recognized
             return CHAT_TEMPLATES['qwen']
     except Exception:
         pass
