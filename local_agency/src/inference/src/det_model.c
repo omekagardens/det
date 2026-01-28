@@ -33,8 +33,12 @@ static DetInferenceMode g_inference_mode = DET_INFERENCE_F32;
 
 /* Minimum matrix size to use Metal (avoid overhead for small matrices)
  * For thin matrices (small T), GPU data transfer overhead dominates.
- * CPU BLAS (Accelerate) is faster for autoregressive generation. */
-#define METAL_MIN_ELEMENTS (2048 * 2048)  /* ~4M elements minimum for Metal */
+ * CPU BLAS (Accelerate) is faster for autoregressive generation.
+ * Lowered to 512*512 for phi4flash which benefits from more GPU usage. */
+#define METAL_MIN_ELEMENTS (512 * 512)  /* ~256K elements minimum for Metal */
+
+/* Debug flag: set to 1 to disable differential attention for debugging */
+#define DEBUG_DISABLE_DIFF_ATTN 0
 
 /* ==========================================================================
  * TIMING DEBUG
@@ -1427,7 +1431,7 @@ DetTensor* det_model_forward(DetModel* model,
         /* Attention computation */
         int seq_len = pos + num_tokens;
 
-        if (lw->use_diff_attn) {
+        if (lw->use_diff_attn && !DEBUG_DISABLE_DIFF_ATTN) {
             /* ==========================================================
              * DIFFERENTIAL ATTENTION (phi4flash)
              *

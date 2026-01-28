@@ -296,10 +296,18 @@ int det_ssm_selective_scan(float* y,
 
                 /* State update: h_new = A_bar * h + B_bar * x */
                 float h_new = A_bar * h_old + B_bar * x_i;
+
+                /* Numerical stability: clamp NaN/Inf to prevent cascading errors */
+                if (!isfinite(h_new)) {
+                    h_new = 0.0f;
+                }
                 *h_ij = h_new;
 
                 /* Output contribution: y += C * h */
-                y_i += C_t[j] * h_new;
+                float y_contrib = C_t[j] * h_new;
+                if (isfinite(y_contrib)) {
+                    y_i += y_contrib;
+                }
 
                 /* Track state change */
                 state_delta_sum += fabsf(h_new - h_old);

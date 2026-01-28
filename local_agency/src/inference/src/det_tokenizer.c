@@ -337,6 +337,30 @@ static int32_t tokenize_bpe_segment(const DetTokenizer* tok, const char* text,
                                      int32_t text_len, int32_t* tokens, int32_t max_tokens);
 
 /**
+ * Preprocess text for tiktoken-style tokenizers (phi-4, GPT-4)
+ *
+ * Tiktoken uses regex-based splitting that handles whitespace differently:
+ * - Consecutive spaces are preserved
+ * - Leading spaces on words become part of the word token
+ *
+ * Returns: allocated processed text (caller must free), or NULL on error
+ */
+static char* preprocess_tiktoken(const char* text, size_t* out_len) {
+    if (!text) return NULL;
+
+    size_t len = strlen(text);
+    /* Allocate with extra space for potential modifications */
+    char* processed = malloc(len + 1);
+    if (!processed) return NULL;
+
+    /* For now, just copy - the main preprocessing is done in BPE segment
+     * by properly handling the space prefix (Ġ) conversion */
+    memcpy(processed, text, len + 1);
+    if (out_len) *out_len = len;
+    return processed;
+}
+
+/**
  * Tokenize with added token handling
  *
  * Scans for special/added tokens first (like <|end|>, <|user|>), splits
@@ -418,14 +442,31 @@ static int32_t tokenize_bpe_segment(const DetTokenizer* tok, const char* text,
 
     int32_t work_count = 0;
 
+    /* Track if we're at start of text (for tiktoken-style leading space handling) */
+    bool at_start = true;
+
     while (p < text_end) {
         /* Try to find longest matching token */
         int32_t best_id = -1;
         int best_len = 0;
 
-        /* GPT-2 style: spaces are represented as 'Ġ' (U+0120 = 0xC4 0xA0) prefix */
+        /* GPT-2/tiktoken style: spaces become 'Ġ' (U+0120) prefix on following word
+         * Exception: leading space at very start may be handled differently */
         bool space_prefix = (*p == ' ');
+
+        /* For tiktoken: try space as standalone token first if at text start */
+        if (space_prefix && at_start) {
+            /* Try matching just the space character */
+            int32_t space_id = hash_get(tok->token_to_id, " ", -1);
+            if (space_id >= 0) {
+                work_tokens[work_count++] = space_id;
+                p++;
+                continue;
+            }
+        }
+
         const char* search_start = space_prefix ? (p + 1) : p;
+        at_start = false;  /* No longer at start after first char */
 
         /* Try different lengths, longest first */
         size_t search_len = (size_t)(text_end - search_start);
