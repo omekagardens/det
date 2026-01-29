@@ -451,8 +451,9 @@ src/existence/
 - [~] TransformerLayerCreature.ex - DEFERRED (per-layer control, future work)
 
 **Files**:
-- `src/inference/{det_model.h, det_model.c, det_tokenizer.h, det_tokenizer.c}` (1,943 lines)
-- `src/python/det/inference.py` (~480 lines)
+- `src/inference/{det_model.h, det_model.c, det_tokenizer.h, det_tokenizer.c}` (~2,400 lines)
+- `src/inference/{det_ssm.h, det_ssm.c}` (~750 lines) - SSM/Mamba support
+- `src/python/det/inference.py` (~1,600 lines)
 - `src/existence/inference.ex` (~700 lines)
 
 **Architecture Decision**: Per-layer creatures (not per-head) for simplicity, with attention heads as internal structure.
@@ -720,6 +721,7 @@ All top 5 predictions match HuggingFace. Small remaining differences are expecte
 
 **Full Success**:
 - [ ] Support llama-architecture models up to 7B
+- [x] Support hybrid Mamba/Attention models ✅ (phi-4-mini-flash SambaY)
 - [ ] Performance within 2x of Ollama throughput
 - [x] Quantization support (Q4_K_M, Q8_0) ✅ (Q8_0 verified, QAM implemented)
 - [ ] Streaming token generation
@@ -748,7 +750,44 @@ All top 5 predictions match HuggingFace. Small remaining differences are expecte
 | Hidden attention | Attention is auditable effect |
 | Post-hoc justification | Atomic commits, no retroactive changes |
 
-#### 26.13 Semantic Verification (Future)
+#### 26.13 Multi-Architecture Model Support ✅ COMPLETE
+**Goal**: Support diverse model architectures beyond standard transformer
+
+**phi-4-mini-flash-reasoning (SambaY Architecture)**:
+- [x] Hybrid Mamba/Attention layers (alternating SSM and attention)
+- [x] Differential attention with even/odd head splitting and SubLN
+- [x] YOCO (You Only Cache Once) cross-decoder architecture
+- [x] SSM selective scan with causal 1D convolution
+- [x] LayerNorm with bias (not RMSNorm)
+- [x] Tied embeddings (no separate lm_head)
+- [x] SwiGLU FFN activation
+- [x] Sliding window attention (512 tokens)
+
+**SSM (Mamba) Support** (`src/inference/src/det_ssm.c`):
+- [x] `det_ssm_forward()` - Full Mamba layer forward pass
+- [x] `det_ssm_selective_scan()` - Core state space recurrence
+- [x] `det_conv1d_causal()` - Causal 1D convolution with state
+- [x] `det_gmu_swiglu()` - GMU cross-decoder fast path
+- [x] SSM cache management for autoregressive generation
+
+**GGUF Converter** (`models/convert_phi4flash_to_gguf.py`):
+- [x] Convert HuggingFace safetensors to GGUF
+- [x] Handle SambaY layer type detection
+- [x] Map SSM weights (A_log, D, conv1d, in_proj, x_proj, dt_proj, out_proj)
+- [x] Map differential attention weights (lambdas, SubLN)
+- [x] Support Q8_0, F16, F32 quantization
+
+**Bug Fixes Applied**:
+- [x] **Conv1d weight indexing** - Fixed causal convolution to match PyTorch semantics
+  - Bug: Was computing `out[t] = Σ w[k] * x[t-k]` (reversed weight order)
+  - Fix: Changed to `out[t] = Σ w[k] * x[t - (d_conv-1) + k]` (PyTorch-style left-padding)
+- [x] Output norm key naming (model.final_layernorm vs model.norm)
+- [x] QKV split for tied embeddings
+- [x] LayerNorm vs RMSNorm detection
+
+**Result**: phi-4-mini-flash-reasoning produces coherent text output with both Q8_0 and F32 weights.
+
+#### 26.14 Semantic Verification (Future)
 **Goal**: Detect factual errors and hallucinations that pass process-based truthfulness checks
 
 **Problem**: Current truthfulness (26.6) measures *process* not *content*. A confident
@@ -835,4 +874,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-26* | *Phase 26 - Native Model Inference (MVP COMPLETE + KV Cache 26.4 + Truthfulness 26.6 COMPLETE)*
+*Last Updated: 2026-01-28* | *Phase 26 - Native Model Inference (MVP + KV Cache + Truthfulness + Multi-Architecture COMPLETE)*

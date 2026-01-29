@@ -163,6 +163,10 @@ void det_ssm_cache_reset(DetSSMCache* cache);
  *   5. Gated output: y * SiLU(z)
  *   6. Output projection
  *
+ * For cross-decoder layers (YOCO), if cached_ssm_input is provided:
+ *   - Uses simplified path: out = out_proj(swiglu(in_proj(x), cached_ssm))
+ *   - Skips convolution and selective scan entirely
+ *
  * @param output Output tensor [seq_len, d_model]
  * @param input Input tensor [seq_len, d_model]
  * @param weights SSM layer weights
@@ -171,6 +175,8 @@ void det_ssm_cache_reset(DetSSMCache* cache);
  * @param layer_idx Layer index (for cache indexing)
  * @param ssm_output_pre_gate Optional: stores SSM output BEFORE gating [seq_len, d_inner]
  *                            Used by SambaY to cache for cross-decoder. Can be NULL.
+ * @param cached_ssm_input Optional: cached SSM output from self-decoder [seq_len, d_inner]
+ *                         When provided for cross-decoder layers, uses simplified swiglu path.
  * @return 0 on success, negative on error
  */
 int det_ssm_forward(DetTensor* output,
@@ -179,7 +185,8 @@ int det_ssm_forward(DetTensor* output,
                     const DetSSMConfig* config,
                     DetSSMCache* cache,
                     int32_t layer_idx,
-                    float* ssm_output_pre_gate);
+                    float* ssm_output_pre_gate,
+                    const float* cached_ssm_input);
 
 /**
  * SSM selective scan (core recurrence)

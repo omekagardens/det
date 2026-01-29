@@ -82,6 +82,7 @@ typedef struct {
     int32_t sliding_window; /* Sliding window attention size (0 = disabled) */
     int32_t mb_per_layer;   /* Mamba blocks per layer (0 = no Mamba, 2 = every other) */
     bool is_sambay;         /* True if SambaY architecture */
+    bool use_layernorm;     /* True if model uses LayerNorm (phi4flash), false for RMSNorm */
 } DetModelConfig;
 
 /* ==========================================================================
@@ -106,7 +107,11 @@ typedef struct {
     DetTensor* k_norm;      /* Key normalization [head_dim] */
 
     /* Attention normalization */
-    DetTensor* attn_norm;   /* Pre-attention RMSNorm weights */
+    DetTensor* attn_norm;       /* Pre-attention norm weights */
+    DetTensor* attn_norm_bias;  /* Pre-attention norm bias (LayerNorm only) */
+
+    /* Attention output projection bias (phi4flash uses this) */
+    DetTensor* bo;          /* Output projection bias [n_embd] */
 
     /* Feed-forward */
     DetTensor* w1;          /* FFN gate projection [n_embd, n_ff] */
@@ -114,7 +119,8 @@ typedef struct {
     DetTensor* w3;          /* FFN up projection [n_embd, n_ff] */
 
     /* FFN normalization */
-    DetTensor* ffn_norm;    /* Pre-FFN RMSNorm weights */
+    DetTensor* ffn_norm;        /* Pre-FFN norm weights */
+    DetTensor* ffn_norm_bias;   /* Pre-FFN norm bias (LayerNorm only) */
 
     /* SSM weights (Mamba architecture) */
     DetTensor* ssm_in_proj;       /* [d_model, 2*d_inner] */
@@ -148,7 +154,8 @@ typedef struct {
 /** Model weights */
 typedef struct {
     DetTensor* tok_embd;        /* Token embeddings [n_vocab, n_embd] */
-    DetTensor* output_norm;     /* Final RMSNorm weights [n_embd] */
+    DetTensor* output_norm;     /* Final norm weights [n_embd] */
+    DetTensor* output_norm_bias;/* Final norm bias [n_embd] (LayerNorm only) */
     DetTensor* output;          /* Output projection [n_embd, n_vocab] */
 
     DetLayerWeights* layers;    /* Layer weights array */

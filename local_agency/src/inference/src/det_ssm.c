@@ -19,6 +19,25 @@
 #define USE_ACCELERATE 1
 #endif
 
+/* Debug flag: print intermediate values for layer 0 SSM */
+#define DEBUG_SSM_LAYER0 0
+
+#if DEBUG_SSM_LAYER0
+static void debug_ssm_rms(const char* label, const float* data, int n, int show_first) {
+    float sum_sq = 0.0f;
+    for (int i = 0; i < n; i++) {
+        sum_sq += data[i] * data[i];
+    }
+    float rms = sqrtf(sum_sq / n);
+    if (show_first && n >= 4) {
+        fprintf(stderr, "    SSM %s: rms=%.6f [0:4]=[%.6f, %.6f, %.6f, %.6f]\n",
+                label, rms, data[0], data[1], data[2], data[3]);
+    } else {
+        fprintf(stderr, "    SSM %s: rms=%.6f\n", label, rms);
+    }
+}
+#endif
+
 /* ==========================================================================
  * INTERNAL STATE FOR STATS TRACKING
  * ========================================================================== */
@@ -159,17 +178,25 @@ int det_conv1d_causal(float* output,
         for (int32_t t = 0; t < seq_len; t++) {
             float sum = 0.0f;
 
-            /* Convolve: out[t] = sum_{k=0}^{d_conv-1} w[k] * x[t-k] */
+            /* Convolve: out[t] = sum_{k=0}^{d_conv-1} w[k] * x[t - (d_conv-1) + k]
+             *
+             * PyTorch conv1d with causal (left) padding of d_conv-1:
+             *   out[t] = sum_k weight[k] * padded_input[t + k]
+             *   where padded_input[i] = 0 for i < d_conv-1
+             *
+             * This maps to accessing input at position: t + k - (d_conv - 1)
+             * which equals: t - d_conv + 1 + k
+             */
             for (int32_t k = 0; k < d_conv; k++) {
-                int32_t src_t = t - k;
+                int32_t src_t = t - (d_conv - 1) + k;  /* Fixed indexing */
 
                 float x_val;
-                if (src_t >= 0) {
+                if (src_t >= 0 && src_t < seq_len) {
                     /* Within current sequence */
                     x_val = input[src_t * d_inner + c];
-                } else if (conv_state && (src_t + d_conv - 1) >= 0) {
+                } else if (conv_state && src_t >= -(d_conv - 1) && src_t < 0) {
                     /* From conv state (previous tokens) */
-                    int32_t state_idx = src_t + d_conv - 1;
+                    int32_t state_idx = src_t + (d_conv - 1);  /* Map -3..-1 to 0..2 */
                     x_val = conv_state[c * (d_conv - 1) + state_idx];
                 } else {
                     x_val = 0.0f;  /* Zero padding */
@@ -331,7 +358,8 @@ int det_ssm_forward(DetTensor* output,
                     const DetSSMConfig* config,
                     DetSSMCache* cache,
                     int32_t layer_idx,
-                    float* ssm_output_pre_gate) {
+                    float* ssm_output_pre_gate,
+                    const float* cached_ssm_input) {
     if (!output || !input || !weights || !config) return -1;
 
     int32_t seq_len = input->shape[0];
@@ -350,6 +378,35 @@ int det_ssm_forward(DetTensor* output,
         int32_t proj_size = (int32_t)weights->ssm_in_proj->shape[1];  /* Output dim */
         if (proj_size == d_inner) {
             is_cross_decoder_ssm = true;
+        }
+    }
+
+    /*
+     * YOCO Cross-decoder fast path:
+     * If this is a cross-decoder SSM AND we have cached SSM output, use simplified swiglu path:
+     *   out = out_proj(swiglu(in_proj(x), cached_ssm))
+     * This skips conv1d and selective scan entirely.
+     */
+    if (is_cross_decoder_ssm && cached_ssm_input != NULL) {
+        const float* in_proj = weights->ssm_in_proj ?
+            (const float*)weights->ssm_in_proj->data : NULL;
+        const float* out_proj = weights->ssm_out_proj ?
+            (const float*)weights->ssm_out_proj->data : NULL;
+
+        if (in_proj && out_proj) {
+            int ret = det_gmu_swiglu((float*)output->data,
+                                      (const float*)input->data,
+                                      cached_ssm_input,
+                                      in_proj,
+                                      out_proj,
+                                      d_model,
+                                      d_inner,
+                                      seq_len);
+            /* For YOCO, the cached value passes through unchanged */
+            if (ssm_output_pre_gate) {
+                memcpy(ssm_output_pre_gate, cached_ssm_input, seq_len * d_inner * sizeof(float));
+            }
+            return ret;
         }
     }
 
@@ -459,6 +516,15 @@ int det_ssm_forward(DetTensor* output,
         }
     }
 
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("in_proj xz", xz, seq_len * 2 * d_inner, 0);
+        debug_ssm_rms("in_proj x", x_conv, seq_len * d_inner, 1);
+        float* z_start = xz + d_inner;  /* z is at offset d_inner in xz row 0 */
+        debug_ssm_rms("in_proj z (row0)", z_start, d_inner, 1);
+    }
+#endif
+
     /* 2. Causal convolution */
     float* conv_state = NULL;
     if (cache && cache->conv_state) {
@@ -478,9 +544,21 @@ int det_ssm_forward(DetTensor* output,
     }
 
     /* 3. SiLU activation */
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("conv1d x_conv", x_ssm, seq_len * d_inner, 1);
+    }
+#endif
+
     for (int32_t i = 0; i < seq_len * d_inner; i++) {
         x_ssm[i] = silu(x_ssm[i]);
     }
+
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("silu x_ssm", x_ssm, seq_len * d_inner, 1);
+    }
+#endif
 
     /* 4. Project x to get delta, B, C */
     if (weights->ssm_x_proj) {
@@ -536,6 +614,14 @@ int det_ssm_forward(DetTensor* output,
         memcpy(C + t * d_state, proj_t + dt_rank + d_state, d_state * sizeof(float));
     }
 
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("x_proj dt_raw", dt_proj, seq_len * dt_rank, 0);
+        debug_ssm_rms("x_proj B", B, seq_len * d_state, 0);
+        debug_ssm_rms("x_proj C", C, seq_len * d_state, 0);
+    }
+#endif
+
     /* 5. Project delta_t: delta = softplus(dt_proj @ ssm_dt_proj.T + bias) */
     if (weights->ssm_dt_proj) {
         const float* W = (const float*)weights->ssm_dt_proj->data;
@@ -571,6 +657,12 @@ int det_ssm_forward(DetTensor* output,
     }
     free(dt_proj);
 
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("dt_proj delta", delta, seq_len * d_inner, 1);
+    }
+#endif
+
     /* 6. SSM selective scan */
     float* h_state = NULL;
     if (cache && cache->h) {
@@ -587,6 +679,12 @@ int det_ssm_forward(DetTensor* output,
                                B, C, D_skip,
                                h_state, d_inner, d_state, seq_len);
     }
+
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("scan y", y, seq_len * d_inner, 1);
+    }
+#endif
 
     if (!cache) {
         free(h_state);
@@ -627,6 +725,12 @@ int det_ssm_forward(DetTensor* output,
         }
     }
     g_last_ssm_stats.gate_activation = gate_sum / (seq_len * d_inner);
+
+#if DEBUG_SSM_LAYER0
+    if (layer_idx == 0) {
+        debug_ssm_rms("gate y_gated", y_gated, seq_len * d_inner, 1);
+    }
+#endif
 
     /* 8. Output projection: output = y_gated @ ssm_out_proj.T */
     if (weights->ssm_out_proj) {
