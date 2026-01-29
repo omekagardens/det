@@ -787,6 +787,124 @@ All top 5 predictions match HuggingFace. Small remaining differences are expecte
 
 **Result**: phi-4-mini-flash-reasoning produces coherent text output with both Q8_0 and F32 weights.
 
+#### 26.15 GPU Performance Optimization
+**Goal**: Achieve 10+ tokens/second through proper GPU utilization
+
+**Current State** (2026-01-28):
+- Performance: **1.7 tokens/second** (576ms per token) on M1 Max
+- Metal GPU initialized but minimally used during autoregressive generation (T=1)
+- Expected with proper GPU: 10-20+ tok/s (comparable to llama.cpp)
+
+**Root Cause Analysis**:
+
+Profiling revealed the bottleneck is **matrix multiplications**, NOT SSM selective scan:
+
+| Operation | Time per SSM Layer | % of Layer |
+|-----------|-------------------|------------|
+| in_proj [1,2560]×[2560,12288] | 4.4ms | 63% |
+| out_proj [1,6144]×[6144,2560] | 2.0ms | 29% |
+| selective_scan | 0.36ms | 5% |
+| Others (conv1d, x_proj, dt_proj) | <0.1ms | 3% |
+
+**Why Metal Currently Hurts**:
+- Metal per-call overhead: ~2ms (buffer alloc + copy + dispatch + sync + copy back)
+- For T=1, this overhead exceeds compute benefit
+- Lowering threshold made performance **3x worse** (1705ms vs 576ms)
+
+**The Real Problem**: Memory bandwidth
+- SSM in_proj reads 126MB of weights per layer (2560 × 12288 × 4 bytes)
+- 16 SSM layers = ~2GB weight reads per token
+- M1 Max unified memory bandwidth: ~400 GB/s
+- Theoretical minimum: 2GB / 400GB/s = 5ms (we're seeing 480ms for layers)
+- Gap caused by: random access patterns, BLAS overhead, function calls
+
+**Solution Architecture - Persistent GPU Buffers**:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Model Load (Once)                       │
+├─────────────────────────────────────────────────────────┤
+│  For each weight tensor:                                 │
+│    1. Create MTLBuffer with weight data                 │
+│    2. Store MTLBuffer handle in DetTensor               │
+│    3. Weights stay on GPU, never copied again           │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                Forward Pass (Per Token)                  │
+├─────────────────────────────────────────────────────────┤
+│  1. Copy input activation to GPU (tiny: T×d_model)      │
+│  2. Run all layers on GPU (weights already there)       │
+│  3. Copy logits back to CPU (once)                      │
+│  4. Sample on CPU (det_choose_token)                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Implementation Plan**:
+
+1. **Weight Buffer Management** (`det_tensor_metal.h/m`):
+   - [ ] `tensor_metal_buffer_create()` - Allocate persistent GPU buffer
+   - [ ] `tensor_metal_buffer_free()` - Release GPU buffer
+   - [ ] `MTLBuffer` handle stored in `DetTensor.metal_buffer` field
+   - [ ] Weight tensors marked with `DET_STORAGE_GPU`
+
+2. **GPU-Resident Forward Pass** (`det_model.c`):
+   - [ ] `det_model_load_gpu()` - Load weights to GPU at model load
+   - [ ] `det_model_forward_gpu()` - GPU-native forward pass
+   - [ ] Single activation buffer reused across layers
+   - [ ] Only copy input/output, not intermediate activations
+
+3. **Batched Layer Dispatch**:
+   - [ ] Group multiple operations per GPU dispatch
+   - [ ] Fused attention kernel (QK^T/√d + softmax + V multiply)
+   - [ ] Fused FFN kernel (gate + up + SiLU + down)
+
+4. **Memory Management**:
+   - [ ] GPU buffer pool for activation temporaries
+   - [ ] Lazy allocation with reuse
+   - [ ] Memory pressure handling (fallback to CPU)
+
+**Expected Results**:
+| Metric | Current | Target |
+|--------|---------|--------|
+| Tokens/sec | 1.7 | 10-20+ |
+| ms/token | 576 | 50-100 |
+| GPU Utilization | <5% | 60-80% |
+| Memory Bandwidth | ~5 GB/s | 100+ GB/s |
+
+**Files to Modify**:
+- `src/inference/include/det_tensor.h` - Add `metal_buffer` field
+- `src/inference/include/det_tensor_metal.h` - Buffer management API
+- `src/inference/metal/tensor_metal.m` - Buffer implementation
+- `src/inference/src/det_model.c` - GPU-resident forward pass
+- `src/inference/src/det_ssm.c` - GPU SSM operations
+
+**Status**: Initial implementation complete, 2x speedup achieved
+
+**Results (2026-01-28)**:
+| Mode | ms/tok | tok/s | Notes |
+|------|--------|-------|-------|
+| Q8_0 + GPU | 299 | 3.3 | **Best** - 2x speedup |
+| F32 + GPU | 575 | 1.7 | No benefit (activations not on GPU yet) |
+| F32 CPU | 576 | 1.7 | Baseline |
+| Q8_0 CPU | 681 | 1.5 | Slowest (dequant overhead) |
+
+**Implementation Complete**:
+- [x] `tensor_metal_buffer_create/free/read/write()` - Persistent GPU buffer management
+- [x] `tensor_metal_matmul_q8_0_persistent()` - Q8_0 matmul with persistent weights
+- [x] `det_model_upload_to_gpu()` - Upload all weight tensors to GPU
+- [x] `batched_proj_smart()` modified to use GPU buffers when available
+- [x] Python API: `Model.upload_to_gpu()` method
+
+**Remaining for Further Speedup**:
+- [ ] F32 persistent activation buffers (keep everything on GPU)
+- [ ] GPU SSM operations (selective scan still CPU)
+- [ ] Fused attention kernel
+- [ ] Fused FFN kernel
+
+---
+
 #### 26.14 Semantic Verification (Future)
 **Goal**: Detect factual errors and hallucinations that pass process-based truthfulness checks
 
@@ -874,4 +992,4 @@ quit              Exit
 
 ---
 
-*Last Updated: 2026-01-28* | *Phase 26 - Native Model Inference (MVP + KV Cache + Truthfulness + Multi-Architecture COMPLETE)*
+*Last Updated: 2026-01-28* | *Phase 26 - Native Model Inference (MVP + KV Cache + Truthfulness + Multi-Architecture COMPLETE, GPU Optimization IN PROGRESS)*

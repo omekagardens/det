@@ -34,7 +34,12 @@ static DetInferenceMode g_inference_mode = DET_INFERENCE_F32;
 /* Minimum matrix size to use Metal (avoid overhead for small matrices)
  * For thin matrices (small T), GPU data transfer overhead dominates.
  * CPU BLAS (Accelerate) is faster for autoregressive generation.
- * Lowered to 512*512 for phi4flash which benefits from more GPU usage. */
+ *
+ * Testing showed Metal overhead is significant per-call:
+ * - Buffer allocation + copy + dispatch + sync + copy back
+ * - For T=1, this overhead exceeds compute benefit
+ *
+ * Only use Metal for large batch sizes (prefill) or output projection. */
 #define METAL_MIN_ELEMENTS (512 * 512)  /* ~256K elements minimum for Metal */
 
 /* Debug flag: set to 1 to disable differential attention for debugging */
@@ -136,7 +141,9 @@ static void init_metal_if_available(void) {
 /* Check if Metal should be used for given matrix size */
 static inline int should_use_metal(int M, int N, int K) {
     if (!g_metal_available) return 0;
-    /* Only use Metal for large enough matrices to amortize copy overhead */
+    /* Only use Metal for large enough matrices to amortize copy overhead.
+     * Testing shows Metal per-call overhead is ~2ms for buffer alloc/copy/sync.
+     * Only beneficial when compute time exceeds this overhead. */
     return (M * N >= METAL_MIN_ELEMENTS) || (M * K >= METAL_MIN_ELEMENTS);
 }
 
@@ -252,6 +259,21 @@ static void batched_proj_f32(float* out, const float* hidden, const float* W,
 static void batched_proj_smart(float* out, const float* hidden,
                                 const DetTensor* W, int T, int K, int N) {
     if (!W) return;
+
+#ifdef DET_USE_METAL
+    /* Use persistent GPU buffer if available (Phase 26.15) */
+    if (W->metal_buffer && g_metal_available) {
+        if (W->dtype == DET_DTYPE_Q8_0) {
+            /* Q8_0 with persistent weight buffer */
+            if (tensor_metal_matmul_q8_0_persistent(hidden, W->metal_buffer, out, T, N, K) == 0) {
+                return;  /* GPU succeeded */
+            }
+        } else {
+            /* F32 with persistent weight buffer - need to also upload activation */
+            /* For now, use the per-call path for F32 until we add persistent activation buffers */
+        }
+    }
+#endif
 
     if (W->dtype == DET_DTYPE_Q8_0) {
         /* Q8_0 quantization-aware matmul */
@@ -882,8 +904,139 @@ DetModel* det_model_load(const char* path) {
     return model;
 }
 
+/* ==========================================================================
+ * GPU ACCELERATION (Phase 26.15)
+ * ========================================================================== */
+
+#ifdef DET_USE_METAL
+/* Helper: Upload a single tensor to GPU and store buffer handle */
+static int upload_tensor_to_gpu(DetTensor* tensor) {
+    if (!tensor || !tensor->data || tensor->metal_buffer) {
+        return 0;  /* Already uploaded or nothing to upload */
+    }
+
+    void* buf = tensor_metal_buffer_create(tensor->data, tensor->data_size);
+    if (!buf) {
+        return -1;
+    }
+
+    tensor->metal_buffer = buf;
+    tensor->storage = DET_STORAGE_GPU;
+    return 0;
+}
+
+/* Helper: Free GPU buffer for a tensor */
+static void free_tensor_gpu(DetTensor* tensor) {
+    if (tensor && tensor->metal_buffer) {
+        tensor_metal_buffer_free(tensor->metal_buffer);
+        tensor->metal_buffer = NULL;
+        tensor->storage = DET_STORAGE_CPU;
+    }
+}
+#endif
+
+int det_model_upload_to_gpu(DetModel* model) {
+#ifdef DET_USE_METAL
+    if (!model || !g_metal_available) {
+        return -1;
+    }
+
+    if (model->gpu_weights_loaded) {
+        return 0;  /* Already uploaded */
+    }
+
+    printf("Uploading model weights to GPU...\n");
+    int uploaded = 0;
+    int failed = 0;
+
+    /* Upload embedding weights */
+    if (upload_tensor_to_gpu(model->weights.tok_embd) == 0 && model->weights.tok_embd) {
+        uploaded++;
+    }
+    if (model->weights.output && model->weights.output != model->weights.tok_embd) {
+        if (upload_tensor_to_gpu(model->weights.output) == 0) {
+            uploaded++;
+        }
+    }
+
+    /* Upload layer weights */
+    for (int i = 0; i < model->weights.n_layers; i++) {
+        DetLayerWeights* layer = &model->weights.layers[i];
+
+        /* Upload main projection weights (biggest matrices) */
+        if (layer->is_ssm_layer) {
+            /* SSM projections */
+            if (upload_tensor_to_gpu(layer->ssm_in_proj) == 0 && layer->ssm_in_proj) uploaded++;
+            if (upload_tensor_to_gpu(layer->ssm_out_proj) == 0 && layer->ssm_out_proj) uploaded++;
+            if (upload_tensor_to_gpu(layer->ssm_x_proj) == 0 && layer->ssm_x_proj) uploaded++;
+            if (upload_tensor_to_gpu(layer->ssm_dt_proj) == 0 && layer->ssm_dt_proj) uploaded++;
+        } else {
+            /* Attention projections */
+            if (upload_tensor_to_gpu(layer->wq) == 0 && layer->wq) uploaded++;
+            if (upload_tensor_to_gpu(layer->wk) == 0 && layer->wk) uploaded++;
+            if (upload_tensor_to_gpu(layer->wv) == 0 && layer->wv) uploaded++;
+            if (upload_tensor_to_gpu(layer->wo) == 0 && layer->wo) uploaded++;
+        }
+
+        /* FFN projections */
+        if (upload_tensor_to_gpu(layer->w1) == 0 && layer->w1) uploaded++;
+        if (upload_tensor_to_gpu(layer->w2) == 0 && layer->w2) uploaded++;
+        if (upload_tensor_to_gpu(layer->w3) == 0 && layer->w3) uploaded++;
+    }
+
+    model->gpu_weights_loaded = true;
+    printf("  Uploaded %d weight tensors to GPU (%d failed)\n", uploaded, failed);
+    return 0;
+#else
+    (void)model;
+    return -1;  /* Metal not available */
+#endif
+}
+
+void det_model_free_gpu(DetModel* model) {
+#ifdef DET_USE_METAL
+    if (!model || !model->gpu_weights_loaded) {
+        return;
+    }
+
+    /* Free embedding GPU buffers */
+    free_tensor_gpu(model->weights.tok_embd);
+    if (model->weights.output && model->weights.output != model->weights.tok_embd) {
+        free_tensor_gpu(model->weights.output);
+    }
+
+    /* Free layer GPU buffers */
+    for (int i = 0; i < model->weights.n_layers; i++) {
+        DetLayerWeights* layer = &model->weights.layers[i];
+
+        if (layer->is_ssm_layer) {
+            free_tensor_gpu(layer->ssm_in_proj);
+            free_tensor_gpu(layer->ssm_out_proj);
+            free_tensor_gpu(layer->ssm_x_proj);
+            free_tensor_gpu(layer->ssm_dt_proj);
+        } else {
+            free_tensor_gpu(layer->wq);
+            free_tensor_gpu(layer->wk);
+            free_tensor_gpu(layer->wv);
+            free_tensor_gpu(layer->wo);
+        }
+
+        free_tensor_gpu(layer->w1);
+        free_tensor_gpu(layer->w2);
+        free_tensor_gpu(layer->w3);
+    }
+
+    model->gpu_weights_loaded = false;
+#else
+    (void)model;
+#endif
+}
+
 void det_model_free(DetModel* model) {
     if (!model) return;
+
+    /* Free GPU buffers first */
+    det_model_free_gpu(model);
 
     /* Free layer weights */
     if (model->weights.layers) {

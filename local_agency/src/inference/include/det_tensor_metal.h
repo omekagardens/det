@@ -9,6 +9,7 @@
 #define DET_TENSOR_METAL_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -125,6 +126,90 @@ int tensor_metal_dequantize_q8_0(const uint8_t *src, float *dst, uint32_t num_bl
  * C: [M, N] float32
  */
 int tensor_metal_matmul_q8_0_transposed(const float *A, const uint8_t *B_q8, float *C,
+                                         uint32_t M, uint32_t N, uint32_t K);
+
+/* ==========================================================================
+ * PERSISTENT GPU BUFFERS (Phase 26.15)
+ * ========================================================================== */
+
+/**
+ * Create a persistent GPU buffer from CPU data.
+ *
+ * The returned handle can be stored in DetTensor.metal_buffer and reused
+ * for multiple operations without re-copying data.
+ *
+ * @param data Source data in CPU memory
+ * @param size Size in bytes
+ * @return Opaque buffer handle (MTLBuffer*), or NULL on failure
+ */
+void* tensor_metal_buffer_create(const void *data, size_t size);
+
+/**
+ * Create a persistent GPU buffer without initialization.
+ *
+ * Use for output buffers that will be written by GPU.
+ *
+ * @param size Size in bytes
+ * @return Opaque buffer handle, or NULL on failure
+ */
+void* tensor_metal_buffer_create_empty(size_t size);
+
+/**
+ * Free a persistent GPU buffer.
+ *
+ * @param buffer Handle from tensor_metal_buffer_create
+ */
+void tensor_metal_buffer_free(void *buffer);
+
+/**
+ * Copy data from persistent GPU buffer back to CPU.
+ *
+ * @param buffer GPU buffer handle
+ * @param dst Destination CPU memory
+ * @param size Size in bytes to copy
+ * @return 0 on success, -1 on failure
+ */
+int tensor_metal_buffer_read(void *buffer, void *dst, size_t size);
+
+/**
+ * Update data in persistent GPU buffer from CPU.
+ *
+ * @param buffer GPU buffer handle
+ * @param src Source CPU memory
+ * @param size Size in bytes to copy
+ * @return 0 on success, -1 on failure
+ */
+int tensor_metal_buffer_write(void *buffer, const void *src, size_t size);
+
+/**
+ * Matrix multiply using persistent GPU buffers: C = A @ B^T
+ *
+ * All buffers must be persistent GPU buffers (from tensor_metal_buffer_create).
+ * This avoids per-call buffer allocation and data copying.
+ *
+ * @param A_buf Persistent buffer for A [M, K]
+ * @param B_buf Persistent buffer for B [N, K] (transposed)
+ * @param C_buf Persistent buffer for output C [M, N]
+ * @param M Rows of A and C
+ * @param N Rows of B (cols of C)
+ * @param K Cols of A and B
+ * @return 0 on success, -1 on failure
+ */
+int tensor_metal_matmul_persistent(void *A_buf, void *B_buf, void *C_buf,
+                                    uint32_t M, uint32_t N, uint32_t K);
+
+/**
+ * Q8_0 matmul using persistent GPU buffer for weights: C = A @ B_q8^T
+ *
+ * @param A Input activation (copied to GPU each call)
+ * @param B_buf Persistent buffer for Q8_0 weights [N, K/32 blocks]
+ * @param C Output (copied back from GPU)
+ * @param M Rows of A and C
+ * @param N Rows of B (output dimension)
+ * @param K Cols of A, rows of B (K must be divisible by 32)
+ * @return 0 on success, -1 on failure
+ */
+int tensor_metal_matmul_q8_0_persistent(const float *A, void *B_buf, float *C,
                                          uint32_t M, uint32_t N, uint32_t K);
 
 /* ==========================================================================

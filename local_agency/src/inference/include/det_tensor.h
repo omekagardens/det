@@ -83,6 +83,9 @@ typedef struct DetTensor {
     /* For mmap */
     int fd;                 /* File descriptor for mmap */
     size_t file_offset;     /* Offset in mapped file */
+
+    /* For GPU persistence (Phase 26.15) */
+    void* metal_buffer;     /* MTLBuffer handle (cast to void* for C compatibility) */
 } DetTensor;
 
 /* ==========================================================================

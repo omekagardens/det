@@ -690,3 +690,458 @@ int tensor_metal_matmul_q8_0_transposed(const float *A, const uint8_t *B_q8, flo
         return 0;
     }
 }
+
+// =============================================================================
+// PERSISTENT GPU BUFFERS (Phase 26.15)
+// =============================================================================
+
+// Create a persistent GPU buffer from CPU data
+void* tensor_metal_buffer_create(const void *data, size_t size) {
+    if (!g_metal_ctx || !data || size == 0) {
+        return NULL;
+    }
+
+    @autoreleasepool {
+        id<MTLBuffer> buffer = [g_metal_ctx.device newBufferWithBytes:data
+                                                               length:size
+                                                              options:MTLResourceStorageModeShared];
+        if (!buffer) {
+            NSLog(@"TensorMetal: Failed to create buffer of size %zu", size);
+            return NULL;
+        }
+
+        // Return retained buffer (caller must free with tensor_metal_buffer_free)
+        return (__bridge_retained void*)buffer;
+    }
+}
+
+// Create a persistent GPU buffer without initialization
+void* tensor_metal_buffer_create_empty(size_t size) {
+    if (!g_metal_ctx || size == 0) {
+        return NULL;
+    }
+
+    @autoreleasepool {
+        id<MTLBuffer> buffer = [g_metal_ctx.device newBufferWithLength:size
+                                                               options:MTLResourceStorageModeShared];
+        if (!buffer) {
+            NSLog(@"TensorMetal: Failed to create empty buffer of size %zu", size);
+            return NULL;
+        }
+
+        return (__bridge_retained void*)buffer;
+    }
+}
+
+// Free a persistent GPU buffer
+void tensor_metal_buffer_free(void *buffer) {
+    if (buffer) {
+        @autoreleasepool {
+            // Release the retained reference
+            id<MTLBuffer> mtlBuffer = (__bridge_transfer id<MTLBuffer>)buffer;
+            mtlBuffer = nil;  // Force release
+        }
+    }
+}
+
+// Copy data from persistent GPU buffer back to CPU
+int tensor_metal_buffer_read(void *buffer, void *dst, size_t size) {
+    if (!buffer || !dst || size == 0) {
+        return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLBuffer> mtlBuffer = (__bridge id<MTLBuffer>)buffer;
+        if (size > mtlBuffer.length) {
+            NSLog(@"TensorMetal: Buffer read size %zu exceeds buffer length %lu",
+                  size, (unsigned long)mtlBuffer.length);
+            return -1;
+        }
+        memcpy(dst, mtlBuffer.contents, size);
+        return 0;
+    }
+}
+
+// Update data in persistent GPU buffer from CPU
+int tensor_metal_buffer_write(void *buffer, const void *src, size_t size) {
+    if (!buffer || !src || size == 0) {
+        return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLBuffer> mtlBuffer = (__bridge id<MTLBuffer>)buffer;
+        if (size > mtlBuffer.length) {
+            NSLog(@"TensorMetal: Buffer write size %zu exceeds buffer length %lu",
+                  size, (unsigned long)mtlBuffer.length);
+            return -1;
+        }
+        memcpy(mtlBuffer.contents, src, size);
+        return 0;
+    }
+}
+
+// Matrix multiply using persistent GPU buffers: C = A @ B^T
+int tensor_metal_matmul_persistent(void *A_buf, void *B_buf, void *C_buf,
+                                    uint32_t M, uint32_t N, uint32_t K) {
+    if (!g_metal_ctx || !g_metal_ctx.matmulTransposedBPipeline) {
+        return -1;
+    }
+    if (!A_buf || !B_buf || !C_buf) {
+        return -1;
+    }
+
+    @autoreleasepool {
+        id<MTLBuffer> bufA = (__bridge id<MTLBuffer>)A_buf;
+        id<MTLBuffer> bufB = (__bridge id<MTLBuffer>)B_buf;
+        id<MTLBuffer> bufC = (__bridge id<MTLBuffer>)C_buf;
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        [encoder setComputePipelineState:g_metal_ctx.matmulTransposedBPipeline];
+        [encoder setBuffer:bufA offset:0 atIndex:0];
+        [encoder setBuffer:bufB offset:0 atIndex:1];
+        [encoder setBuffer:bufC offset:0 atIndex:2];
+        [encoder setBytes:&M length:sizeof(M) atIndex:3];
+        [encoder setBytes:&N length:sizeof(N) atIndex:4];
+        [encoder setBytes:&K length:sizeof(K) atIndex:5];
+
+        MTLSize gridSize = MTLSizeMake(N, M, 1);
+        MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        return 0;
+    }
+}
+
+// Q8_0 matmul using persistent GPU buffer for weights
+int tensor_metal_matmul_q8_0_persistent(const float *A, void *B_buf, float *C,
+                                         uint32_t M, uint32_t N, uint32_t K) {
+    if (!g_metal_ctx || !A || !B_buf || !C) {
+        return -1;
+    }
+
+    // K must be divisible by 32 for Q8_0
+    if (K % 32 != 0) {
+        return -1;
+    }
+
+    // Get or create Q8_0 matmul pipeline
+    static id<MTLComputePipelineState> matmulQ8Pipeline = nil;
+    if (!matmulQ8Pipeline) {
+        id<MTLFunction> func = [g_metal_ctx.library newFunctionWithName:@"matmul_q8_0_transposed_f32"];
+        if (!func) {
+            NSLog(@"TensorMetal: matmul_q8_0_transposed_f32 kernel not found");
+            return -1;
+        }
+        NSError *error = nil;
+        matmulQ8Pipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        if (!matmulQ8Pipeline) {
+            NSLog(@"TensorMetal: Failed to create Q8_0 persistent matmul pipeline: %@", error);
+            return -1;
+        }
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+        id<MTLBuffer> bufB = (__bridge id<MTLBuffer>)B_buf;
+
+        // Create temporary buffers for A and C (small - just activations)
+        id<MTLBuffer> bufA = [device newBufferWithBytes:A
+                                                 length:M * K * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufC = [device newBufferWithLength:M * N * sizeof(float)
+                                                 options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        [encoder setComputePipelineState:matmulQ8Pipeline];
+        [encoder setBuffer:bufA offset:0 atIndex:0];
+        [encoder setBuffer:bufB offset:0 atIndex:1];  // Persistent weight buffer
+        [encoder setBuffer:bufC offset:0 atIndex:2];
+        [encoder setBytes:&M length:sizeof(M) atIndex:3];
+        [encoder setBytes:&N length:sizeof(N) atIndex:4];
+        [encoder setBytes:&K length:sizeof(K) atIndex:5];
+
+        MTLSize gridSize = MTLSizeMake(N, M, 1);
+        MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+        [encoder endEncoding];
+
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        // Copy result back
+        memcpy(C, bufC.contents, M * N * sizeof(float));
+
+        return 0;
+    }
+}
+
+// =============================================================================
+// SSM (MAMBA) METAL OPERATIONS
+// =============================================================================
+
+// SSM selective scan step on GPU
+// Computes one timestep of SSM recurrence in parallel over d_inner × d_state
+int tensor_metal_ssm_scan_step(const float *x, const float *delta,
+                                const float *A, const float *B,
+                                const float *C, const float *D,
+                                float *h, float *y,
+                                uint32_t d_inner, uint32_t d_state) {
+    if (!g_metal_ctx) {
+        return -1;
+    }
+
+    // Create pipeline if not exists
+    static id<MTLComputePipelineState> ssmScanPipeline = nil;
+    static id<MTLComputePipelineState> ssmSkipPipeline = nil;
+    if (!ssmScanPipeline) {
+        id<MTLFunction> func = [g_metal_ctx.library newFunctionWithName:@"ssm_scan_step_f32"];
+        if (!func) {
+            NSLog(@"TensorMetal: ssm_scan_step_f32 kernel not found");
+            return -1;
+        }
+        NSError *error = nil;
+        ssmScanPipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        if (!ssmScanPipeline) {
+            NSLog(@"TensorMetal: Failed to create SSM scan pipeline: %@", error);
+            return -1;
+        }
+
+        func = [g_metal_ctx.library newFunctionWithName:@"ssm_skip_add_f32"];
+        if (func) {
+            ssmSkipPipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        }
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        // Create buffers
+        id<MTLBuffer> bufX = [device newBufferWithBytes:x
+                                                 length:d_inner * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufDelta = [device newBufferWithBytes:delta
+                                                     length:d_inner * sizeof(float)
+                                                    options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufA = [device newBufferWithBytes:A
+                                                 length:d_inner * d_state * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufB = [device newBufferWithBytes:B
+                                                 length:d_state * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufC = [device newBufferWithBytes:C
+                                                 length:d_state * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufD = D ? [device newBufferWithBytes:D
+                                                     length:d_inner * sizeof(float)
+                                                    options:MTLResourceStorageModeShared] : nil;
+        id<MTLBuffer> bufH = [device newBufferWithBytes:h
+                                                 length:d_inner * d_state * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        // Initialize y to zero (will accumulate via atomic adds)
+        id<MTLBuffer> bufY = [device newBufferWithLength:d_inner * sizeof(float)
+                                                 options:MTLResourceStorageModeShared];
+        memset(bufY.contents, 0, d_inner * sizeof(float));
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        // Run SSM scan kernel
+        [encoder setComputePipelineState:ssmScanPipeline];
+        [encoder setBuffer:bufX offset:0 atIndex:0];
+        [encoder setBuffer:bufDelta offset:0 atIndex:1];
+        [encoder setBuffer:bufA offset:0 atIndex:2];
+        [encoder setBuffer:bufB offset:0 atIndex:3];
+        [encoder setBuffer:bufC offset:0 atIndex:4];
+        [encoder setBuffer:bufD ? bufD : bufX offset:0 atIndex:5]; // D or dummy
+        [encoder setBuffer:bufH offset:0 atIndex:6];
+        [encoder setBuffer:bufY offset:0 atIndex:7];
+        [encoder setBytes:&d_inner length:sizeof(d_inner) atIndex:8];
+        [encoder setBytes:&d_state length:sizeof(d_state) atIndex:9];
+
+        // Dispatch d_inner × d_state threads
+        MTLSize gridSize = MTLSizeMake(d_inner, d_state, 1);
+        MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+
+        // Add skip connection: y += D * x
+        if (bufD && ssmSkipPipeline) {
+            [encoder setComputePipelineState:ssmSkipPipeline];
+            [encoder setBuffer:bufY offset:0 atIndex:0];
+            [encoder setBuffer:bufX offset:0 atIndex:1];
+            [encoder setBuffer:bufD offset:0 atIndex:2];
+
+            MTLSize skipGridSize = MTLSizeMake(d_inner, 1, 1);
+            MTLSize skipThreadGroupSize = MTLSizeMake(256, 1, 1);
+            [encoder dispatchThreads:skipGridSize threadsPerThreadgroup:skipThreadGroupSize];
+        }
+
+        [encoder endEncoding];
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        // Copy results back
+        memcpy(h, bufH.contents, d_inner * d_state * sizeof(float));
+        memcpy(y, bufY.contents, d_inner * sizeof(float));
+
+        return 0;
+    }
+}
+
+// Causal 1D convolution on GPU
+int tensor_metal_conv1d_causal(const float *x, const float *w, const float *bias,
+                                float *conv_state, float *out,
+                                uint32_t seq_len, uint32_t d_inner, uint32_t d_conv) {
+    if (!g_metal_ctx) {
+        return -1;
+    }
+
+    // Create pipeline if not exists
+    static id<MTLComputePipelineState> conv1dPipeline = nil;
+    static id<MTLComputePipelineState> updateStatePipeline = nil;
+    if (!conv1dPipeline) {
+        id<MTLFunction> func = [g_metal_ctx.library newFunctionWithName:@"conv1d_causal_f32"];
+        if (!func) {
+            NSLog(@"TensorMetal: conv1d_causal_f32 kernel not found");
+            return -1;
+        }
+        NSError *error = nil;
+        conv1dPipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        if (!conv1dPipeline) {
+            NSLog(@"TensorMetal: Failed to create conv1d pipeline: %@", error);
+            return -1;
+        }
+
+        func = [g_metal_ctx.library newFunctionWithName:@"conv1d_update_state_f32"];
+        if (func) {
+            updateStatePipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        }
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        // Create buffers
+        id<MTLBuffer> bufX = [device newBufferWithBytes:x
+                                                 length:seq_len * d_inner * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufW = [device newBufferWithBytes:w
+                                                 length:d_inner * d_conv * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufBias = bias ? [device newBufferWithBytes:bias
+                                                           length:d_inner * sizeof(float)
+                                                          options:MTLResourceStorageModeShared] : nil;
+        id<MTLBuffer> bufState = conv_state ? [device newBufferWithBytes:conv_state
+                                                                  length:d_inner * (d_conv - 1) * sizeof(float)
+                                                                 options:MTLResourceStorageModeShared] : nil;
+        id<MTLBuffer> bufOut = [device newBufferWithLength:seq_len * d_inner * sizeof(float)
+                                                   options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        // Run conv1d kernel
+        [encoder setComputePipelineState:conv1dPipeline];
+        [encoder setBuffer:bufX offset:0 atIndex:0];
+        [encoder setBuffer:bufW offset:0 atIndex:1];
+        [encoder setBuffer:bufBias ? bufBias : bufX offset:0 atIndex:2]; // bias or dummy
+        [encoder setBuffer:bufState ? bufState : bufX offset:0 atIndex:3]; // state or dummy
+        [encoder setBuffer:bufOut offset:0 atIndex:4];
+        [encoder setBytes:&seq_len length:sizeof(seq_len) atIndex:5];
+        [encoder setBytes:&d_inner length:sizeof(d_inner) atIndex:6];
+        [encoder setBytes:&d_conv length:sizeof(d_conv) atIndex:7];
+
+        // Dispatch seq_len × d_inner threads
+        MTLSize gridSize = MTLSizeMake(seq_len, d_inner, 1);
+        MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+
+        // Update conv state for next call
+        if (bufState && updateStatePipeline) {
+            [encoder setComputePipelineState:updateStatePipeline];
+            [encoder setBuffer:bufX offset:0 atIndex:0];
+            [encoder setBuffer:bufState offset:0 atIndex:1];
+            [encoder setBytes:&seq_len length:sizeof(seq_len) atIndex:2];
+            [encoder setBytes:&d_inner length:sizeof(d_inner) atIndex:3];
+            [encoder setBytes:&d_conv length:sizeof(d_conv) atIndex:4];
+
+            MTLSize stateGridSize = MTLSizeMake(d_conv - 1, d_inner, 1);
+            MTLSize stateThreadGroupSize = MTLSizeMake(8, 32, 1);
+            [encoder dispatchThreads:stateGridSize threadsPerThreadgroup:stateThreadGroupSize];
+        }
+
+        [encoder endEncoding];
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        // Copy results back
+        memcpy(out, bufOut.contents, seq_len * d_inner * sizeof(float));
+        if (conv_state && bufState) {
+            memcpy(conv_state, bufState.contents, d_inner * (d_conv - 1) * sizeof(float));
+        }
+
+        return 0;
+    }
+}
+
+// SSM gated output on GPU: y_out = y_ssm * SiLU(z)
+int tensor_metal_ssm_gate(const float *y_ssm, const float *z, float *y_out, uint32_t n) {
+    if (!g_metal_ctx) {
+        return -1;
+    }
+
+    // Create pipeline if not exists
+    static id<MTLComputePipelineState> gatePipeline = nil;
+    if (!gatePipeline) {
+        id<MTLFunction> func = [g_metal_ctx.library newFunctionWithName:@"ssm_gate_output_f32"];
+        if (!func) {
+            NSLog(@"TensorMetal: ssm_gate_output_f32 kernel not found");
+            return -1;
+        }
+        NSError *error = nil;
+        gatePipeline = [g_metal_ctx.device newComputePipelineStateWithFunction:func error:&error];
+        if (!gatePipeline) {
+            NSLog(@"TensorMetal: Failed to create SSM gate pipeline: %@", error);
+            return -1;
+        }
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = g_metal_ctx.device;
+
+        id<MTLBuffer> bufYSSM = [device newBufferWithBytes:y_ssm
+                                                    length:n * sizeof(float)
+                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufZ = [device newBufferWithBytes:z
+                                                 length:n * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufOut = [device newBufferWithLength:n * sizeof(float)
+                                                   options:MTLResourceStorageModeShared];
+
+        id<MTLCommandBuffer> cmdBuffer = [g_metal_ctx.commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
+
+        [encoder setComputePipelineState:gatePipeline];
+        [encoder setBuffer:bufYSSM offset:0 atIndex:0];
+        [encoder setBuffer:bufZ offset:0 atIndex:1];
+        [encoder setBuffer:bufOut offset:0 atIndex:2];
+
+        MTLSize gridSize = MTLSizeMake(n, 1, 1);
+        MTLSize threadGroupSize = MTLSizeMake(256, 1, 1);
+        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+
+        [encoder endEncoding];
+        [cmdBuffer commit];
+        [cmdBuffer waitUntilCompleted];
+
+        memcpy(y_out, bufOut.contents, n * sizeof(float));
+        return 0;
+    }
+}

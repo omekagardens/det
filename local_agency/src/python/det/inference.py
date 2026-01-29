@@ -264,6 +264,23 @@ def _setup_bindings(lib: ctypes.CDLL):
     except AttributeError:
         pass  # Metal not available
 
+    # Timing/profiling support
+    try:
+        lib.det_enable_timing.argtypes = [ctypes.c_int]
+        lib.det_enable_timing.restype = None
+    except AttributeError:
+        pass
+
+    # GPU acceleration (Phase 26.15)
+    try:
+        lib.det_model_upload_to_gpu.argtypes = [ctypes.c_void_p]
+        lib.det_model_upload_to_gpu.restype = ctypes.c_int
+
+        lib.det_model_free_gpu.argtypes = [ctypes.c_void_p]
+        lib.det_model_free_gpu.restype = None
+    except AttributeError:
+        pass
+
 
 # =============================================================================
 # HIGH-LEVEL API
@@ -355,6 +372,21 @@ class Model:
     def reset(self):
         """Reset KV cache for new conversation."""
         self._lib.det_model_reset(self._handle)
+
+    def upload_to_gpu(self) -> bool:
+        """Upload model weights to persistent GPU buffers.
+
+        This enables much faster inference by avoiding per-call buffer
+        allocation and data copying. Weights stay on GPU for all forward passes.
+
+        Returns:
+            True on success, False if Metal not available or upload failed.
+        """
+        try:
+            result = self._lib.det_model_upload_to_gpu(self._handle)
+            return result == 0
+        except AttributeError:
+            return False  # Function not available
 
     # =========================================================================
     # KV CACHE MANAGEMENT (Phase 26.4)
@@ -842,6 +874,15 @@ def metal_init() -> bool:
         return lib.tensor_metal_init() == 0
     except (RuntimeError, AttributeError):
         return False
+
+
+def enable_timing(enable: bool = True):
+    """Enable timing output for profiling inference performance."""
+    try:
+        lib = _get_lib()
+        lib.det_enable_timing(1 if enable else 0)
+    except (RuntimeError, AttributeError):
+        pass
 
 
 def metal_status() -> dict:

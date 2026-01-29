@@ -22,6 +22,21 @@
 /* Debug flag: print intermediate values for layer 0 SSM */
 #define DEBUG_SSM_LAYER0 0
 
+/* SSM timing debug (set to 1 to enable) */
+#define DEBUG_SSM_TIMING 0
+
+#if DEBUG_SSM_TIMING
+#include <sys/time.h>
+static double ssm_get_time_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
+static double t_in_proj = 0, t_conv1d = 0, t_silu = 0, t_x_proj = 0;
+static double t_dt_proj = 0, t_selective_scan = 0, t_gate = 0, t_out_proj = 0;
+static int ssm_timing_count = 0;
+#endif
+
 #if DEBUG_SSM_LAYER0
 static void debug_ssm_rms(const char* label, const float* data, int n, int show_first) {
     float sum_sq = 0.0f;

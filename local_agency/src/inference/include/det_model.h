@@ -265,7 +265,34 @@ typedef struct DetModel {
 
     /* Per-token stats for truthfulness (Phase 26.6) */
     DetGenerationStats gen_stats;
+
+    /* GPU acceleration (Phase 26.15) */
+    bool gpu_weights_loaded;    /* True if weights uploaded to GPU buffers */
 } DetModel;
+
+/* ==========================================================================
+ * GPU ACCELERATION (Phase 26.15)
+ * ========================================================================== */
+
+/**
+ * Upload model weights to persistent GPU buffers.
+ *
+ * This enables much faster inference by avoiding per-call buffer
+ * allocation and data copying. Weights stay on GPU for all forward passes.
+ *
+ * Call after det_model_load() to enable GPU acceleration.
+ * Has no effect if Metal is not available.
+ *
+ * Returns: 0 on success, -1 on error
+ */
+int det_model_upload_to_gpu(DetModel* model);
+
+/**
+ * Free GPU buffers for model weights.
+ *
+ * Called automatically by det_model_free().
+ */
+void det_model_free_gpu(DetModel* model);
 
 /* ==========================================================================
  * MODEL LIFECYCLE
