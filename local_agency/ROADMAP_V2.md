@@ -930,6 +930,25 @@ instead of checking for metal_buffer like batched_proj_smart does.
 - `src/inference/src/det_ssm.c` - Added GPU path for in_proj and out_proj
 - `src/inference/src/det_model.c` - Made g_metal_available non-static
 
+#### 26.17 Known Issue: Q8_0 Mode Produces NaN Logits
+**Status**: Pre-existing bug, investigation needed
+
+**Problem**: When using Q8_0 inference mode (`INFERENCE_MODE_Q8_0`), the model produces
+NaN logits, causing generation to always select token 200063 (empty string).
+
+**Observations**:
+- F32 mode with GPU upload works correctly
+- Q8_0 mode without GPU upload also produces NaN (not GPU-related)
+- Issue existed before Phase 26.16 SSM GPU changes
+- Forward pass timing is correct, only output values are corrupted
+
+**Suspected Causes**:
+- Q8_0 dequantization overflow/underflow
+- Numerical instability in `det_matmul_q8_0_transposed_batched()`
+- Scale factor handling in Q8_0 blocks
+
+**Workaround**: Use F32 inference mode (default) until fixed.
+
 ---
 
 #### 26.14 Semantic Verification (Future)
