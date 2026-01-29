@@ -19,6 +19,12 @@
 #define USE_ACCELERATE 1
 #endif
 
+/* Metal GPU support (Phase 26.16) */
+#ifdef DET_USE_METAL
+#include "det_tensor_metal.h"
+extern int g_metal_available;
+#endif
+
 /* Debug flag: print intermediate values for layer 0 SSM */
 #define DEBUG_SSM_LAYER0 0
 
@@ -505,23 +511,40 @@ int det_ssm_forward(DetTensor* output,
             }
         } else {
             /* Standard SSM: project to xz (x and gate z) */
-#ifdef USE_ACCELERATE
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                        seq_len, 2 * d_inner, d_model,
-                        1.0f, input_data, d_model,
-                        W, d_model,
-                        0.0f, xz, 2 * d_inner);
-#else
-            for (int32_t t = 0; t < seq_len; t++) {
-                for (int32_t j = 0; j < 2 * d_inner; j++) {
-                    float sum = 0.0f;
-                    for (int32_t k = 0; k < d_model; k++) {
-                        sum += input_data[t * d_model + k] * W[j * d_model + k];
-                    }
-                    xz[t * 2 * d_inner + j] = sum;
+            int in_proj_done = 0;
+#ifdef DET_USE_METAL
+            /* Use persistent GPU buffer if available (Phase 26.16) */
+            if (weights->ssm_in_proj->metal_buffer && g_metal_available) {
+                if (weights->ssm_in_proj->dtype == DET_DTYPE_Q8_0) {
+                    in_proj_done = (tensor_metal_matmul_q8_0_persistent(
+                        input_data, weights->ssm_in_proj->metal_buffer, xz,
+                        seq_len, 2 * d_inner, d_model) == 0);
+                } else if (weights->ssm_in_proj->dtype == DET_DTYPE_F32) {
+                    in_proj_done = (tensor_metal_matmul_f32_persistent(
+                        input_data, weights->ssm_in_proj->metal_buffer, xz,
+                        seq_len, 2 * d_inner, d_model) == 0);
                 }
             }
 #endif
+            if (!in_proj_done) {
+#ifdef USE_ACCELERATE
+                cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                            seq_len, 2 * d_inner, d_model,
+                            1.0f, input_data, d_model,
+                            W, d_model,
+                            0.0f, xz, 2 * d_inner);
+#else
+                for (int32_t t = 0; t < seq_len; t++) {
+                    for (int32_t j = 0; j < 2 * d_inner; j++) {
+                        float sum = 0.0f;
+                        for (int32_t k = 0; k < d_model; k++) {
+                            sum += input_data[t * d_model + k] * W[j * d_model + k];
+                        }
+                        xz[t * 2 * d_inner + j] = sum;
+                    }
+                }
+#endif
+            }
             /* Extract x from xz (first d_inner elements per timestep) */
             for (int32_t t = 0; t < seq_len; t++) {
                 for (int32_t i = 0; i < d_inner; i++) {
@@ -749,25 +772,41 @@ int det_ssm_forward(DetTensor* output,
 
     /* 8. Output projection: output = y_gated @ ssm_out_proj.T */
     if (weights->ssm_out_proj) {
-        const float* W = (const float*)weights->ssm_out_proj->data;
-
-#ifdef USE_ACCELERATE
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                    seq_len, d_model, d_inner,
-                    1.0f, y_gated, d_inner,
-                    W, d_inner,
-                    0.0f, output_data, d_model);
-#else
-        for (int32_t t = 0; t < seq_len; t++) {
-            for (int32_t j = 0; j < d_model; j++) {
-                float sum = 0.0f;
-                for (int32_t k = 0; k < d_inner; k++) {
-                    sum += y_gated[t * d_inner + k] * W[j * d_inner + k];
-                }
-                output_data[t * d_model + j] = sum;
+        int out_proj_done = 0;
+#ifdef DET_USE_METAL
+        /* Use persistent GPU buffer if available (Phase 26.16) */
+        if (weights->ssm_out_proj->metal_buffer && g_metal_available) {
+            if (weights->ssm_out_proj->dtype == DET_DTYPE_Q8_0) {
+                out_proj_done = (tensor_metal_matmul_q8_0_persistent(
+                    y_gated, weights->ssm_out_proj->metal_buffer, output_data,
+                    seq_len, d_model, d_inner) == 0);
+            } else if (weights->ssm_out_proj->dtype == DET_DTYPE_F32) {
+                out_proj_done = (tensor_metal_matmul_f32_persistent(
+                    y_gated, weights->ssm_out_proj->metal_buffer, output_data,
+                    seq_len, d_model, d_inner) == 0);
             }
         }
 #endif
+        if (!out_proj_done) {
+            const float* W = (const float*)weights->ssm_out_proj->data;
+#ifdef USE_ACCELERATE
+            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                        seq_len, d_model, d_inner,
+                        1.0f, y_gated, d_inner,
+                        W, d_inner,
+                        0.0f, output_data, d_model);
+#else
+            for (int32_t t = 0; t < seq_len; t++) {
+                for (int32_t j = 0; j < d_model; j++) {
+                    float sum = 0.0f;
+                    for (int32_t k = 0; k < d_inner; k++) {
+                        sum += y_gated[t * d_inner + k] * W[j * d_inner + k];
+                    }
+                    output_data[t * d_model + j] = sum;
+                }
+            }
+#endif
+        }
     }
 
     /* Compute skip ratio for stats */

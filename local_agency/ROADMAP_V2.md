@@ -880,28 +880,55 @@ Profiling revealed the bottleneck is **matrix multiplications**, NOT SSM selecti
 - `src/inference/src/det_model.c` - GPU-resident forward pass
 - `src/inference/src/det_ssm.c` - GPU SSM operations
 
-**Status**: Initial implementation complete, 2x speedup achieved
+**Status**: Phase 26.15 + 26.16 complete, **3.2x speedup achieved**
 
 **Results (2026-01-28)**:
-| Mode | ms/tok | tok/s | Notes |
-|------|--------|-------|-------|
-| Q8_0 + GPU | 299 | 3.3 | **Best** - 2x speedup |
-| F32 + GPU | 575 | 1.7 | No benefit (activations not on GPU yet) |
-| F32 CPU | 576 | 1.7 | Baseline |
-| Q8_0 CPU | 681 | 1.5 | Slowest (dequant overhead) |
+| Mode | ms/tok | tok/s | Speedup | Notes |
+|------|--------|-------|---------|-------|
+| **Q8_0 + GPU + SSM GPU** | 182 | 5.5 | **3.2x** | Phase 26.16 |
+| Q8_0 + GPU | 241 | 4.1 | 2.4x | Phase 26.15 (attention/FFN only) |
+| F32 + GPU | 575 | 1.7 | 1x | Baseline |
+| Q8_0 CPU | 681 | 1.5 | 0.9x | Slowest (dequant overhead) |
 
 **Implementation Complete**:
 - [x] `tensor_metal_buffer_create/free/read/write()` - Persistent GPU buffer management
 - [x] `tensor_metal_matmul_q8_0_persistent()` - Q8_0 matmul with persistent weights
+- [x] `tensor_metal_matmul_f32_persistent()` - F32 matmul with persistent weights
 - [x] `det_model_upload_to_gpu()` - Upload all weight tensors to GPU
 - [x] `batched_proj_smart()` modified to use GPU buffers when available
+- [x] `det_ssm_forward()` modified to use GPU buffers for in_proj and out_proj
 - [x] Python API: `Model.upload_to_gpu()` method
 
 **Remaining for Further Speedup**:
 - [ ] F32 persistent activation buffers (keep everything on GPU)
-- [ ] GPU SSM operations (selective scan still CPU)
-- [ ] Fused attention kernel
-- [ ] Fused FFN kernel
+- [ ] Fused attention kernel (QK^T + softmax + V in one pass)
+- [ ] Fused FFN kernel (gate + up + SiLU + down)
+
+#### 26.16 SSM GPU Acceleration
+**Goal**: Apply persistent GPU buffers to SSM layers (Mamba)
+
+**Problem**: Phase 26.15 only accelerated attention layers and FFN projections. SSM layers
+(det_ssm_forward) used cblas_sgemm directly, bypassing GPU persistent buffers.
+
+**Root Cause**: SSM in_proj and out_proj matmuls in det_ssm.c used raw weight pointers
+instead of checking for metal_buffer like batched_proj_smart does.
+
+**Implementation**:
+- Modified `det_ssm.c` to include Metal headers and access `g_metal_available`
+- SSM in_proj matmul now uses `tensor_metal_matmul_q8_0_persistent()` when available
+- SSM out_proj matmul now uses `tensor_metal_matmul_q8_0_persistent()` when available
+- Made `g_metal_available` non-static in det_model.c for cross-file access
+
+**Results**:
+| Layer Type | Before (ms/layer) | After (ms/layer) | Improvement |
+|------------|-------------------|------------------|-------------|
+| SSM layers | 4.8 | 2.9 | 40% reduction |
+| Attention layers | 4.8 | 2.9 | (already optimized) |
+| Total forward | 240 | 182 | 24% reduction |
+
+**Files Modified**:
+- `src/inference/src/det_ssm.c` - Added GPU path for in_proj and out_proj
+- `src/inference/src/det_model.c` - Made g_metal_available non-static
 
 ---
 

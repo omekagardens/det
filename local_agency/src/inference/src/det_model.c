@@ -26,7 +26,7 @@
 
 /* Metal acceleration state */
 static int g_metal_initialized = 0;
-static int g_metal_available = 0;
+int g_metal_available = 0;  /* Non-static: accessed by det_ssm.c */
 
 /* Inference mode configuration */
 static DetInferenceMode g_inference_mode = DET_INFERENCE_F32;
@@ -268,9 +268,15 @@ static void batched_proj_smart(float* out, const float* hidden,
             if (tensor_metal_matmul_q8_0_persistent(hidden, W->metal_buffer, out, T, N, K) == 0) {
                 return;  /* GPU succeeded */
             }
-        } else {
-            /* F32 with persistent weight buffer - need to also upload activation */
-            /* For now, use the per-call path for F32 until we add persistent activation buffers */
+        } else if (W->dtype == DET_DTYPE_F32) {
+            /* F32 with persistent weight buffer
+             * For large projections (like vocab output), this is worth it
+             * even with activation copy overhead */
+            if (N >= 1024) {  /* Only for large output dimensions */
+                if (tensor_metal_matmul_f32_persistent(hidden, W->metal_buffer, out, T, N, K) == 0) {
+                    return;  /* GPU succeeded */
+                }
+            }
         }
     }
 #endif
