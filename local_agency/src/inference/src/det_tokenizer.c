@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <limits.h>
 
 /* Token type constants (from GGUF/llama.cpp) */
 #define TOKEN_TYPE_NORMAL       0
@@ -90,6 +91,135 @@ static int32_t hash_get(HashTable* ht, const char* key, int32_t default_val) {
         e = e->next;
     }
     return default_val;
+}
+
+/* ==========================================================================
+ * MERGE LOOKUP TABLE (Binary Search Optimization)
+ * ========================================================================== */
+
+static inline uint64_t make_merge_key(int32_t left, int32_t right) {
+    return ((uint64_t)(uint32_t)left << 32) | (uint32_t)right;
+}
+
+static int compare_merge_lookup(const void* a, const void* b) {
+    const DetMergeLookup* ma = (const DetMergeLookup*)a;
+    const DetMergeLookup* mb = (const DetMergeLookup*)b;
+    if (ma->key < mb->key) return -1;
+    if (ma->key > mb->key) return 1;
+    /* Same key - use priority as tiebreaker (lower priority wins) */
+    return ma->priority - mb->priority;
+}
+
+/**
+ * Binary search for merge with given (left, right) pair
+ * Returns merge result token ID, or -1 if no merge exists
+ * Also returns priority via out_priority if not NULL
+ */
+static int32_t find_merge_binary(const DetTokenizer* tok, int32_t left, int32_t right,
+                                  int* out_priority) {
+    if (!tok->merge_lookup || tok->merge_lookup_count == 0) return -1;
+
+    uint64_t key = make_merge_key(left, right);
+
+    /* Binary search */
+    int lo = 0, hi = tok->merge_lookup_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        uint64_t mid_key = tok->merge_lookup[mid].key;
+
+        if (mid_key == key) {
+            if (out_priority) *out_priority = tok->merge_lookup[mid].priority;
+            return tok->merge_lookup[mid].result;
+        } else if (mid_key < key) {
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return -1;
+}
+
+/* ==========================================================================
+ * TRIE FOR ADDED TOKEN MATCHING
+ * ========================================================================== */
+
+static DetTrieNode* trie_create_node(void) {
+    DetTrieNode* node = calloc(1, sizeof(DetTrieNode));
+    if (node) node->token_id = -1;
+    return node;
+}
+
+static void trie_free(DetTrieNode* node) {
+    if (!node) return;
+    for (int i = 0; i < 256; i++) {
+        if (node->children[i]) {
+            trie_free(node->children[i]);
+        }
+    }
+    free(node);
+}
+
+static void trie_insert(DetTrieNode* root, const char* text, int32_t token_id) {
+    if (!root || !text) return;
+
+    DetTrieNode* node = root;
+    const uint8_t* p = (const uint8_t*)text;
+
+    while (*p) {
+        if (!node->children[*p]) {
+            node->children[*p] = trie_create_node();
+            if (!node->children[*p]) return;  /* Allocation failed */
+        }
+        node = node->children[*p];
+        p++;
+    }
+    node->token_id = token_id;
+}
+
+/**
+ * Find longest matching added token at current position
+ * Returns token ID and match length, or -1 if no match
+ */
+static int32_t trie_find_longest(const DetTrieNode* root, const char* text,
+                                  const char* text_end, int32_t* out_len) {
+    if (!root || !text) return -1;
+
+    int32_t best_id = -1;
+    int32_t best_len = 0;
+    int32_t current_len = 0;
+
+    const DetTrieNode* node = root;
+    const uint8_t* p = (const uint8_t*)text;
+
+    while ((const char*)p < text_end && node) {
+        node = node->children[*p];
+        if (!node) break;
+
+        current_len++;
+        if (node->token_id >= 0) {
+            best_id = node->token_id;
+            best_len = current_len;
+        }
+        p++;
+    }
+
+    if (out_len) *out_len = best_len;
+    return best_id;
+}
+
+/* ==========================================================================
+ * PRECOMPUTED BYTE TOKENS
+ * ========================================================================== */
+
+static void precompute_byte_tokens(DetTokenizer* tok) {
+    tok->byte_token_ids = malloc(256 * sizeof(int32_t));
+    if (!tok->byte_token_ids) return;
+
+    char buf[16];
+    for (int i = 0; i < 256; i++) {
+        snprintf(buf, sizeof(buf), "<0x%02X>", i);
+        tok->byte_token_ids[i] = hash_get(tok->token_to_id, buf, tok->special.unk_id);
+    }
 }
 
 /* ==========================================================================
@@ -211,7 +341,10 @@ DetTokenizer* det_tokenizer_from_gguf(GgufContext* gguf) {
     const char** merges = gguf_get_string_array(gguf, "tokenizer.ggml.merges", &merge_count);
     if (merges && merge_count > 0) {
         tok->merges = calloc(merge_count, sizeof(DetBPEMerge));
+        tok->merge_lookup = calloc(merge_count, sizeof(DetMergeLookup));
         tok->num_merges = (int32_t)merge_count;
+
+        int32_t valid_merges = 0;
 
         /* Parse merge rules: "token1 token2" -> result */
         for (uint64_t i = 0; i < merge_count; i++) {
@@ -228,18 +361,40 @@ DetTokenizer* det_tokenizer_from_gguf(GgufContext* gguf) {
                     strncpy(right, space + 1, sizeof(right) - 1);
                     right[sizeof(right) - 1] = '\0';
 
-                    tok->merges[i].left = hash_get(tok->token_to_id, left, -1);
-                    tok->merges[i].right = hash_get(tok->token_to_id, right, -1);
+                    int32_t left_id = hash_get(tok->token_to_id, left, -1);
+                    int32_t right_id = hash_get(tok->token_to_id, right, -1);
+
+                    tok->merges[i].left = left_id;
+                    tok->merges[i].right = right_id;
 
                     /* Result is the merged string */
                     char merged[512];
                     snprintf(merged, sizeof(merged), "%s%s", left, right);
-                    tok->merges[i].result = hash_get(tok->token_to_id, merged, -1);
+                    int32_t result_id = hash_get(tok->token_to_id, merged, -1);
+                    tok->merges[i].result = result_id;
+
+                    /* Build lookup table entry (only for valid merges) */
+                    if (left_id >= 0 && right_id >= 0 && result_id >= 0 && tok->merge_lookup) {
+                        tok->merge_lookup[valid_merges].key = make_merge_key(left_id, right_id);
+                        tok->merge_lookup[valid_merges].result = result_id;
+                        tok->merge_lookup[valid_merges].priority = (int32_t)i;
+                        valid_merges++;
+                    }
                 }
             }
         }
         free((void*)merges);
+
+        /* Sort merge lookup table for binary search */
+        if (tok->merge_lookup && valid_merges > 0) {
+            tok->merge_lookup_count = valid_merges;
+            qsort(tok->merge_lookup, valid_merges, sizeof(DetMergeLookup), compare_merge_lookup);
+            fprintf(stderr, "Tokenizer: built merge lookup table with %d entries\n", valid_merges);
+        }
     }
+
+    /* Precompute byte fallback tokens */
+    precompute_byte_tokens(tok);
 
     /* Determine tokenizer type */
     const char* model_type = gguf_get_string(gguf, "tokenizer.ggml.model");
@@ -267,6 +422,8 @@ DetTokenizer* det_tokenizer_from_gguf(GgufContext* gguf) {
 
     if (added_count > 0) {
         tok->added_tokens = calloc(added_count, sizeof(DetAddedToken));
+        tok->added_tokens_trie = trie_create_node();  /* Build trie for O(k) lookup */
+
         if (tok->added_tokens) {
             int32_t j = 0;
             for (int32_t i = 0; i < tok->vocab_size; i++) {
@@ -274,12 +431,17 @@ DetTokenizer* det_tokenizer_from_gguf(GgufContext* gguf) {
                     tok->added_tokens[j].text = tok->vocab[i].text;
                     tok->added_tokens[j].id = i;
                     tok->added_tokens[j].len = (int32_t)strlen(tok->vocab[i].text);
+
+                    /* Insert into trie */
+                    if (tok->added_tokens_trie) {
+                        trie_insert(tok->added_tokens_trie, tok->vocab[i].text, i);
+                    }
                     j++;
                 }
             }
             tok->num_added_tokens = added_count;
 
-            /* Sort by length descending for longest-match-first */
+            /* Sort by length descending for longest-match-first (fallback) */
             qsort(tok->added_tokens, added_count, sizeof(DetAddedToken),
                   compare_added_tokens);
 
@@ -318,9 +480,14 @@ void det_tokenizer_free(DetTokenizer* tok) {
 
     /* Free merges */
     free(tok->merges);
+    free(tok->merge_lookup);
 
     /* Free added tokens */
     free(tok->added_tokens);
+    trie_free(tok->added_tokens_trie);
+
+    /* Free byte token IDs */
+    free(tok->byte_token_ids);
 
     /* Free hash table */
     hash_free(tok->token_to_id);
@@ -379,18 +546,23 @@ static int32_t tokenize_with_added_tokens(const DetTokenizer* tok, const char* t
     const char* text_end = text + strlen(text);
 
     while (p < text_end && num_tokens < max_tokens) {
-        /* Try to match an added token at current position */
+        /* Try to match an added token at current position using trie (O(k)) */
         int32_t matched_id = -1;
         int32_t matched_len = 0;
 
-        /* Scan through added tokens (sorted by length, so longest match wins) */
-        for (int32_t i = 0; i < tok->num_added_tokens; i++) {
-            const DetAddedToken* at = &tok->added_tokens[i];
-            if (p + at->len <= text_end &&
-                memcmp(p, at->text, at->len) == 0) {
-                matched_id = at->id;
-                matched_len = at->len;
-                break;  /* First match is longest due to sorting */
+        if (tok->added_tokens_trie) {
+            /* Fast O(k) trie lookup - finds longest match */
+            matched_id = trie_find_longest(tok->added_tokens_trie, p, text_end, &matched_len);
+        } else {
+            /* Fallback: scan through added tokens (sorted by length) */
+            for (int32_t i = 0; i < tok->num_added_tokens; i++) {
+                const DetAddedToken* at = &tok->added_tokens[i];
+                if (p + at->len <= text_end &&
+                    memcmp(p, at->text, at->len) == 0) {
+                    matched_id = at->id;
+                    matched_len = at->len;
+                    break;  /* First match is longest due to sorting */
+                }
             }
         }
 
@@ -402,13 +574,28 @@ static int32_t tokenize_with_added_tokens(const DetTokenizer* tok, const char* t
         } else {
             /* Find the next added token (or end of string) */
             const char* next_added = text_end;
-            for (int32_t i = 0; i < tok->num_added_tokens; i++) {
-                const DetAddedToken* at = &tok->added_tokens[i];
-                const char* found = strstr(p + 1, at->text);
-                if (found && found < next_added) {
-                    next_added = found;
+
+            /* Scan forward to find where next added token starts */
+            for (const char* scan = p + 1; scan < text_end; scan++) {
+                int32_t scan_len = 0;
+                if (tok->added_tokens_trie) {
+                    if (trie_find_longest(tok->added_tokens_trie, scan, text_end, &scan_len) >= 0) {
+                        next_added = scan;
+                        break;
+                    }
+                } else {
+                    /* Fallback: check each added token */
+                    for (int32_t i = 0; i < tok->num_added_tokens; i++) {
+                        const DetAddedToken* at = &tok->added_tokens[i];
+                        if (scan + at->len <= text_end &&
+                            memcmp(scan, at->text, at->len) == 0) {
+                            next_added = scan;
+                            goto found_next;
+                        }
+                    }
                 }
             }
+            found_next:;  /* Empty statement after label for C99 compatibility */
 
             /* Tokenize the segment before the next added token */
             int32_t segment_len = (int32_t)(next_added - p);
@@ -520,44 +707,45 @@ static int32_t tokenize_bpe_segment(const DetTokenizer* tok, const char* text,
             work_tokens[work_count++] = best_id;
             p += best_len;
         } else {
-            /* Unknown character - use byte fallback or unknown token */
-            char byte_token[8];
-            snprintf(byte_token, sizeof(byte_token), "<0x%02X>", (uint8_t)*p);
-            int32_t byte_id = hash_get(tok->token_to_id, byte_token, tok->special.unk_id);
+            /* Unknown character - use precomputed byte fallback (no snprintf!) */
+            int32_t byte_id;
+            if (tok->byte_token_ids) {
+                byte_id = tok->byte_token_ids[(uint8_t)*p];
+            } else {
+                /* Fallback: compute on the fly */
+                char byte_token[8];
+                snprintf(byte_token, sizeof(byte_token), "<0x%02X>", (uint8_t)*p);
+                byte_id = hash_get(tok->token_to_id, byte_token, tok->special.unk_id);
+            }
             work_tokens[work_count++] = byte_id;
             p++;
         }
     }
 
-    /* BPE merge pass */
-    if (tok->merges && tok->num_merges > 0) {
+    /* BPE merge pass - use binary search for O(n log m) instead of O(n * m) */
+    if (tok->merge_lookup && tok->merge_lookup_count > 0) {
         bool changed = true;
         while (changed && work_count > 1) {
             changed = false;
 
-            /* Find best merge (lowest merge index = highest priority) */
+            /* Find best merge (lowest priority = highest precedence) */
             int best_pos = -1;
-            int best_merge = tok->num_merges;  /* Start with worst priority */
+            int best_priority = INT32_MAX;
+            int32_t best_result = -1;
 
             for (int i = 0; i < work_count - 1; i++) {
-                int32_t left = work_tokens[i];
-                int32_t right = work_tokens[i + 1];
-
-                /* Find merge rule */
-                for (int m = 0; m < tok->num_merges && m < best_merge; m++) {
-                    if (tok->merges[m].left == left &&
-                        tok->merges[m].right == right &&
-                        tok->merges[m].result >= 0) {
-                        best_pos = i;
-                        best_merge = m;
-                        break;
-                    }
+                int priority = 0;
+                int32_t result = find_merge_binary(tok, work_tokens[i], work_tokens[i + 1], &priority);
+                if (result >= 0 && priority < best_priority) {
+                    best_pos = i;
+                    best_priority = priority;
+                    best_result = result;
                 }
             }
 
             /* Apply best merge */
-            if (best_pos >= 0 && best_merge < tok->num_merges) {
-                work_tokens[best_pos] = tok->merges[best_merge].result;
+            if (best_pos >= 0 && best_result >= 0) {
+                work_tokens[best_pos] = best_result;
                 /* Shift remaining tokens */
                 for (int i = best_pos + 1; i < work_count - 1; i++) {
                     work_tokens[i] = work_tokens[i + 1];

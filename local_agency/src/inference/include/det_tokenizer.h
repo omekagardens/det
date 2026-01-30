@@ -56,12 +56,25 @@ typedef struct {
     int32_t result;     /* Merged token ID */
 } DetBPEMerge;
 
+/** BPE merge lookup entry (for O(log n) binary search) */
+typedef struct {
+    uint64_t key;       /* (left << 32) | right - for sorting/search */
+    int32_t result;     /* Merged token ID */
+    int32_t priority;   /* Merge priority (lower = higher priority) */
+} DetMergeLookup;
+
 /** Added token entry (for special tokens like <|end|>) */
 typedef struct {
     const char* text;   /* Token text (points to vocab entry) */
     int32_t id;         /* Token ID */
     int32_t len;        /* Pre-computed strlen for efficiency */
 } DetAddedToken;
+
+/** Trie node for added token matching */
+typedef struct DetTrieNode {
+    struct DetTrieNode* children[256];  /* Child nodes by byte */
+    int32_t token_id;                   /* Token ID if terminal (-1 otherwise) */
+} DetTrieNode;
 
 /** Tokenizer context */
 typedef struct DetTokenizer {
@@ -79,13 +92,18 @@ typedef struct DetTokenizer {
     DetBPEMerge* merges;
     int32_t num_merges;
 
+    /* Optimized merge lookup (sorted by key for binary search) */
+    DetMergeLookup* merge_lookup;   /* Sorted array for O(log n) merge search */
+    int32_t merge_lookup_count;     /* Number of valid entries */
+
     /* Lookup tables for fast encoding */
     void* token_to_id;      /* Hash table: text -> id */
-    void* byte_tokens;      /* Byte fallback tokens (256 entries) */
+    int32_t* byte_token_ids;/* Precomputed byte fallback IDs (256 entries) */
 
     /* Added tokens (special tokens matched before BPE) */
     DetAddedToken* added_tokens;    /* Array of added tokens, sorted by length desc */
     int32_t num_added_tokens;       /* Number of added tokens */
+    DetTrieNode* added_tokens_trie; /* Trie for O(k) added token matching */
 
     /* Configuration */
     bool add_bos;           /* Add BOS token at start */
