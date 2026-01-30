@@ -27,8 +27,16 @@ import os
 import sys
 import argparse
 import time
+import atexit
 from pathlib import Path
 from typing import Dict, Optional
+
+# Readline for command history (up/down arrow support)
+try:
+    import readline
+    READLINE_AVAILABLE = True
+except ImportError:
+    READLINE_AVAILABLE = False
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -1286,6 +1294,34 @@ class DETRuntime:
         if not self.terminal_cid:
             print("Error: Terminal creature not spawned")
             return
+
+        # Set up command history (up/down arrow support)
+        history_file = None
+        if READLINE_AVAILABLE:
+            history_dir = Path.home() / ".det"
+            history_dir.mkdir(exist_ok=True)
+            history_file = history_dir / "repl_history"
+            try:
+                readline.read_history_file(history_file)
+                readline.set_history_length(1000)  # Keep last 1000 commands
+            except FileNotFoundError:
+                pass  # No history yet
+            # Save history on exit
+            atexit.register(readline.write_history_file, history_file)
+
+            # Tab completion for commands
+            commands = [
+                'help', 'quit', 'exit', 'status', 'bonds', 'list', 'ls',
+                'load', 'unload', 'bond', 'unbond', 'model', 'clear',
+                'native', 'native load', 'native status', 'native enable',
+                'native disable', 'native generate', 'native reset', 'native system',
+                'exec', 'file', 'mem', 'calc', 'reason', 'think', 'plan',
+            ]
+            def completer(text, state):
+                options = [c for c in commands if c.startswith(text)]
+                return options[state] if state < len(options) else None
+            readline.set_completer(completer)
+            readline.parse_and_bind('tab: complete')
 
         print("=" * 60)
         print("DET-OS Terminal (Bond-Based Dispatch)")
