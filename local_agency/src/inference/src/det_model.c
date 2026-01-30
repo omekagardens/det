@@ -52,7 +52,16 @@ static DetInferenceMode g_inference_mode = DET_INFERENCE_F32;
  * - For T=1, this overhead exceeds compute benefit
  *
  * Only use Metal for large batch sizes (prefill) or output projection. */
-#define METAL_MIN_ELEMENTS (512 * 512)  /* ~256K elements minimum for Metal */
+#define METAL_MIN_ELEMENTS (128 * 128)  /* ~16K elements for Metal (Apple unified memory) */
+
+/* Apple Silicon cache optimization */
+#ifdef __APPLE__
+#define APPLE_CACHE_LINE 128  /* Apple Silicon uses 128-byte cache lines */
+#define APPLE_PREFETCH(addr) __builtin_prefetch(addr, 0, 3)
+#else
+#define APPLE_CACHE_LINE 64
+#define APPLE_PREFETCH(addr)
+#endif
 
 /* Debug flag: set to 1 to disable differential attention for debugging */
 #define DEBUG_DISABLE_DIFF_ATTN 0
@@ -163,6 +172,7 @@ static inline float neon_sum_sq(const float* x, int n) {
     float32x4_t sum3 = vdupq_n_f32(0.0f);
     int i = 0;
     for (; i + 15 < n; i += 16) {
+        APPLE_PREFETCH(x + i + 64);  /* Prefetch next cache line */
         float32x4_t v0 = vld1q_f32(x + i);
         float32x4_t v1 = vld1q_f32(x + i + 4);
         float32x4_t v2 = vld1q_f32(x + i + 8);
@@ -190,6 +200,7 @@ static inline float neon_sum(const float* x, int n) {
     float32x4_t sum1 = vdupq_n_f32(0.0f);
     int i = 0;
     for (; i + 7 < n; i += 8) {
+        APPLE_PREFETCH(x + i + 64);
         sum0 = vaddq_f32(sum0, vld1q_f32(x + i));
         sum1 = vaddq_f32(sum1, vld1q_f32(x + i + 4));
     }
@@ -208,6 +219,8 @@ static inline void neon_rmsnorm_apply(float* x, const float* weight, float scale
     float32x4_t scale_vec = vdupq_n_f32(scale);
     int i = 0;
     for (; i + 15 < n; i += 16) {
+        APPLE_PREFETCH(x + i + 64);
+        APPLE_PREFETCH(weight + i + 64);
         float32x4_t x0 = vmulq_f32(vmulq_f32(vld1q_f32(x + i), scale_vec), vld1q_f32(weight + i));
         float32x4_t x1 = vmulq_f32(vmulq_f32(vld1q_f32(x + i + 4), scale_vec), vld1q_f32(weight + i + 4));
         float32x4_t x2 = vmulq_f32(vmulq_f32(vld1q_f32(x + i + 8), scale_vec), vld1q_f32(weight + i + 8));
@@ -233,6 +246,9 @@ static inline void neon_layernorm_apply(float* x, const float* weight, const flo
     int i = 0;
     if (bias) {
         for (; i + 7 < n; i += 8) {
+            APPLE_PREFETCH(x + i + 64);
+            APPLE_PREFETCH(weight + i + 64);
+            APPLE_PREFETCH(bias + i + 64);
             float32x4_t x0 = vsubq_f32(vld1q_f32(x + i), mean_vec);
             float32x4_t x1 = vsubq_f32(vld1q_f32(x + i + 4), mean_vec);
             x0 = vfmaq_f32(vld1q_f32(bias + i), vmulq_f32(x0, scale_vec), vld1q_f32(weight + i));
@@ -255,6 +271,42 @@ static inline void neon_layernorm_apply(float* x, const float* weight, const flo
         for (; i < n; i++) {
             x[i] = (x[i] - mean) * scale * weight[i];
         }
+    }
+}
+
+/* Vectorized SiLU-mul: out[i] = (gate[i] / (1 + exp(-gate[i]))) * up[i]
+ * This is the core SwiGLU computation, optimized for Apple Silicon */
+static inline void neon_swiglu(float* out, const float* gate, const float* up, int n) {
+    int i = 0;
+    float32x4_t one = vdupq_n_f32(1.0f);
+    /* Process 8 elements at a time with prefetching */
+    for (; i + 7 < n; i += 8) {
+        APPLE_PREFETCH(gate + i + 64);
+        APPLE_PREFETCH(up + i + 64);
+        /* Load gate and up values */
+        float32x4_t g0 = vld1q_f32(gate + i);
+        float32x4_t g1 = vld1q_f32(gate + i + 4);
+        float32x4_t u0 = vld1q_f32(up + i);
+        float32x4_t u1 = vld1q_f32(up + i + 4);
+        /* Compute SiLU: g / (1 + exp(-g)) = g * sigmoid(g)
+         * Using approximation for sigmoid: 1/(1+exp(-x)) ≈ 0.5 + 0.5*tanh(x/2)
+         * But for accuracy, we'll use the direct formula with scalar fallback */
+        float g_arr[8], u_arr[8], out_arr[8];
+        vst1q_f32(g_arr, g0);
+        vst1q_f32(g_arr + 4, g1);
+        vst1q_f32(u_arr, u0);
+        vst1q_f32(u_arr + 4, u1);
+        for (int j = 0; j < 8; j++) {
+            float g = g_arr[j];
+            out_arr[j] = (g / (1.0f + expf(-g))) * u_arr[j];
+        }
+        vst1q_f32(out + i, vld1q_f32(out_arr));
+        vst1q_f32(out + i + 4, vld1q_f32(out_arr + 4));
+    }
+    /* Handle remaining elements */
+    for (; i < n; i++) {
+        float g = gate[i];
+        out[i] = (g / (1.0f + expf(-g))) * up[i];
     }
 }
 #endif /* USE_NEON */
@@ -970,6 +1022,24 @@ DetModel* det_model_load(const char* path) {
             layer->diff_lambda_k2 = get_layer_param(gguf, i, "diff_lambda_k2");
             layer->diff_subln = get_layer_weight(gguf, i, "diff_subln");
             layer->use_diff_attn = (layer->diff_lambda_q1 != NULL);
+
+            /* Precompute exp(q1·k1) - exp(q2·k2) for differential attention
+             * This avoids recomputing dot products on every forward pass */
+            layer->diff_lambda_exp_diff = 0.0f;
+            if (layer->use_diff_attn && layer->diff_lambda_k1 &&
+                layer->diff_lambda_q2 && layer->diff_lambda_k2) {
+                float* lq1 = (float*)layer->diff_lambda_q1->data;
+                float* lk1 = (float*)layer->diff_lambda_k1->data;
+                float* lq2 = (float*)layer->diff_lambda_q2->data;
+                float* lk2 = (float*)layer->diff_lambda_k2->data;
+                int head_dim = model->config.n_embd / model->config.n_head;
+                float dot1 = 0.0f, dot2 = 0.0f;
+                for (int d = 0; d < head_dim; d++) {
+                    dot1 += lq1[d] * lk1[d];
+                    dot2 += lq2[d] * lk2[d];
+                }
+                layer->diff_lambda_exp_diff = expf(dot1) - expf(dot2);
+            }
 
             /* FFN projections - can be Q8_0 in QAM mode */
             layer->w1 = get_layer_weight_smart(gguf, i, "ffn_gate");
@@ -2911,17 +2981,10 @@ DetTensor* det_model_forward(DetModel* model,
             float* lambda_k2 = lw->diff_lambda_k2 ? (float*)lw->diff_lambda_k2->data : NULL;
             float* subln_weight = lw->diff_subln ? (float*)lw->diff_subln->data : NULL;
 
-            /* Compute lambda once (shared across all heads):
-             * λ = exp(sum(λ_q1 * λ_k1)) - exp(sum(λ_q2 * λ_k2)) + λ_init */
-            float lambda = lambda_init;
-            if (lambda_q1 && lambda_k1 && lambda_q2 && lambda_k2) {
-                float dot1 = 0.0f, dot2 = 0.0f;
-                for (int d = 0; d < head_dim; d++) {
-                    dot1 += lambda_q1[d] * lambda_k1[d];
-                    dot2 += lambda_q2[d] * lambda_k2[d];
-                }
-                lambda = expf(dot1) - expf(dot2) + lambda_init;
-            }
+            /* Use precomputed lambda exp diff (computed once at model load):
+             * λ = precomputed_exp_diff + λ_init
+             * where precomputed_exp_diff = exp(sum(λ_q1 * λ_k1)) - exp(sum(λ_q2 * λ_k2)) */
+            float lambda = lw->diff_lambda_exp_diff + lambda_init;
 
             /* NOTE: GPU differential attention is implemented but disabled because
              * CPU NEON is faster due to GPU buffer allocation overhead.

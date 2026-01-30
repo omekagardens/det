@@ -143,6 +143,7 @@ typedef struct {
     DetTensor* diff_lambda_k2;    /* [head_dim] lambda_k2 for differential attention */
     DetTensor* diff_subln;        /* [head_dim] SubLN (RMSNorm) after differential */
     bool use_diff_attn;           /* True if layer uses differential attention */
+    float diff_lambda_exp_diff;   /* Precomputed exp(q1·k1) - exp(q2·k2) for lambda */
 
     /* SambaY layer type flags */
     bool use_sliding_window;      /* Use sliding window attention */
