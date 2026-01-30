@@ -20,6 +20,18 @@
 #define USE_ACCELERATE 1
 #endif
 
+/* ARM NEON SIMD support for Apple Silicon */
+#if defined(__APPLE__) && defined(__arm64__)
+#include <arm_neon.h>
+#define USE_NEON 1
+#endif
+
+/* Grand Central Dispatch for parallel processing (macOS native) */
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#define USE_GCD 1
+#endif
+
 #ifdef DET_USE_METAL
 #include "det_tensor_metal.h"
 #endif
@@ -66,6 +78,186 @@ static void debug_print_norm(const char* label, const float* data, int n) {
             label, rms, min_v, max_v, data[0], n > 1 ? data[1] : 0.0f);
 }
 #endif
+
+/* ==========================================================================
+ * NEON SIMD OPTIMIZED FUNCTIONS
+ * ========================================================================== */
+
+#ifdef USE_NEON
+/* Vectorized dot product using NEON SIMD (4x4 unrolling for better throughput) */
+static inline float neon_dot_product(const float* a, const float* b, int n) {
+    float32x4_t sum0 = vdupq_n_f32(0.0f);
+    float32x4_t sum1 = vdupq_n_f32(0.0f);
+    float32x4_t sum2 = vdupq_n_f32(0.0f);
+    float32x4_t sum3 = vdupq_n_f32(0.0f);
+
+    int i = 0;
+    /* Process 16 elements at a time */
+    for (; i + 15 < n; i += 16) {
+        sum0 = vfmaq_f32(sum0, vld1q_f32(a + i), vld1q_f32(b + i));
+        sum1 = vfmaq_f32(sum1, vld1q_f32(a + i + 4), vld1q_f32(b + i + 4));
+        sum2 = vfmaq_f32(sum2, vld1q_f32(a + i + 8), vld1q_f32(b + i + 8));
+        sum3 = vfmaq_f32(sum3, vld1q_f32(a + i + 12), vld1q_f32(b + i + 12));
+    }
+    /* Process remaining 4 elements at a time */
+    for (; i + 3 < n; i += 4) {
+        sum0 = vfmaq_f32(sum0, vld1q_f32(a + i), vld1q_f32(b + i));
+    }
+    /* Combine partial sums */
+    sum0 = vaddq_f32(sum0, sum1);
+    sum2 = vaddq_f32(sum2, sum3);
+    sum0 = vaddq_f32(sum0, sum2);
+    float result = vaddvq_f32(sum0);
+
+    /* Handle remaining elements */
+    for (; i < n; i++) {
+        result += a[i] * b[i];
+    }
+    return result;
+}
+
+/* Vectorized weighted accumulation: out[d] += weight * v[d] */
+static inline void neon_weighted_add(float* out, const float* v, float weight, int n) {
+    float32x4_t w_vec = vdupq_n_f32(weight);
+    int i = 0;
+
+    /* Process 16 elements at a time */
+    for (; i + 15 < n; i += 16) {
+        vst1q_f32(out + i, vfmaq_f32(vld1q_f32(out + i), vld1q_f32(v + i), w_vec));
+        vst1q_f32(out + i + 4, vfmaq_f32(vld1q_f32(out + i + 4), vld1q_f32(v + i + 4), w_vec));
+        vst1q_f32(out + i + 8, vfmaq_f32(vld1q_f32(out + i + 8), vld1q_f32(v + i + 8), w_vec));
+        vst1q_f32(out + i + 12, vfmaq_f32(vld1q_f32(out + i + 12), vld1q_f32(v + i + 12), w_vec));
+    }
+    /* Process remaining 4 elements at a time */
+    for (; i + 3 < n; i += 4) {
+        vst1q_f32(out + i, vfmaq_f32(vld1q_f32(out + i), vld1q_f32(v + i), w_vec));
+    }
+    /* Handle remaining elements */
+    for (; i < n; i++) {
+        out[i] += weight * v[i];
+    }
+}
+
+/* Vectorized copy: out = src */
+static inline void neon_copy(float* out, const float* src, int n) {
+    int i = 0;
+    for (; i + 15 < n; i += 16) {
+        vst1q_f32(out + i, vld1q_f32(src + i));
+        vst1q_f32(out + i + 4, vld1q_f32(src + i + 4));
+        vst1q_f32(out + i + 8, vld1q_f32(src + i + 8));
+        vst1q_f32(out + i + 12, vld1q_f32(src + i + 12));
+    }
+    for (; i + 3 < n; i += 4) {
+        vst1q_f32(out + i, vld1q_f32(src + i));
+    }
+    for (; i < n; i++) {
+        out[i] = src[i];
+    }
+}
+
+/* Vectorized sum of squares: returns sum(x[i]^2) */
+static inline float neon_sum_sq(const float* x, int n) {
+    float32x4_t sum0 = vdupq_n_f32(0.0f);
+    float32x4_t sum1 = vdupq_n_f32(0.0f);
+    float32x4_t sum2 = vdupq_n_f32(0.0f);
+    float32x4_t sum3 = vdupq_n_f32(0.0f);
+    int i = 0;
+    for (; i + 15 < n; i += 16) {
+        float32x4_t v0 = vld1q_f32(x + i);
+        float32x4_t v1 = vld1q_f32(x + i + 4);
+        float32x4_t v2 = vld1q_f32(x + i + 8);
+        float32x4_t v3 = vld1q_f32(x + i + 12);
+        sum0 = vfmaq_f32(sum0, v0, v0);
+        sum1 = vfmaq_f32(sum1, v1, v1);
+        sum2 = vfmaq_f32(sum2, v2, v2);
+        sum3 = vfmaq_f32(sum3, v3, v3);
+    }
+    for (; i + 3 < n; i += 4) {
+        float32x4_t v = vld1q_f32(x + i);
+        sum0 = vfmaq_f32(sum0, v, v);
+    }
+    sum0 = vaddq_f32(vaddq_f32(sum0, sum1), vaddq_f32(sum2, sum3));
+    float result = vaddvq_f32(sum0);
+    for (; i < n; i++) {
+        result += x[i] * x[i];
+    }
+    return result;
+}
+
+/* Vectorized sum: returns sum(x[i]) */
+static inline float neon_sum(const float* x, int n) {
+    float32x4_t sum0 = vdupq_n_f32(0.0f);
+    float32x4_t sum1 = vdupq_n_f32(0.0f);
+    int i = 0;
+    for (; i + 7 < n; i += 8) {
+        sum0 = vaddq_f32(sum0, vld1q_f32(x + i));
+        sum1 = vaddq_f32(sum1, vld1q_f32(x + i + 4));
+    }
+    for (; i + 3 < n; i += 4) {
+        sum0 = vaddq_f32(sum0, vld1q_f32(x + i));
+    }
+    float result = vaddvq_f32(vaddq_f32(sum0, sum1));
+    for (; i < n; i++) {
+        result += x[i];
+    }
+    return result;
+}
+
+/* Vectorized RMSNorm in-place: x = x * scale * weight */
+static inline void neon_rmsnorm_apply(float* x, const float* weight, float scale, int n) {
+    float32x4_t scale_vec = vdupq_n_f32(scale);
+    int i = 0;
+    for (; i + 15 < n; i += 16) {
+        float32x4_t x0 = vmulq_f32(vmulq_f32(vld1q_f32(x + i), scale_vec), vld1q_f32(weight + i));
+        float32x4_t x1 = vmulq_f32(vmulq_f32(vld1q_f32(x + i + 4), scale_vec), vld1q_f32(weight + i + 4));
+        float32x4_t x2 = vmulq_f32(vmulq_f32(vld1q_f32(x + i + 8), scale_vec), vld1q_f32(weight + i + 8));
+        float32x4_t x3 = vmulq_f32(vmulq_f32(vld1q_f32(x + i + 12), scale_vec), vld1q_f32(weight + i + 12));
+        vst1q_f32(x + i, x0);
+        vst1q_f32(x + i + 4, x1);
+        vst1q_f32(x + i + 8, x2);
+        vst1q_f32(x + i + 12, x3);
+    }
+    for (; i + 3 < n; i += 4) {
+        vst1q_f32(x + i, vmulq_f32(vmulq_f32(vld1q_f32(x + i), scale_vec), vld1q_f32(weight + i)));
+    }
+    for (; i < n; i++) {
+        x[i] = x[i] * scale * weight[i];
+    }
+}
+
+/* Vectorized LayerNorm in-place: x = (x - mean) * scale * weight + bias */
+static inline void neon_layernorm_apply(float* x, const float* weight, const float* bias,
+                                         float mean, float scale, int n) {
+    float32x4_t mean_vec = vdupq_n_f32(mean);
+    float32x4_t scale_vec = vdupq_n_f32(scale);
+    int i = 0;
+    if (bias) {
+        for (; i + 7 < n; i += 8) {
+            float32x4_t x0 = vsubq_f32(vld1q_f32(x + i), mean_vec);
+            float32x4_t x1 = vsubq_f32(vld1q_f32(x + i + 4), mean_vec);
+            x0 = vfmaq_f32(vld1q_f32(bias + i), vmulq_f32(x0, scale_vec), vld1q_f32(weight + i));
+            x1 = vfmaq_f32(vld1q_f32(bias + i + 4), vmulq_f32(x1, scale_vec), vld1q_f32(weight + i + 4));
+            vst1q_f32(x + i, x0);
+            vst1q_f32(x + i + 4, x1);
+        }
+        for (; i < n; i++) {
+            x[i] = (x[i] - mean) * scale * weight[i] + bias[i];
+        }
+    } else {
+        for (; i + 7 < n; i += 8) {
+            float32x4_t x0 = vmulq_f32(vsubq_f32(vld1q_f32(x + i), mean_vec), scale_vec);
+            float32x4_t x1 = vmulq_f32(vsubq_f32(vld1q_f32(x + i + 4), mean_vec), scale_vec);
+            x0 = vmulq_f32(x0, vld1q_f32(weight + i));
+            x1 = vmulq_f32(x1, vld1q_f32(weight + i + 4));
+            vst1q_f32(x + i, x0);
+            vst1q_f32(x + i + 4, x1);
+        }
+        for (; i < n; i++) {
+            x[i] = (x[i] - mean) * scale * weight[i];
+        }
+    }
+}
+#endif /* USE_NEON */
 
 /* ==========================================================================
  * TIMING DEBUG
@@ -261,18 +453,24 @@ static void batched_proj_smart(float* out, const float* hidden,
     if (!W) return;
 
 #ifdef DET_USE_METAL
-    /* Use persistent GPU buffer if available (Phase 26.15) */
+    /* Use persistent GPU buffer when available (Phase 26.18)
+     *
+     * When batch mode is active (tensor_metal_batch_active()), use GPU for ALL
+     * projections because the per-operation overhead is eliminated - all ops
+     * are accumulated in a single command buffer.
+     *
+     * When batch mode is NOT active, only use GPU for large matrices (N >= 50000)
+     * because the per-operation sync overhead dominates for small matrices. */
     if (W->metal_buffer && g_metal_available) {
-        if (W->dtype == DET_DTYPE_Q8_0) {
-            /* Q8_0 with persistent weight buffer */
-            if (tensor_metal_matmul_q8_0_persistent(hidden, W->metal_buffer, out, T, N, K) == 0) {
-                return;  /* GPU succeeded */
-            }
-        } else if (W->dtype == DET_DTYPE_F32) {
-            /* F32 with persistent weight buffer
-             * For large projections (like vocab output), this is worth it
-             * even with activation copy overhead */
-            if (N >= 1024) {  /* Only for large output dimensions */
+        int use_gpu = tensor_metal_batch_active() || (N >= 2000);
+        if (use_gpu) {
+            if (W->dtype == DET_DTYPE_Q8_0) {
+                /* Q8_0 with persistent weight buffer */
+                if (tensor_metal_matmul_q8_0_persistent(hidden, W->metal_buffer, out, T, N, K) == 0) {
+                    return;  /* GPU succeeded */
+                }
+            } else if (W->dtype == DET_DTYPE_F32) {
+                /* F32 with persistent weight buffer */
                 if (tensor_metal_matmul_f32_persistent(hidden, W->metal_buffer, out, T, N, K) == 0) {
                     return;  /* GPU succeeded */
                 }
@@ -324,6 +522,27 @@ static void apply_norm(float* x, const float* weight, const float* bias,
                        int n, float eps, bool use_layernorm) {
     if (use_layernorm) {
         /* LayerNorm: subtract mean, divide by std, scale + shift */
+#ifdef USE_NEON
+        float mean = neon_sum(x, n) / n;
+
+        /* Compute variance: sum((x - mean)^2) */
+        float32x4_t mean_vec = vdupq_n_f32(mean);
+        float32x4_t var_sum = vdupq_n_f32(0.0f);
+        int i = 0;
+        for (; i + 3 < n; i += 4) {
+            float32x4_t d = vsubq_f32(vld1q_f32(x + i), mean_vec);
+            var_sum = vfmaq_f32(var_sum, d, d);
+        }
+        float var = vaddvq_f32(var_sum);
+        for (; i < n; i++) {
+            float d = x[i] - mean;
+            var += d * d;
+        }
+        var /= n;
+
+        float scale = 1.0f / sqrtf(var + eps);
+        neon_layernorm_apply(x, weight, bias, mean, scale, n);
+#else
         float mean = 0.0f;
         for (int i = 0; i < n; i++) {
             mean += x[i];
@@ -347,8 +566,14 @@ static void apply_norm(float* x, const float* weight, const float* bias,
                 x[i] = (x[i] - mean) * scale * weight[i];
             }
         }
+#endif
     } else {
         /* RMSNorm: divide by root mean square, scale */
+#ifdef USE_NEON
+        float ss = neon_sum_sq(x, n);
+        float scale = 1.0f / sqrtf(ss / n + eps);
+        neon_rmsnorm_apply(x, weight, scale, n);
+#else
         float ss = 0.0f;
         for (int i = 0; i < n; i++) {
             ss += x[i] * x[i];
@@ -357,6 +582,7 @@ static void apply_norm(float* x, const float* weight, const float* bias,
         for (int i = 0; i < n; i++) {
             x[i] = x[i] * scale * weight[i];
         }
+#endif
     }
 }
 
@@ -988,10 +1214,37 @@ int det_model_upload_to_gpu(DetModel* model) {
         if (upload_tensor_to_gpu(layer->w1) == 0 && layer->w1) uploaded++;
         if (upload_tensor_to_gpu(layer->w2) == 0 && layer->w2) uploaded++;
         if (upload_tensor_to_gpu(layer->w3) == 0 && layer->w3) uploaded++;
+
+        /* Norm weights (small but enables GPU-based normalization) */
+        if (upload_tensor_to_gpu(layer->attn_norm) == 0 && layer->attn_norm) uploaded++;
+        if (upload_tensor_to_gpu(layer->ffn_norm) == 0 && layer->ffn_norm) uploaded++;
+    }
+
+    /* Upload output norm */
+    if (upload_tensor_to_gpu(model->weights.output_norm) == 0 && model->weights.output_norm) {
+        uploaded++;
     }
 
     model->gpu_weights_loaded = true;
     printf("  Uploaded %d weight tensors to GPU (%d failed)\n", uploaded, failed);
+
+    /* Initialize scratch buffers for efficient inference */
+    /* For T=1 token generation:
+     * - Input: max(d_model, d_inner, intermediate_size) floats
+     * - Output: max(vocab_size, intermediate_size) floats */
+    uint32_t d_model = model->config.n_embd;
+    uint32_t intermediate = model->config.n_ff > 0 ? model->config.n_ff : 4 * d_model;
+    uint32_t max_input = intermediate > d_model ? intermediate : d_model;
+    uint32_t max_output = model->config.n_vocab > intermediate ? model->config.n_vocab : intermediate;
+
+    /* Allow for small batch/sequence (up to 16 tokens) */
+    max_input *= 16;
+    max_output *= 16;
+
+    if (tensor_metal_init_scratch(max_input, max_output) == 0) {
+        /* Scratch buffers initialized successfully */
+    }
+
     return 0;
 #else
     (void)model;
@@ -1004,6 +1257,9 @@ void det_model_free_gpu(DetModel* model) {
     if (!model || !model->gpu_weights_loaded) {
         return;
     }
+
+    /* Free scratch buffers */
+    tensor_metal_free_scratch();
 
     /* Free embedding GPU buffers */
     free_tensor_gpu(model->weights.tok_embd);
@@ -1038,10 +1294,809 @@ void det_model_free_gpu(DetModel* model) {
 #endif
 }
 
+/* ==========================================================================
+ * GPU-NATIVE FORWARD PASS
+ * ========================================================================== */
+
+int det_model_init_gpu_forward(DetModel* model) {
+#ifdef DET_USE_METAL
+    if (!model || !g_metal_available) {
+        return -1;
+    }
+
+    if (model->gpu_forward_enabled) {
+        return 0;  /* Already initialized */
+    }
+
+    /* Ensure weights are uploaded first */
+    if (!model->gpu_weights_loaded) {
+        if (det_model_upload_to_gpu(model) != 0) {
+            return -1;
+        }
+    }
+
+    const DetModelConfig* cfg = &model->config;
+    uint32_t head_dim = cfg->n_embd / cfg->n_head;
+
+    /* Initialize GPU-native forward pass resources */
+    if (tensor_metal_init_gpu_forward(
+            cfg->n_layer, cfg->n_ctx, cfg->n_embd, cfg->n_ff,
+            cfg->n_head, cfg->n_head_kv, cfg->n_vocab) != 0) {
+        fprintf(stderr, "Failed to initialize GPU forward pass\n");
+        return -1;
+    }
+
+    model->gpu_forward_enabled = true;
+    printf("GPU-native forward pass enabled\n");
+    return 0;
+#else
+    (void)model;
+    return -1;
+#endif
+}
+
+void det_model_free_gpu_forward(DetModel* model) {
+#ifdef DET_USE_METAL
+    if (!model || !model->gpu_forward_enabled) {
+        return;
+    }
+
+    tensor_metal_free_gpu_forward();
+    model->gpu_forward_enabled = false;
+#else
+    (void)model;
+#endif
+}
+
+/* Public API wrapper */
+int det_model_enable_gpu_forward(DetModel* model) {
+    return det_model_init_gpu_forward(model);
+}
+
+void det_model_disable_gpu_forward(DetModel* model) {
+    det_model_free_gpu_forward(model);
+}
+
+DetTensor* det_model_forward_gpu(DetModel* model,
+                                  const int32_t* tokens, int32_t num_tokens,
+                                  DetTensor* logits) {
+#ifdef DET_USE_METAL
+    /* Fall back to standard forward if GPU not available/enabled */
+    if (!model || !g_metal_available || !model->gpu_forward_enabled) {
+        return det_model_forward(model, tokens, num_tokens, logits);
+    }
+
+    /* Check if model uses differential attention - if so, fall back to standard forward
+     * which has the proper differential attention implementation with NEON optimization.
+     * GPU differential attention is not yet implemented.
+     */
+    for (int i = 0; i < model->config.n_layer; i++) {
+        if (model->weights.layers[i].use_diff_attn) {
+            /* Model uses differential attention - use standard forward which handles it correctly */
+            return det_model_forward(model, tokens, num_tokens, logits);
+        }
+    }
+
+    /* For models without differential attention, use GPU-accelerated forward.
+     * This provides GPU KV cache, GPU-native attention primitives, and GPU FFN.
+     */
+
+    double t_start = 0;
+    if (g_debug_timing) t_start = get_time_ms();
+
+    const DetModelConfig* cfg = &model->config;
+    int head_dim = cfg->n_embd / cfg->n_head;
+    int kv_dim = cfg->n_head_kv * head_dim;
+    int pos = model->kv_cache.seq_len;
+
+    /* Check context limit */
+    if (pos + num_tokens > cfg->n_ctx) {
+        fprintf(stderr, "Context length exceeded\n");
+        return NULL;
+    }
+
+    /* Allocate output logits if not provided */
+    if (!logits) {
+        int32_t shape[2] = { num_tokens, cfg->n_vocab };
+        logits = det_workspace_get_scratch(model->workspace, 4, 2, shape, DET_DTYPE_F32);
+    }
+
+    /* Use pre-allocated scratch buffers */
+    float* hidden = model->scratch.hidden;
+    float* residual = model->scratch.residual;
+    float* q = model->scratch.q;
+    float* k = model->scratch.k;
+    float* v = model->scratch.v;
+    float* att = model->scratch.att;
+    float* ffn_gate = model->scratch.ffn_gate;
+    float* ffn_up = model->scratch.ffn_up;
+
+    /* Get embedding weights */
+    float* embd_data = (float*)model->weights.tok_embd->data;
+
+    /* Token embedding lookup */
+    for (int t = 0; t < num_tokens; t++) {
+        int32_t token = tokens[t];
+        if (token < 0 || token >= cfg->n_vocab) {
+            token = 0;
+        }
+        memcpy(hidden + t * cfg->n_embd,
+               embd_data + token * cfg->n_embd,
+               cfg->n_embd * sizeof(float));
+    }
+
+    /* SSM layer counter */
+    int ssm_layer_idx = 0;
+
+    /* Process each layer */
+    for (int layer = 0; layer < cfg->n_layer; layer++) {
+        DetLayerWeights* lw = &model->weights.layers[layer];
+
+        /* Save residual */
+        memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+        /* Dispatch based on layer type */
+        if (lw->is_ssm_layer) {
+            /* SSM layers use CPU path for now (complex state management) */
+            /* Pre-norm */
+            DetTensor* norm = lw->ssm_norm ? lw->ssm_norm : lw->attn_norm;
+            if (norm) {
+                float* norm_weight = (float*)norm->data;
+                float* norm_bias = lw->attn_norm_bias ? (float*)lw->attn_norm_bias->data : NULL;
+                for (int t = 0; t < num_tokens; t++) {
+                    apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                               cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                }
+            }
+
+            /* Detect cross-decoder SSM */
+            bool is_yoco_cross_ssm = false;
+            if (cfg->is_sambay && lw->ssm_in_proj) {
+                int d_inner = model->ssm_config.d_inner;
+                if ((int32_t)lw->ssm_in_proj->shape[1] == d_inner) {
+                    is_yoco_cross_ssm = true;
+                }
+            }
+
+            if (is_yoco_cross_ssm && model->scratch.cached_ssm) {
+                /* YOCO-cross SSM: simplified SwiGLU path */
+                const float* in_proj_data = lw->ssm_in_proj ?
+                    (const float*)lw->ssm_in_proj->data : NULL;
+                const float* out_proj_data = lw->ssm_out_proj ?
+                    (const float*)lw->ssm_out_proj->data : NULL;
+
+                if (in_proj_data && out_proj_data) {
+                    int d_inner = model->ssm_config.d_inner;
+                    det_gmu_swiglu(model->scratch.temp, hidden,
+                                   model->scratch.cached_ssm + pos * d_inner,
+                                   in_proj_data, out_proj_data,
+                                   cfg->n_embd, d_inner, num_tokens);
+                }
+                ssm_layer_idx++;
+            } else {
+                /* Standard SSM forward pass */
+                DetTensor input_tensor = {
+                    .data = hidden,
+                    .ndim = 2,
+                    .shape = {num_tokens, cfg->n_embd, 0, 0},
+                    .dtype = DET_DTYPE_F32,
+                    .owns_data = false
+                };
+                DetTensor output_tensor = {
+                    .data = model->scratch.temp,
+                    .ndim = 2,
+                    .shape = {num_tokens, cfg->n_embd, 0, 0},
+                    .dtype = DET_DTYPE_F32,
+                    .owns_data = false
+                };
+
+                DetSSMWeights ssm_weights = {
+                    .ssm_in_proj = lw->ssm_in_proj,
+                    .ssm_conv1d_weight = lw->ssm_conv1d_weight,
+                    .ssm_conv1d_bias = lw->ssm_conv1d_bias,
+                    .ssm_x_proj = lw->ssm_x_proj,
+                    .ssm_dt_proj = lw->ssm_dt_proj,
+                    .ssm_dt_proj_bias = lw->ssm_dt_proj_bias,
+                    .ssm_A_log = lw->ssm_A_log,
+                    .ssm_D = lw->ssm_D,
+                    .ssm_out_proj = lw->ssm_out_proj,
+                    .ssm_norm = lw->ssm_norm,
+                    .ssm_A_negexp = lw->ssm_A_negexp
+                };
+
+                float* ssm_cache_buf = NULL;
+                if (cfg->is_sambay) {
+                    int ssm_cache_source = cfg->n_layer / 2;
+                    if (layer == ssm_cache_source) {
+                        int d_inner = model->ssm_config.d_inner;
+                        ssm_cache_buf = model->scratch.cached_ssm + pos * d_inner;
+                    }
+                }
+
+                det_ssm_forward(&output_tensor, &input_tensor, &ssm_weights,
+                               &model->ssm_config, model->ssm_cache, ssm_layer_idx,
+                               ssm_cache_buf, NULL);
+                ssm_layer_idx++;
+            }
+
+            memcpy(hidden, model->scratch.temp, num_tokens * cfg->n_embd * sizeof(float));
+
+            /* Add residual */
+            for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                hidden[i] += residual[i];
+            }
+
+            /* SSM layers may also have FFN */
+            if (lw->ffn_norm && lw->w1 && lw->w2 && lw->w3) {
+                int used_gpu_ffn = 0;
+
+                if (lw->w1->metal_buffer && lw->w2->metal_buffer && lw->w3->metal_buffer &&
+                    tensor_metal_gpu_forward_available()) {
+                    uint32_t n_elements = num_tokens * cfg->n_embd;
+
+                    /* Try fully optimized path (norm on GPU) */
+                    if (lw->ffn_norm->metal_buffer && !cfg->use_layernorm) {
+                        if (tensor_metal_upload_hidden(hidden, n_elements) == 0 &&
+                            tensor_metal_ffn_complete_with_norm(
+                                lw->ffn_norm->metal_buffer,
+                                lw->w1->metal_buffer, lw->w3->metal_buffer, lw->w2->metal_buffer,
+                                num_tokens, cfg->n_ff, cfg->n_embd, cfg->norm_eps) == 0 &&
+                            tensor_metal_download_hidden(hidden, n_elements) == 0) {
+                            used_gpu_ffn = 1;
+                        }
+                    } else if (tensor_metal_upload_hidden(hidden, n_elements) == 0) {
+                        float* norm_weight = (float*)lw->ffn_norm->data;
+                        float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                        for (int t = 0; t < num_tokens; t++) {
+                            apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                                       cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                        }
+
+                        if (tensor_metal_upload_normed(hidden, n_elements) == 0 &&
+                            tensor_metal_ffn_swiglu_with_residual(
+                                lw->w1->metal_buffer, lw->w3->metal_buffer, lw->w2->metal_buffer,
+                                num_tokens, cfg->n_ff, cfg->n_embd) == 0 &&
+                            tensor_metal_download_hidden(hidden, n_elements) == 0) {
+                            used_gpu_ffn = 1;
+                        }
+                    }
+                }
+
+                if (!used_gpu_ffn) {
+                    memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+                    float* norm_weight = (float*)lw->ffn_norm->data;
+                    float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                    for (int t = 0; t < num_tokens; t++) {
+                        apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                                   cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                    }
+
+                    batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+                    batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    for (int i = 0; i < ffn_total; i++) {
+                        float g = ffn_gate[i];
+                        ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                    }
+                    batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+
+                    for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                        hidden[i] += residual[i];
+                    }
+                }
+            }
+            continue;
+        }
+
+        /* GMU layer handling */
+        if (lw->use_gmu && cfg->is_sambay) {
+            DetTensor* norm = lw->attn_norm ? lw->attn_norm : lw->ffn_norm;
+            if (norm) {
+                float* norm_weight = (float*)norm->data;
+                float* norm_bias = lw->attn_norm_bias ? (float*)lw->attn_norm_bias->data : NULL;
+                for (int t = 0; t < num_tokens; t++) {
+                    apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                               cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                }
+            }
+
+            float* in_proj_data = NULL;
+            float* out_proj_data = NULL;
+            int d_inner = model->ssm_config.d_inner;
+
+            if (lw->ssm_in_proj && lw->ssm_out_proj) {
+                in_proj_data = (float*)lw->ssm_in_proj->data;
+                out_proj_data = (float*)lw->ssm_out_proj->data;
+            } else if (lw->wq && lw->wo) {
+                in_proj_data = (float*)lw->wq->data;
+                out_proj_data = (float*)lw->wo->data;
+                d_inner = cfg->n_embd;
+            }
+
+            if (in_proj_data && out_proj_data && model->scratch.cached_ssm) {
+                det_gmu_swiglu(model->scratch.temp, hidden, model->scratch.cached_ssm,
+                               in_proj_data, out_proj_data,
+                               cfg->n_embd, d_inner, num_tokens);
+                memcpy(hidden, model->scratch.temp, num_tokens * cfg->n_embd * sizeof(float));
+            }
+
+            for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                hidden[i] += residual[i];
+            }
+
+            /* GMU layers also have FFN */
+            if (lw->ffn_norm && lw->w1 && lw->w2 && lw->w3) {
+                int used_gpu_ffn = 0;
+
+                if (lw->w1->metal_buffer && lw->w2->metal_buffer && lw->w3->metal_buffer &&
+                    tensor_metal_gpu_forward_available()) {
+                    uint32_t n_elements = num_tokens * cfg->n_embd;
+
+                    /* Try fully optimized path (norm on GPU) */
+                    if (lw->ffn_norm->metal_buffer && !cfg->use_layernorm) {
+                        if (tensor_metal_upload_hidden(hidden, n_elements) == 0 &&
+                            tensor_metal_ffn_complete_with_norm(
+                                lw->ffn_norm->metal_buffer,
+                                lw->w1->metal_buffer, lw->w3->metal_buffer, lw->w2->metal_buffer,
+                                num_tokens, cfg->n_ff, cfg->n_embd, cfg->norm_eps) == 0 &&
+                            tensor_metal_download_hidden(hidden, n_elements) == 0) {
+                            used_gpu_ffn = 1;
+                        }
+                    } else if (tensor_metal_upload_hidden(hidden, n_elements) == 0) {
+                        float* norm_weight = (float*)lw->ffn_norm->data;
+                        float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                        for (int t = 0; t < num_tokens; t++) {
+                            apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                                       cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                        }
+
+                        if (tensor_metal_upload_normed(hidden, n_elements) == 0 &&
+                            tensor_metal_ffn_swiglu_with_residual(
+                                lw->w1->metal_buffer, lw->w3->metal_buffer, lw->w2->metal_buffer,
+                                num_tokens, cfg->n_ff, cfg->n_embd) == 0 &&
+                            tensor_metal_download_hidden(hidden, n_elements) == 0) {
+                            used_gpu_ffn = 1;
+                        }
+                    }
+                }
+
+                if (!used_gpu_ffn) {
+                    memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+                    float* norm_weight = (float*)lw->ffn_norm->data;
+                    float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                    for (int t = 0; t < num_tokens; t++) {
+                        apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                                   cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                    }
+
+                    batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+                    batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    for (int i = 0; i < ffn_total; i++) {
+                        float g = ffn_gate[i];
+                        ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                    }
+                    batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+
+                    for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                        hidden[i] += residual[i];
+                    }
+                }
+            }
+            continue;
+        }
+
+        /* =================================================================
+         * ATTENTION LAYER - Use GPU-accelerated path where possible
+         * ================================================================= */
+        if (!lw->attn_norm || !lw->wq || !lw->wo) continue;
+        if (!lw->is_cross_decoder && (!lw->wk || !lw->wv)) continue;
+
+        /* Attention pre-norm */
+        {
+            float* norm_weight = (float*)lw->attn_norm->data;
+            float* norm_bias = lw->attn_norm_bias ? (float*)lw->attn_norm_bias->data : NULL;
+            for (int t = 0; t < num_tokens; t++) {
+                apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                           cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+            }
+        }
+
+        bool is_yoco_cross_attn = cfg->is_sambay && lw->is_cross_decoder;
+
+        /* QKV projections */
+        float* bq = lw->bq ? (float*)lw->bq->data : NULL;
+        float* bk = lw->bk ? (float*)lw->bk->data : NULL;
+        float* bv = lw->bv ? (float*)lw->bv->data : NULL;
+
+        batched_proj_smart(q, hidden, lw->wq, num_tokens, cfg->n_embd, cfg->n_embd);
+
+        if (is_yoco_cross_attn) {
+            int yoco_kv_source = cfg->n_layer / 2 + 1;
+            float* k_cache_ptr = (float*)model->kv_cache.k->data;
+            float* v_cache_ptr = (float*)model->kv_cache.v->data;
+            int seq_len = pos + num_tokens;
+            size_t src_off = (size_t)yoco_kv_source * cfg->n_ctx * kv_dim;
+            size_t dst_off = (size_t)layer * cfg->n_ctx * kv_dim;
+            memcpy(k_cache_ptr + dst_off, k_cache_ptr + src_off, seq_len * kv_dim * sizeof(float));
+            memcpy(v_cache_ptr + dst_off, v_cache_ptr + src_off, seq_len * kv_dim * sizeof(float));
+        } else {
+            batched_proj_smart(k, hidden, lw->wk, num_tokens, cfg->n_embd, kv_dim);
+            batched_proj_smart(v, hidden, lw->wv, num_tokens, cfg->n_embd, kv_dim);
+        }
+
+        /* Add biases */
+        if (bq) {
+            for (int t = 0; t < num_tokens; t++) {
+                for (int i = 0; i < cfg->n_embd; i++) {
+                    q[t * cfg->n_embd + i] += bq[i];
+                }
+            }
+        }
+        if (bk && !is_yoco_cross_attn) {
+            for (int t = 0; t < num_tokens; t++) {
+                for (int i = 0; i < kv_dim; i++) {
+                    k[t * kv_dim + i] += bk[i];
+                }
+            }
+        }
+        if (bv && !is_yoco_cross_attn) {
+            for (int t = 0; t < num_tokens; t++) {
+                for (int i = 0; i < kv_dim; i++) {
+                    v[t * kv_dim + i] += bv[i];
+                }
+            }
+        }
+
+        /* QK-Norm (Qwen3) */
+        if (lw->q_norm && lw->k_norm) {
+            float* q_norm_w = (float*)lw->q_norm->data;
+            float* k_norm_w = (float*)lw->k_norm->data;
+
+            for (int t = 0; t < num_tokens; t++) {
+                for (int h = 0; h < cfg->n_head; h++) {
+                    float* head_q = q + t * cfg->n_embd + h * head_dim;
+                    float sq_sum = 0.0f;
+                    for (int d = 0; d < head_dim; d++) sq_sum += head_q[d] * head_q[d];
+                    float rms = sqrtf(sq_sum / head_dim + cfg->norm_eps);
+                    for (int d = 0; d < head_dim; d++) head_q[d] = (head_q[d] / rms) * q_norm_w[d];
+                }
+            }
+
+            if (!is_yoco_cross_attn) {
+                for (int t = 0; t < num_tokens; t++) {
+                    for (int h = 0; h < cfg->n_head_kv; h++) {
+                        float* head_k = k + t * kv_dim + h * head_dim;
+                        float sq_sum = 0.0f;
+                        for (int d = 0; d < head_dim; d++) sq_sum += head_k[d] * head_k[d];
+                        float rms = sqrtf(sq_sum / head_dim + cfg->norm_eps);
+                        for (int d = 0; d < head_dim; d++) head_k[d] = (head_k[d] / rms) * k_norm_w[d];
+                    }
+                }
+            }
+        }
+
+        /* RoPE (non-SambaY only) */
+        if (!cfg->is_sambay) {
+            for (int t = 0; t < num_tokens; t++) {
+                float* qt = q + t * cfg->n_embd;
+                float* kt = is_yoco_cross_attn ? NULL : (k + t * kv_dim);
+                int half_dim = head_dim / 2;
+
+                for (int head = 0; head < cfg->n_head; head++) {
+                    float* qh = qt + head * head_dim;
+                    for (int i = 0; i < half_dim; i++) {
+                        float freq = 1.0f / powf(cfg->rope_freq_base, (float)(2 * i) / head_dim);
+                        float angle = (pos + t) * freq;
+                        float cos_val = cosf(angle), sin_val = sinf(angle);
+                        float x0 = qh[i], x1 = qh[i + half_dim];
+                        qh[i] = x0 * cos_val - x1 * sin_val;
+                        qh[i + half_dim] = x1 * cos_val + x0 * sin_val;
+                    }
+                }
+                if (kt) {
+                    for (int head = 0; head < cfg->n_head_kv; head++) {
+                        float* kh = kt + head * head_dim;
+                        for (int i = 0; i < half_dim; i++) {
+                            float freq = 1.0f / powf(cfg->rope_freq_base, (float)(2 * i) / head_dim);
+                            float angle = (pos + t) * freq;
+                            float cos_val = cosf(angle), sin_val = sinf(angle);
+                            float x0 = kh[i], x1 = kh[i + half_dim];
+                            kh[i] = x0 * cos_val - x1 * sin_val;
+                            kh[i + half_dim] = x1 * cos_val + x0 * sin_val;
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Store K,V in cache */
+        float* k_cache = (float*)model->kv_cache.k->data;
+        float* v_cache = (float*)model->kv_cache.v->data;
+        size_t layer_offset = layer * cfg->n_ctx * kv_dim;
+
+        if (!is_yoco_cross_attn) {
+            for (int t = 0; t < num_tokens; t++) {
+                memcpy(k_cache + layer_offset + (pos + t) * kv_dim,
+                       k + t * kv_dim, kv_dim * sizeof(float));
+                memcpy(v_cache + layer_offset + (pos + t) * kv_dim,
+                       v + t * kv_dim, kv_dim * sizeof(float));
+            }
+        }
+
+        /* Attention computation */
+        int seq_len = pos + num_tokens;
+
+        /* For differential attention or complex cases, use CPU path */
+        if (lw->use_diff_attn || lw->use_sliding_window) {
+            /* Standard CPU attention (differential attention handled by standard forward) */
+            float scale = 1.0f / sqrtf((float)head_dim);
+
+            for (int t = 0; t < num_tokens; t++) {
+                float* qt = q + t * cfg->n_embd;
+                float* out = hidden + t * cfg->n_embd;
+                memset(out, 0, cfg->n_embd * sizeof(float));
+
+                for (int h = 0; h < cfg->n_head; h++) {
+                    int kv_head = h / (cfg->n_head / cfg->n_head_kv);
+                    float* qh = qt + h * head_dim;
+
+                    for (int s = 0; s < seq_len; s++) {
+                        float* kh = k_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                        float score = 0.0f;
+                        for (int d = 0; d < head_dim; d++) score += qh[d] * kh[d];
+                        att[s] = score * scale;
+                    }
+
+                    for (int s = pos + t + 1; s < seq_len; s++) att[s] = -1e9f;
+
+                    if (lw->use_sliding_window && lw->sliding_window_size > 0) {
+                        int window_start = pos + t - lw->sliding_window_size + 1;
+                        if (window_start > 0) {
+                            for (int s = 0; s < window_start; s++) att[s] = -1e9f;
+                        }
+                    }
+
+                    float max_val = att[0];
+                    for (int s = 1; s < seq_len; s++) if (att[s] > max_val) max_val = att[s];
+                    float sum = 0.0f;
+                    for (int s = 0; s < seq_len; s++) { att[s] = expf(att[s] - max_val); sum += att[s]; }
+                    for (int s = 0; s < seq_len; s++) att[s] /= sum;
+
+                    float* oh = out + h * head_dim;
+                    for (int s = 0; s < seq_len; s++) {
+                        float* vh = v_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                        for (int d = 0; d < head_dim; d++) oh[d] += att[s] * vh[d];
+                    }
+                }
+            }
+        } else {
+            /* Simple standard attention - use GPU multi-head attention for speedup */
+            int used_gpu_attn = 0;
+
+#ifdef DET_USE_METAL
+            /* Try GPU multi-head attention */
+            if (g_metal_available && seq_len >= 16) {
+                /* GPU attention operates on:
+                 * Q: [num_tokens, n_head, head_dim] (same as [num_tokens, n_embd])
+                 * K_cache: [seq_len, n_head_kv, head_dim] (same as [seq_len, kv_dim])
+                 * V_cache: [seq_len, n_head_kv, head_dim]
+                 * out: [num_tokens, n_head, head_dim] (same as [num_tokens, n_embd])
+                 */
+                float* k_cache_layer = k_cache + layer_offset;
+                float* v_cache_layer = v_cache + layer_offset;
+
+                if (tensor_metal_attention_multihead(
+                        q, k_cache_layer, v_cache_layer, hidden,
+                        num_tokens, seq_len,
+                        cfg->n_head, cfg->n_head_kv, head_dim,
+                        pos) == 0) {
+                    used_gpu_attn = 1;
+                }
+            }
+#endif
+
+            if (!used_gpu_attn) {
+                /* CPU fallback */
+                float scale = 1.0f / sqrtf((float)head_dim);
+
+                for (int t = 0; t < num_tokens; t++) {
+                    float* qt = q + t * cfg->n_embd;
+                    float* out = hidden + t * cfg->n_embd;
+                    memset(out, 0, cfg->n_embd * sizeof(float));
+
+                    for (int h = 0; h < cfg->n_head; h++) {
+                        int kv_head = h / (cfg->n_head / cfg->n_head_kv);
+                        float* qh = qt + h * head_dim;
+
+                        for (int s = 0; s < seq_len; s++) {
+                            float* kh = k_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                            float score = 0.0f;
+                            for (int d = 0; d < head_dim; d++) score += qh[d] * kh[d];
+                            att[s] = score * scale;
+                        }
+
+                        for (int s = pos + t + 1; s < seq_len; s++) att[s] = -1e9f;
+
+                        float max_val = att[0];
+                        for (int s = 1; s < seq_len; s++) if (att[s] > max_val) max_val = att[s];
+                        float sum = 0.0f;
+                        for (int s = 0; s < seq_len; s++) { att[s] = expf(att[s] - max_val); sum += att[s]; }
+                        for (int s = 0; s < seq_len; s++) att[s] /= sum;
+
+                        float* oh = out + h * head_dim;
+                        for (int s = 0; s < seq_len; s++) {
+                            float* vh = v_cache + layer_offset + s * kv_dim + kv_head * head_dim;
+                            for (int d = 0; d < head_dim; d++) oh[d] += att[s] * vh[d];
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Output projection */
+        if (lw->wo) {
+            float* temp = model->scratch.temp;
+            memcpy(temp, hidden, num_tokens * cfg->n_embd * sizeof(float));
+            batched_proj_smart(hidden, temp, lw->wo, num_tokens, cfg->n_embd, cfg->n_embd);
+
+            if (lw->bo) {
+                float* bo = (float*)lw->bo->data;
+                for (int t = 0; t < num_tokens; t++) {
+                    for (int i = 0; i < cfg->n_embd; i++) {
+                        hidden[t * cfg->n_embd + i] += bo[i];
+                    }
+                }
+            }
+        }
+
+        /* Add residual */
+        for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+            hidden[i] += residual[i];
+        }
+
+        /* FFN with GPU-accelerated path including residual operations */
+        if (lw->w1 && lw->w2 && lw->w3) {
+            int used_gpu_ffn = 0;
+
+            if (lw->w1->metal_buffer && lw->w2->metal_buffer && lw->w3->metal_buffer &&
+                tensor_metal_gpu_forward_available()) {
+                uint32_t n_elements = num_tokens * cfg->n_embd;
+
+                /* Check if we can use the fully optimized path (norm on GPU) */
+                if (lw->ffn_norm && lw->ffn_norm->metal_buffer && !cfg->use_layernorm) {
+                    /*
+                     * FULLY OPTIMIZED: 1 upload + 1 download per layer
+                     * Single command buffer: copy_residual + norm + FFN + add_residual
+                     */
+                    if (tensor_metal_upload_hidden(hidden, n_elements) == 0 &&
+                        tensor_metal_ffn_complete_with_norm(
+                            lw->ffn_norm->metal_buffer,
+                            lw->w1->metal_buffer, lw->w3->metal_buffer, lw->w2->metal_buffer,
+                            num_tokens, cfg->n_ff, cfg->n_embd, cfg->norm_eps) == 0 &&
+                        tensor_metal_download_hidden(hidden, n_elements) == 0) {
+                        used_gpu_ffn = 1;
+                    }
+                } else {
+                    /*
+                     * Fallback: 2 uploads + 1 download (norm on CPU)
+                     */
+                    if (tensor_metal_upload_hidden(hidden, n_elements) == 0) {
+                        if (lw->ffn_norm) {
+                            float* norm_weight = (float*)lw->ffn_norm->data;
+                            float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                            for (int t = 0; t < num_tokens; t++) {
+                                apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                                           cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                            }
+                        }
+
+                        if (tensor_metal_upload_normed(hidden, n_elements) == 0 &&
+                            tensor_metal_ffn_swiglu_with_residual(
+                                lw->w1->metal_buffer, lw->w3->metal_buffer, lw->w2->metal_buffer,
+                                num_tokens, cfg->n_ff, cfg->n_embd) == 0 &&
+                            tensor_metal_download_hidden(hidden, n_elements) == 0) {
+                            used_gpu_ffn = 1;
+                        }
+                    }
+                }
+            }
+
+            if (!used_gpu_ffn) {
+                /* CPU fallback path */
+                memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+                if (lw->ffn_norm) {
+                    float* norm_weight = (float*)lw->ffn_norm->data;
+                    float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                    for (int t = 0; t < num_tokens; t++) {
+                        apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                                   cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                    }
+                }
+
+                batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+                batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+                int ffn_total = num_tokens * cfg->n_ff;
+                for (int i = 0; i < ffn_total; i++) {
+                    float g = ffn_gate[i];
+                    ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                }
+                batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+
+                for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                    hidden[i] += residual[i];
+                }
+            }
+        } else if (lw->w2 && lw->w3) {
+            /* GELU FFN (no gate) - CPU path */
+            memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
+
+            if (lw->ffn_norm) {
+                float* norm_weight = (float*)lw->ffn_norm->data;
+                float* norm_bias = lw->ffn_norm_bias ? (float*)lw->ffn_norm_bias->data : NULL;
+                for (int t = 0; t < num_tokens; t++) {
+                    apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                               cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+                }
+            }
+
+            batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+            int ffn_total = num_tokens * cfg->n_ff;
+            for (int i = 0; i < ffn_total; i++) {
+                float x = ffn_up[i];
+                float x3 = x * x * x;
+                ffn_up[i] = 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x3)));
+            }
+            batched_proj_smart(hidden, ffn_up, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+
+            for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
+                hidden[i] += residual[i];
+            }
+        }
+    }
+
+    /* Final norm */
+    if (model->weights.output_norm) {
+        float* norm_weight = (float*)model->weights.output_norm->data;
+        float* norm_bias = model->weights.output_norm_bias ?
+            (float*)model->weights.output_norm_bias->data : NULL;
+        for (int t = 0; t < num_tokens; t++) {
+            apply_norm(hidden + t * cfg->n_embd, norm_weight, norm_bias,
+                       cfg->n_embd, cfg->norm_eps, cfg->use_layernorm);
+        }
+    }
+
+    /* Output projection to logits */
+    float* logits_data = (float*)logits->data;
+    if (model->weights.output) {
+        batched_proj_smart(logits_data, hidden, model->weights.output,
+                           num_tokens, cfg->n_embd, cfg->n_vocab);
+    }
+
+    /* Update cache position */
+    model->kv_cache.seq_len = pos + num_tokens;
+
+    if (g_debug_timing) {
+        printf("  GPU forward: %.1fms\n", get_time_ms() - t_start);
+    }
+
+    return logits;
+#else
+    /* No Metal - use standard forward */
+    return det_model_forward(model, tokens, num_tokens, logits);
+#endif
+}
+
 void det_model_free(DetModel* model) {
     if (!model) return;
 
-    /* Free GPU buffers first */
+    /* Free GPU forward pass resources first */
+    det_model_free_gpu_forward(model);
+
+    /* Free GPU buffers */
     det_model_free_gpu(model);
 
     /* Free layer weights */
@@ -1241,6 +2296,15 @@ DetTensor* det_model_forward(DetModel* model,
     double t_start = 0, t_end = 0;
     if (g_debug_timing) t_start = get_time_ms();
 
+#ifdef DET_USE_METAL
+    /* GPU batch mode is not used currently.
+     * The GPU-native FFN handles its own batching internally.
+     * Full GPU-native forward pass (keeping all data on GPU) would require
+     * batch mode, but that's a larger undertaking. */
+    int gpu_batch_started = 0;
+    (void)gpu_batch_started;
+#endif
+
     const DetModelConfig* cfg = &model->config;
     int head_dim = cfg->n_embd / cfg->n_head;
     int kv_dim = cfg->n_head_kv * head_dim;
@@ -1283,7 +2347,8 @@ DetTensor* det_model_forward(DetModel* model,
     }
 
     double t_layers_start = g_debug_timing ? get_time_ms() : 0;
-    double t_attn_total = 0, t_ffn_total = 0;
+    double t_attn_total = 0, t_ffn_total = 0, t_ssm_total = 0;
+    int n_attn_layers = 0, n_ssm_layers = 0;
 
 #if DEBUG_LAYER_NORMS
     static int g_debug_norm_call = 0;
@@ -1486,7 +2551,8 @@ DetTensor* det_model_forward(DetModel* model,
 
             if (g_debug_timing) {
                 double t_layer_end = get_time_ms();
-                t_attn_total += (t_layer_end - t_layer_start);
+                t_ssm_total += (t_layer_end - t_layer_start);
+                n_ssm_layers++;
             }
 
 #if DEBUG_LAYER_NORMS
@@ -1857,6 +2923,28 @@ DetTensor* det_model_forward(DetModel* model,
                 lambda = expf(dot1) - expf(dot2) + lambda_init;
             }
 
+            /* NOTE: GPU differential attention is implemented but disabled because
+             * CPU NEON is faster due to GPU buffer allocation overhead.
+             * The GPU implementation is kept for reference and potential future
+             * optimization (using persistent buffers). */
+#if 0 /* GPU diff attention disabled - CPU NEON is faster */
+            int gpu_diff_attn_done = 0;
+            if (g_metal_available) {
+                float* k_layer = k_cache + layer_offset;
+                float* v_layer = v_cache + layer_offset;
+                int ret = tensor_metal_diff_attention(
+                    q, k_layer, v_layer,
+                    hidden, subln_weight,
+                    num_tokens, seq_len,
+                    cfg->n_head, cfg->n_head_kv, head_dim,
+                    pos, lw->sliding_window_size,
+                    lambda, output_scale, cfg->norm_eps);
+                if (ret == 0) {
+                    gpu_diff_attn_done = 1;
+                }
+            }
+            if (!gpu_diff_attn_done) {
+#endif
             /* Temporary storage for differential attention outputs
              * attn1[h][2*D] and attn2[h][2*D] for h in [0, half_heads) */
             float* attn1 = model->scratch.temp;  /* Reuse scratch buffer */
@@ -1890,11 +2978,13 @@ DetTensor* det_model_forward(DetModel* model,
                     float* att1 = att;  /* Reuse att buffer */
                     for (int s = 0; s < seq_len; s++) {
                         float* k1h = k_cache + layer_offset + s * kv_dim + kv_h1 * head_dim;
+#ifdef USE_NEON
+                        att1[s] = neon_dot_product(q1h, k1h, head_dim) * scale;
+#else
                         float score = 0.0f;
-                        for (int d = 0; d < head_dim; d++) {
-                            score += q1h[d] * k1h[d];
-                        }
+                        for (int d = 0; d < head_dim; d++) score += q1h[d] * k1h[d];
                         att1[s] = score * scale;
+#endif
                     }
 
                     /* Causal + sliding window mask for att1 */
@@ -1911,36 +3001,41 @@ DetTensor* det_model_forward(DetModel* model,
                     for (int s = 1; s < seq_len; s++) if (att1[s] > max_val) max_val = att1[s];
                     float sum = 0.0f;
                     for (int s = 0; s < seq_len; s++) { att1[s] = expf(att1[s] - max_val); sum += att1[s]; }
-                    for (int s = 0; s < seq_len; s++) att1[s] /= sum;
+                    float inv_sum = 1.0f / sum;
+                    for (int s = 0; s < seq_len; s++) att1[s] *= inv_sum;
 
                     /* attn(q1,k1,v1) -> out1[0:head_dim] */
-                    for (int d = 0; d < head_dim; d++) {
-                        float val = 0.0f;
-                        for (int s = 0; s < seq_len; s++) {
-                            float* v1h = v_cache + layer_offset + s * kv_dim + kv_h1 * head_dim;
-                            val += att1[s] * v1h[d];
-                        }
-                        out1[d] = val;
+                    memset(out1, 0, head_dim * sizeof(float));
+                    for (int s = 0; s < seq_len; s++) {
+                        float* v1h = v_cache + layer_offset + s * kv_dim + kv_h1 * head_dim;
+#ifdef USE_NEON
+                        neon_weighted_add(out1, v1h, att1[s], head_dim);
+#else
+                        for (int d = 0; d < head_dim; d++) out1[d] += att1[s] * v1h[d];
+#endif
                     }
                     /* attn(q1,k1,v2) -> out1[head_dim:2*head_dim] */
-                    for (int d = 0; d < head_dim; d++) {
-                        float val = 0.0f;
-                        for (int s = 0; s < seq_len; s++) {
-                            float* v2h = v_cache + layer_offset + s * kv_dim + kv_h2 * head_dim;
-                            val += att1[s] * v2h[d];
-                        }
-                        out1[head_dim + d] = val;
+                    memset(out1 + head_dim, 0, head_dim * sizeof(float));
+                    for (int s = 0; s < seq_len; s++) {
+                        float* v2h = v_cache + layer_offset + s * kv_dim + kv_h2 * head_dim;
+#ifdef USE_NEON
+                        neon_weighted_add(out1 + head_dim, v2h, att1[s], head_dim);
+#else
+                        for (int d = 0; d < head_dim; d++) out1[head_dim + d] += att1[s] * v2h[d];
+#endif
                     }
 
                     /* Compute attention scores for q2 with k2 (odd heads) */
                     float* att2_buf = att;  /* Reuse att buffer */
                     for (int s = 0; s < seq_len; s++) {
                         float* k2h = k_cache + layer_offset + s * kv_dim + kv_h2 * head_dim;
+#ifdef USE_NEON
+                        att2_buf[s] = neon_dot_product(q2h, k2h, head_dim) * scale;
+#else
                         float score = 0.0f;
-                        for (int d = 0; d < head_dim; d++) {
-                            score += q2h[d] * k2h[d];
-                        }
+                        for (int d = 0; d < head_dim; d++) score += q2h[d] * k2h[d];
                         att2_buf[s] = score * scale;
+#endif
                     }
 
                     /* Causal + sliding window mask for att2 */
@@ -1957,25 +3052,28 @@ DetTensor* det_model_forward(DetModel* model,
                     for (int s = 1; s < seq_len; s++) if (att2_buf[s] > max_val) max_val = att2_buf[s];
                     sum = 0.0f;
                     for (int s = 0; s < seq_len; s++) { att2_buf[s] = expf(att2_buf[s] - max_val); sum += att2_buf[s]; }
-                    for (int s = 0; s < seq_len; s++) att2_buf[s] /= sum;
+                    inv_sum = 1.0f / sum;
+                    for (int s = 0; s < seq_len; s++) att2_buf[s] *= inv_sum;
 
                     /* attn(q2,k2,v1) -> out2[0:head_dim] */
-                    for (int d = 0; d < head_dim; d++) {
-                        float val = 0.0f;
-                        for (int s = 0; s < seq_len; s++) {
-                            float* v1h = v_cache + layer_offset + s * kv_dim + kv_h1 * head_dim;
-                            val += att2_buf[s] * v1h[d];
-                        }
-                        out2[d] = val;
+                    memset(out2, 0, head_dim * sizeof(float));
+                    for (int s = 0; s < seq_len; s++) {
+                        float* v1h = v_cache + layer_offset + s * kv_dim + kv_h1 * head_dim;
+#ifdef USE_NEON
+                        neon_weighted_add(out2, v1h, att2_buf[s], head_dim);
+#else
+                        for (int d = 0; d < head_dim; d++) out2[d] += att2_buf[s] * v1h[d];
+#endif
                     }
                     /* attn(q2,k2,v2) -> out2[head_dim:2*head_dim] */
-                    for (int d = 0; d < head_dim; d++) {
-                        float val = 0.0f;
-                        for (int s = 0; s < seq_len; s++) {
-                            float* v2h = v_cache + layer_offset + s * kv_dim + kv_h2 * head_dim;
-                            val += att2_buf[s] * v2h[d];
-                        }
-                        out2[head_dim + d] = val;
+                    memset(out2 + head_dim, 0, head_dim * sizeof(float));
+                    for (int s = 0; s < seq_len; s++) {
+                        float* v2h = v_cache + layer_offset + s * kv_dim + kv_h2 * head_dim;
+#ifdef USE_NEON
+                        neon_weighted_add(out2 + head_dim, v2h, att2_buf[s], head_dim);
+#else
+                        for (int d = 0; d < head_dim; d++) out2[head_dim + d] += att2_buf[s] * v2h[d];
+#endif
                     }
 
                     /* Apply differential: diff = attn1 - lambda * attn2 */
@@ -2008,6 +3106,9 @@ DetTensor* det_model_forward(DetModel* model,
                     memcpy(out + h2 * head_dim, diff_out + head_dim, head_dim * sizeof(float));
                 }
             }
+#if 0 /* GPU diff attention disabled - CPU NEON is faster */
+            }  /* End of GPU fallback block */
+#endif
         } else {
             /* ==========================================================
              * STANDARD ATTENTION
@@ -2101,7 +3202,16 @@ DetTensor* det_model_forward(DetModel* model,
         }
 
         double t_attn_end = g_debug_timing ? get_time_ms() : 0;
-        if (g_debug_timing) t_attn_total += (t_attn_end - t_layer_start);
+        if (g_debug_timing) {
+            double layer_time = t_attn_end - t_layer_start;
+            if (lw->is_ssm_layer) {
+                t_ssm_total += layer_time;
+                n_ssm_layers++;
+            } else {
+                t_attn_total += layer_time;
+                n_attn_layers++;
+            }
+        }
 
         /* Save residual for FFN */
         memcpy(residual, hidden, num_tokens * cfg->n_embd * sizeof(float));
@@ -2134,34 +3244,66 @@ DetTensor* det_model_forward(DetModel* model,
          * Uses smart projection for both F32 and Q8_0 weights.
          */
         if (lw->w1 && lw->w2 && lw->w3) {
-            /* SwiGLU variant (has gate projection) */
-            /* Batched gate projection: ffn_gate[T,n_ff] = hidden[T,n_embd] @ W1^T */
-            batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+            /* SwiGLU variant (has gate projection)
+             *
+             * Standard path: 4 operations (gate proj, up proj, silu_mul, down proj)
+             * Fused path: 2 operations (fused_gate_up, fused_swiglu_down)
+             */
+            int used_fused = 0;
 
-            /* Batched up projection: ffn_up[T,n_ff] = hidden[T,n_embd] @ W3^T */
-            batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
-
-            /* SiLU(gate) * up - fused operation */
-            {
-                int ffn_total = num_tokens * cfg->n_ff;
-                int use_cpu = 1;
 #ifdef DET_USE_METAL
-                if (g_metal_available && ffn_total >= 4096) {
-                    if (tensor_metal_silu_mul(ffn_gate, ffn_up, ffn_gate, ffn_total) == 0) {
-                        use_cpu = 0;
-                    }
-                }
-#endif
-                if (use_cpu) {
-                    for (int i = 0; i < ffn_total; i++) {
-                        float g = ffn_gate[i];
-                        ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
-                    }
+            /* GPU-native FFN: all operations in single command buffer
+             * This avoids the per-operation sync overhead and keeps data on GPU
+             *
+             * Input: hidden (post-norm, ready for FFN projections)
+             * Output: hidden (FFN result, will have residual added later)
+             * Note: residual was already saved at line ~2147 before norm
+             */
+            if (g_metal_available &&
+                lw->w1->metal_buffer && lw->w2->metal_buffer && lw->w3->metal_buffer) {
+
+                /* Complete GPU FFN - does gate, up, silu_mul, down in one go
+                 * Input is post-norm hidden, output overwrites hidden */
+                if (tensor_metal_ffn_swiglu_complete(hidden, hidden,
+                                                      lw->w1->metal_buffer,
+                                                      lw->w3->metal_buffer,
+                                                      lw->w2->metal_buffer,
+                                                      num_tokens, cfg->n_ff, cfg->n_embd) == 0) {
+                    used_fused = 1;
                 }
             }
+#endif
 
-            /* Batched down projection: hidden[T,n_embd] = ffn_gate[T,n_ff] @ W2^T */
-            batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+            if (!used_fused) {
+                /* Standard path: separate operations */
+                /* Batched gate projection: ffn_gate[T,n_ff] = hidden[T,n_embd] @ W1^T */
+                batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
+
+                /* Batched up projection: ffn_up[T,n_ff] = hidden[T,n_embd] @ W3^T */
+                batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
+
+                /* SiLU(gate) * up - fused operation */
+                {
+                    int ffn_total = num_tokens * cfg->n_ff;
+                    int use_cpu = 1;
+#ifdef DET_USE_METAL
+                    if (g_metal_available && ffn_total >= 4096) {
+                        if (tensor_metal_silu_mul(ffn_gate, ffn_up, ffn_gate, ffn_total) == 0) {
+                            use_cpu = 0;
+                        }
+                    }
+#endif
+                    if (use_cpu) {
+                        for (int i = 0; i < ffn_total; i++) {
+                            float g = ffn_gate[i];
+                            ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
+                        }
+                    }
+                }
+
+                /* Batched down projection: hidden[T,n_embd] = ffn_gate[T,n_ff] @ W2^T */
+                batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
+            }
         } else if (lw->w2 && lw->w3) {
             /* Simple MLP variant (Phi - no gate, uses GELU) */
             /* Batched up projection: ffn_up[T,n_ff] = hidden[T,n_embd] @ W3^T */
@@ -2200,10 +3342,16 @@ DetTensor* det_model_forward(DetModel* model,
     }
 
     if (g_debug_timing) {
-        printf("    Attention total: %.1fms (%.1fms/layer)\n",
-               t_attn_total, t_attn_total / cfg->n_layer);
-        printf("    FFN total: %.1fms (%.1fms/layer)\n",
-               t_ffn_total, t_ffn_total / cfg->n_layer);
+        if (n_attn_layers > 0) {
+            printf("    Attention: %.1fms (%.1fms/layer x %d)\n",
+                   t_attn_total, t_attn_total / n_attn_layers, n_attn_layers);
+        }
+        if (n_ssm_layers > 0) {
+            printf("    SSM/Mamba: %.1fms (%.1fms/layer x %d)\n",
+                   t_ssm_total, t_ssm_total / n_ssm_layers, n_ssm_layers);
+        }
+        printf("    FFN total: %.1fms (%.1fms/layer x %d)\n",
+               t_ffn_total, t_ffn_total / cfg->n_layer, cfg->n_layer);
     }
 
     /* Final norm */
@@ -2283,6 +3431,16 @@ DetTensor* det_model_forward(DetModel* model,
 
     /* Update cache position */
     model->kv_cache.seq_len = pos + num_tokens;
+
+#ifdef DET_USE_METAL
+    /* End GPU batch mode - commit all operations and copy results */
+    if (gpu_batch_started) {
+        int batch_ops = tensor_metal_end_batch();
+        if (g_debug_timing && batch_ops > 0) {
+            printf("  GPU batch: %d operations\n", batch_ops);
+        }
+    }
+#endif
 
     /* No cleanup needed - using pre-allocated scratch buffers */
     return logits;

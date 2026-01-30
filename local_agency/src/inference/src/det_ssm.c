@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/time.h>
 
 #ifdef __APPLE__
 #define ACCELERATE_NEW_LAPACK 1
@@ -28,7 +29,7 @@ extern int g_metal_available;
 /* Debug flag: print intermediate values for layer 0 SSM */
 #define DEBUG_SSM_LAYER0 0
 
-/* SSM timing debug (set to 1 to enable) */
+/* SSM timing debug (set to 1 to enable detailed SSM timing) */
 #define DEBUG_SSM_TIMING 0
 
 #if DEBUG_SSM_TIMING
@@ -292,9 +293,6 @@ int det_ssm_selective_scan(float* y,
     if (!y || !x || !delta || !B || !C || !h) return -1;
     if (!A_log && !A_negexp) return -1;  /* Need at least one A source */
 
-    /* Track state changes for DET stats */
-    float state_delta_sum = 0.0f;
-
     /*
      * Core SSM recurrence for each time step:
      *   A_bar = exp(delta * A)  -- A is stored as log(-A), so A_bar = exp(-delta * exp(A_log))
@@ -304,6 +302,10 @@ int det_ssm_selective_scan(float* y,
      *
      * When A_negexp is precomputed, we skip the -exp(A_log) computation per element,
      * which is a significant speedup (expf is expensive).
+     *
+     * Note: The inner d_inner loop is parallelizable over i since each channel has
+     * independent state h[i,:], but for single-token generation the dispatch overhead
+     * would exceed the benefit.
      */
     for (int32_t t = 0; t < seq_len; t++) {
         const float* x_t = x + t * d_inner;
@@ -312,7 +314,9 @@ int det_ssm_selective_scan(float* y,
         const float* C_t = C + t * d_state;
         float* y_t = y + t * d_inner;
 
-        /* For each inner dimension */
+        /* Process each channel (d_inner loop is parallelizable over i since each
+         * channel has independent state h[i,:], but for single-token generation
+         * the overhead would exceed benefit) */
         for (int32_t i = 0; i < d_inner; i++) {
             float dt = delta_t[i];
             float x_i = x_t[i];
@@ -324,51 +328,32 @@ int det_ssm_selective_scan(float* y,
             }
 
             /* State update for each state dimension */
+            float* h_i = h + i * d_state;
             for (int32_t j = 0; j < d_state; j++) {
-                float* h_ij = h + i * d_state + j;
-                float h_old = *h_ij;
+                float h_old = h_i[j];
 
-                /* Get A value: use precomputed if available, otherwise compute */
                 float A_ij;
                 if (A_negexp) {
-                    A_ij = A_negexp[i * d_state + j];  /* Already -exp(A_log) */
+                    A_ij = A_negexp[i * d_state + j];
                 } else {
                     A_ij = -expf(A_log[i * d_state + j]);
                 }
 
-                /* Discretization: A_bar = exp(delta * A) */
                 float A_bar = expf(dt * A_ij);
+                float h_new = A_bar * h_old + (dt * B_t[j]) * x_i;
 
-                /* B_bar = delta * B */
-                float B_bar = dt * B_t[j];
+                if (!isfinite(h_new)) h_new = 0.0f;
+                h_i[j] = h_new;
 
-                /* State update: h_new = A_bar * h + B_bar * x */
-                float h_new = A_bar * h_old + B_bar * x_i;
-
-                /* Numerical stability: clamp NaN/Inf to prevent cascading errors */
-                if (!isfinite(h_new)) {
-                    h_new = 0.0f;
-                }
-                *h_ij = h_new;
-
-                /* Output contribution: y += C * h */
                 float y_contrib = C_t[j] * h_new;
                 if (isfinite(y_contrib)) {
                     y_i += y_contrib;
                 }
-
-                /* Track state change */
-                state_delta_sum += fabsf(h_new - h_old);
             }
 
             y_t[i] = y_i;
         }
     }
-
-    /* Update stats (avoid division by zero) */
-    int64_t total_elements = (int64_t)d_inner * d_state * seq_len;
-    g_last_ssm_stats.state_delta = total_elements > 0 ?
-        state_delta_sum / total_elements : 0.0f;
 
     return 0;
 }
@@ -474,6 +459,11 @@ int det_ssm_forward(DetTensor* output,
     const float* input_data = (const float*)input->data;
     float* output_data = (float*)output->data;
 
+#if DEBUG_SSM_TIMING
+    double t0, t1;
+    t0 = ssm_get_time_ms();
+#endif
+
     /* 1. Input projection:
      * Standard SSM: xz = input @ ssm_in_proj.T, where W is [2*d_inner, d_model]
      * Cross-decoder SSM: x = input @ ssm_in_proj.T, where W is [d_inner, d_model]
@@ -524,6 +514,15 @@ int det_ssm_forward(DetTensor* output,
                         input_data, weights->ssm_in_proj->metal_buffer, xz,
                         seq_len, 2 * d_inner, d_model) == 0);
                 }
+#if DEBUG_SSM_TIMING
+                static int debug_inproj_once = 0;
+                if (!debug_inproj_once) {
+                    fprintf(stderr, "SSM in_proj: GPU path %s (dtype=%d, buf=%p)\n",
+                            in_proj_done ? "SUCCESS" : "FAILED",
+                            weights->ssm_in_proj->dtype, weights->ssm_in_proj->metal_buffer);
+                    debug_inproj_once = 1;
+                }
+#endif
             }
 #endif
             if (!in_proj_done) {
@@ -563,6 +562,12 @@ int det_ssm_forward(DetTensor* output,
     }
 #endif
 
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_in_proj += t1 - t0;
+    t0 = t1;
+#endif
+
     /* 2. Causal convolution */
     float* conv_state = NULL;
     if (cache && cache->conv_state) {
@@ -581,6 +586,12 @@ int det_ssm_forward(DetTensor* output,
         memcpy(x_ssm, x_conv, seq_len * d_inner * sizeof(float));
     }
 
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_conv1d += t1 - t0;
+    t0 = t1;
+#endif
+
     /* 3. SiLU activation */
 #if DEBUG_SSM_LAYER0
     if (layer_idx == 0) {
@@ -596,6 +607,12 @@ int det_ssm_forward(DetTensor* output,
     if (layer_idx == 0) {
         debug_ssm_rms("silu x_ssm", x_ssm, seq_len * d_inner, 1);
     }
+#endif
+
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_silu += t1 - t0;
+    t0 = t1;
 #endif
 
     /* 4. Project x to get delta, B, C */
@@ -660,6 +677,12 @@ int det_ssm_forward(DetTensor* output,
     }
 #endif
 
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_x_proj += t1 - t0;
+    t0 = t1;
+#endif
+
     /* 5. Project delta_t: delta = softplus(dt_proj @ ssm_dt_proj.T + bias) */
     if (weights->ssm_dt_proj) {
         const float* W = (const float*)weights->ssm_dt_proj->data;
@@ -701,6 +724,12 @@ int det_ssm_forward(DetTensor* output,
     }
 #endif
 
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_dt_proj += t1 - t0;
+    t0 = t1;
+#endif
+
     /* 6. SSM selective scan */
     float* h_state = NULL;
     if (cache && cache->h) {
@@ -722,6 +751,12 @@ int det_ssm_forward(DetTensor* output,
     if (layer_idx == 0) {
         debug_ssm_rms("scan y", y, seq_len * d_inner, 1);
     }
+#endif
+
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_selective_scan += t1 - t0;
+    t0 = t1;
 #endif
 
     if (!cache) {
@@ -770,6 +805,12 @@ int det_ssm_forward(DetTensor* output,
     }
 #endif
 
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_gate += t1 - t0;
+    t0 = t1;
+#endif
+
     /* 8. Output projection: output = y_gated @ ssm_out_proj.T */
     if (weights->ssm_out_proj) {
         int out_proj_done = 0;
@@ -785,6 +826,15 @@ int det_ssm_forward(DetTensor* output,
                     y_gated, weights->ssm_out_proj->metal_buffer, output_data,
                     seq_len, d_model, d_inner) == 0);
             }
+#if DEBUG_SSM_TIMING
+            static int debug_outproj_once = 0;
+            if (!debug_outproj_once) {
+                fprintf(stderr, "SSM out_proj: GPU path %s (dtype=%d, buf=%p)\n",
+                        out_proj_done ? "SUCCESS" : "FAILED",
+                        weights->ssm_out_proj->dtype, weights->ssm_out_proj->metal_buffer);
+                debug_outproj_once = 1;
+            }
+#endif
         }
 #endif
         if (!out_proj_done) {
@@ -808,6 +858,31 @@ int det_ssm_forward(DetTensor* output,
 #endif
         }
     }
+
+#if DEBUG_SSM_TIMING
+    t1 = ssm_get_time_ms();
+    t_out_proj += t1 - t0;
+    ssm_timing_count++;
+
+    /* Print summary every 16 calls (once per full layer pass) */
+    if (ssm_timing_count % 16 == 0) {
+        double total = t_in_proj + t_conv1d + t_silu + t_x_proj + t_dt_proj +
+                       t_selective_scan + t_gate + t_out_proj;
+        fprintf(stderr, "\nSSM Timing (16 layers, %d calls):\n", ssm_timing_count);
+        fprintf(stderr, "  in_proj:  %6.1fms (%.1f%%)\n", t_in_proj, 100*t_in_proj/total);
+        fprintf(stderr, "  conv1d:   %6.1fms (%.1f%%)\n", t_conv1d, 100*t_conv1d/total);
+        fprintf(stderr, "  silu:     %6.1fms (%.1f%%)\n", t_silu, 100*t_silu/total);
+        fprintf(stderr, "  x_proj:   %6.1fms (%.1f%%)\n", t_x_proj, 100*t_x_proj/total);
+        fprintf(stderr, "  dt_proj:  %6.1fms (%.1f%%)\n", t_dt_proj, 100*t_dt_proj/total);
+        fprintf(stderr, "  scan:     %6.1fms (%.1f%%)\n", t_selective_scan, 100*t_selective_scan/total);
+        fprintf(stderr, "  gate:     %6.1fms (%.1f%%)\n", t_gate, 100*t_gate/total);
+        fprintf(stderr, "  out_proj: %6.1fms (%.1f%%)\n", t_out_proj, 100*t_out_proj/total);
+        fprintf(stderr, "  TOTAL:    %6.1fms\n", total);
+        /* Reset counters */
+        t_in_proj = t_conv1d = t_silu = t_x_proj = t_dt_proj = 0;
+        t_selective_scan = t_gate = t_out_proj = 0;
+    }
+#endif
 
     /* Compute skip ratio for stats */
     if (D_skip) {

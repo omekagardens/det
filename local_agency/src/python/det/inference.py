@@ -148,6 +148,19 @@ def _setup_bindings(lib: ctypes.CDLL):
     ]
     lib.det_model_forward.restype = ctypes.POINTER(DetTensor)
 
+    # det_model_forward_gpu (GPU-accelerated forward pass)
+    lib.det_model_forward_gpu.argtypes = [
+        ctypes.c_void_p,  # model
+        ctypes.POINTER(ctypes.c_int32),  # tokens
+        ctypes.c_int32,  # num_tokens
+        ctypes.c_void_p,  # logits (can be NULL)
+    ]
+    lib.det_model_forward_gpu.restype = ctypes.POINTER(DetTensor)
+
+    # det_model_enable_gpu_forward
+    lib.det_model_enable_gpu_forward.argtypes = [ctypes.c_void_p]
+    lib.det_model_enable_gpu_forward.restype = ctypes.c_int
+
     # det_model_sample
     lib.det_model_sample.argtypes = [
         ctypes.c_void_p,  # model
@@ -332,8 +345,13 @@ class Model:
     Integrates with DET physics for sampling.
     """
 
-    def __init__(self, path: str):
-        """Load model from GGUF file."""
+    def __init__(self, path: str, use_gpu: bool = True):
+        """Load model from GGUF file.
+
+        Args:
+            path: Path to GGUF model file
+            use_gpu: Enable GPU-accelerated forward pass (default True)
+        """
         self._lib = _get_lib()
         self._handle = self._lib.det_model_load(path.encode('utf-8'))
         if not self._handle:
@@ -343,6 +361,13 @@ class Model:
         self._tokenizer = self._lib.det_model_get_tokenizer(self._handle)
         if not self._tokenizer:
             raise RuntimeError("Failed to get tokenizer from model")
+
+        # Enable GPU forward if requested
+        self._use_gpu = False
+        if use_gpu:
+            result = self._lib.det_model_enable_gpu_forward(self._handle)
+            if result == 0:
+                self._use_gpu = True
 
     def __del__(self):
         if hasattr(self, '_handle') and self._handle:
@@ -485,15 +510,26 @@ class Model:
         return result.decode('utf-8') if result else ""
 
     def forward(self, tokens: List[int]) -> 'ctypes.POINTER(DetTensor)':
-        """Run forward pass, return logits tensor pointer."""
+        """Run forward pass, return logits tensor pointer.
+
+        Uses GPU-accelerated forward if enabled and available.
+        """
         token_array = (ctypes.c_int32 * len(tokens))(*tokens)
 
-        logits = self._lib.det_model_forward(
-            self._handle,
-            token_array,
-            len(tokens),
-            None  # Use internal buffer
-        )
+        if self._use_gpu:
+            logits = self._lib.det_model_forward_gpu(
+                self._handle,
+                token_array,
+                len(tokens),
+                None  # Use internal buffer
+            )
+        else:
+            logits = self._lib.det_model_forward(
+                self._handle,
+                token_array,
+                len(tokens),
+                None  # Use internal buffer
+            )
 
         if not logits:
             raise RuntimeError("Forward pass failed")
@@ -909,10 +945,15 @@ def metal_status() -> dict:
 _global_model: Optional[Model] = None
 
 
-def load_model(path: str) -> Model:
-    """Load a model from GGUF file."""
+def load_model(path: str, use_gpu: bool = True) -> Model:
+    """Load a model from GGUF file.
+
+    Args:
+        path: Path to GGUF model file
+        use_gpu: Enable GPU-accelerated forward pass (default True)
+    """
     global _global_model
-    _global_model = Model(path)
+    _global_model = Model(path, use_gpu=use_gpu)
     return _global_model
 
 

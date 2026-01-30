@@ -268,6 +268,9 @@ typedef struct DetModel {
 
     /* GPU acceleration (Phase 26.15) */
     bool gpu_weights_loaded;    /* True if weights uploaded to GPU buffers */
+
+    /* GPU-native forward pass (Phase: GPU-Native Forward) */
+    bool gpu_forward_enabled;   /* True if GPU-native forward pass is enabled */
 } DetModel;
 
 /* ==========================================================================
@@ -293,6 +296,67 @@ int det_model_upload_to_gpu(DetModel* model);
  * Called automatically by det_model_free().
  */
 void det_model_free_gpu(DetModel* model);
+
+/* ==========================================================================
+ * GPU-NATIVE FORWARD PASS
+ *
+ * Keeps all intermediate data on GPU throughout the forward pass,
+ * eliminating CPU-GPU transfers. Upload once, download final logits.
+ * ========================================================================== */
+
+/**
+ * Initialize GPU-native forward pass.
+ *
+ * Allocates GPU KV cache and scratch buffers for the model.
+ * Call after det_model_upload_to_gpu() for best performance.
+ *
+ * Returns: 0 on success, -1 on error
+ */
+int det_model_init_gpu_forward(DetModel* model);
+
+/**
+ * Free GPU-native forward pass resources.
+ *
+ * Called automatically by det_model_free().
+ */
+void det_model_free_gpu_forward(DetModel* model);
+
+/**
+ * GPU-native forward pass.
+ *
+ * Similar to det_model_forward() but keeps all data on GPU:
+ * - Upload hidden state once at start
+ * - All layer operations on GPU buffers
+ * - Download only final logits
+ *
+ * Falls back to standard det_model_forward() if GPU not initialized.
+ *
+ * tokens: Input token IDs
+ * num_tokens: Number of tokens
+ * logits: Output logits tensor (if NULL, uses internal buffer)
+ *
+ * Returns: Pointer to logits tensor, or NULL on error
+ */
+DetTensor* det_model_forward_gpu(DetModel* model,
+                                  const int32_t* tokens, int32_t num_tokens,
+                                  DetTensor* logits);
+
+/**
+ * Enable GPU-accelerated forward pass
+ *
+ * Initializes GPU buffers for forward pass optimization.
+ * Call after det_model_load() to enable GPU acceleration.
+ *
+ * Returns: 0 on success, -1 on failure
+ */
+int det_model_enable_gpu_forward(DetModel* model);
+
+/**
+ * Disable GPU-accelerated forward pass
+ *
+ * Frees GPU buffers and falls back to CPU path.
+ */
+void det_model_disable_gpu_forward(DetModel* model);
 
 /* ==========================================================================
  * MODEL LIFECYCLE
