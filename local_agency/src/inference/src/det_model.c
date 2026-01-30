@@ -274,11 +274,35 @@ static inline void neon_layernorm_apply(float* x, const float* weight, const flo
     }
 }
 
-/* Vectorized SiLU-mul: out[i] = (gate[i] / (1 + exp(-gate[i]))) * up[i]
- * This is the core SwiGLU computation, optimized for Apple Silicon */
+/* Fast sigmoid approximation using polynomial (good for |x| < 8) */
+static inline float32x4_t neon_sigmoid_fast(float32x4_t x) {
+    /* Clamp to reasonable range */
+    float32x4_t min_val = vdupq_n_f32(-8.0f);
+    float32x4_t max_val = vdupq_n_f32(8.0f);
+    x = vmaxq_f32(x, min_val);
+    x = vminq_f32(x, max_val);
+
+    /* sigmoid(x) ≈ 0.5 + 0.25*x - 0.0078125*x^3 */
+    float32x4_t half = vdupq_n_f32(0.5f);
+    float32x4_t quarter = vdupq_n_f32(0.25f);
+    float32x4_t c3 = vdupq_n_f32(-0.0078125f);
+
+    float32x4_t x2 = vmulq_f32(x, x);
+    float32x4_t x3 = vmulq_f32(x2, x);
+
+    float32x4_t result = vfmaq_f32(half, quarter, x);  /* 0.5 + 0.25*x */
+    result = vfmaq_f32(result, c3, x3);  /* + c3*x^3 */
+
+    /* Clamp to [0, 1] */
+    result = vmaxq_f32(result, vdupq_n_f32(0.0f));
+    result = vminq_f32(result, vdupq_n_f32(1.0f));
+    return result;
+}
+
+/* Vectorized SiLU-mul: out[i] = (gate[i] * sigmoid(gate[i])) * up[i]
+ * Uses fast sigmoid approximation for true NEON vectorization */
 static inline void neon_swiglu(float* out, const float* gate, const float* up, int n) {
     int i = 0;
-    float32x4_t one = vdupq_n_f32(1.0f);
     /* Process 8 elements at a time with prefetching */
     for (; i + 7 < n; i += 8) {
         APPLE_PREFETCH(gate + i + 64);
@@ -288,25 +312,37 @@ static inline void neon_swiglu(float* out, const float* gate, const float* up, i
         float32x4_t g1 = vld1q_f32(gate + i + 4);
         float32x4_t u0 = vld1q_f32(up + i);
         float32x4_t u1 = vld1q_f32(up + i + 4);
-        /* Compute SiLU: g / (1 + exp(-g)) = g * sigmoid(g)
-         * Using approximation for sigmoid: 1/(1+exp(-x)) ≈ 0.5 + 0.5*tanh(x/2)
-         * But for accuracy, we'll use the direct formula with scalar fallback */
-        float g_arr[8], u_arr[8], out_arr[8];
-        vst1q_f32(g_arr, g0);
-        vst1q_f32(g_arr + 4, g1);
-        vst1q_f32(u_arr, u0);
-        vst1q_f32(u_arr + 4, u1);
-        for (int j = 0; j < 8; j++) {
-            float g = g_arr[j];
-            out_arr[j] = (g / (1.0f + expf(-g))) * u_arr[j];
-        }
-        vst1q_f32(out + i, vld1q_f32(out_arr));
-        vst1q_f32(out + i + 4, vld1q_f32(out_arr + 4));
+        /* Compute SiLU: g * sigmoid(g) using fast sigmoid */
+        float32x4_t silu0 = vmulq_f32(g0, neon_sigmoid_fast(g0));
+        float32x4_t silu1 = vmulq_f32(g1, neon_sigmoid_fast(g1));
+        /* Multiply with up */
+        vst1q_f32(out + i, vmulq_f32(silu0, u0));
+        vst1q_f32(out + i + 4, vmulq_f32(silu1, u1));
     }
-    /* Handle remaining elements */
+    /* Handle remaining elements with exact scalar version */
     for (; i < n; i++) {
         float g = gate[i];
         out[i] = (g / (1.0f + expf(-g))) * up[i];
+    }
+}
+
+/* Vectorized add: dst[i] += src[i] */
+static inline void neon_add_inplace(float* dst, const float* src, int n) {
+    int i = 0;
+    /* Process 16 elements at a time with prefetching */
+    for (; i + 15 < n; i += 16) {
+        APPLE_PREFETCH(dst + i + 64);
+        APPLE_PREFETCH(src + i + 64);
+        vst1q_f32(dst + i,      vaddq_f32(vld1q_f32(dst + i), vld1q_f32(src + i)));
+        vst1q_f32(dst + i + 4,  vaddq_f32(vld1q_f32(dst + i + 4), vld1q_f32(src + i + 4)));
+        vst1q_f32(dst + i + 8,  vaddq_f32(vld1q_f32(dst + i + 8), vld1q_f32(src + i + 8)));
+        vst1q_f32(dst + i + 12, vaddq_f32(vld1q_f32(dst + i + 12), vld1q_f32(src + i + 12)));
+    }
+    for (; i + 3 < n; i += 4) {
+        vst1q_f32(dst + i, vaddq_f32(vld1q_f32(dst + i), vld1q_f32(src + i)));
+    }
+    for (; i < n; i++) {
+        dst[i] += src[i];
     }
 }
 #endif /* USE_NEON */
@@ -1592,9 +1628,13 @@ DetTensor* det_model_forward_gpu(DetModel* model,
             memcpy(hidden, model->scratch.temp, num_tokens * cfg->n_embd * sizeof(float));
 
             /* Add residual */
+#ifdef USE_NEON
+            neon_add_inplace(hidden, residual, num_tokens * cfg->n_embd);
+#else
             for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
                 hidden[i] += residual[i];
             }
+#endif
 
             /* SSM layers may also have FFN */
             if (lw->ffn_norm && lw->w1 && lw->w2 && lw->w3) {
@@ -1645,15 +1685,23 @@ DetTensor* det_model_forward_gpu(DetModel* model,
                     batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
                     batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
                     int ffn_total = num_tokens * cfg->n_ff;
+#ifdef USE_NEON
+                    neon_swiglu(ffn_gate, ffn_gate, ffn_up, ffn_total);
+#else
                     for (int i = 0; i < ffn_total; i++) {
                         float g = ffn_gate[i];
                         ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
                     }
+#endif
                     batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
 
+#ifdef USE_NEON
+                    neon_add_inplace(hidden, residual, num_tokens * cfg->n_embd);
+#else
                     for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
                         hidden[i] += residual[i];
                     }
+#endif
                 }
             }
             continue;
@@ -1744,15 +1792,23 @@ DetTensor* det_model_forward_gpu(DetModel* model,
                     batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
                     batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
                     int ffn_total = num_tokens * cfg->n_ff;
+#ifdef USE_NEON
+                    neon_swiglu(ffn_gate, ffn_gate, ffn_up, ffn_total);
+#else
                     for (int i = 0; i < ffn_total; i++) {
                         float g = ffn_gate[i];
                         ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
                     }
+#endif
                     batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
 
+#ifdef USE_NEON
+                    neon_add_inplace(hidden, residual, num_tokens * cfg->n_embd);
+#else
                     for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
                         hidden[i] += residual[i];
                     }
+#endif
                 }
             }
             continue;
@@ -2090,15 +2146,23 @@ DetTensor* det_model_forward_gpu(DetModel* model,
                 batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
                 batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
                 int ffn_total = num_tokens * cfg->n_ff;
+#ifdef USE_NEON
+                neon_swiglu(ffn_gate, ffn_gate, ffn_up, ffn_total);
+#else
                 for (int i = 0; i < ffn_total; i++) {
                     float g = ffn_gate[i];
                     ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
                 }
+#endif
                 batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
 
+#ifdef USE_NEON
+                neon_add_inplace(hidden, residual, num_tokens * cfg->n_embd);
+#else
                 for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
                     hidden[i] += residual[i];
                 }
+#endif
             }
         } else if (lw->w2 && lw->w3) {
             /* GELU FFN (no gate) - CPU path */
@@ -2596,10 +2660,14 @@ DetTensor* det_model_forward(DetModel* model,
                     batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
                     batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
                     int ffn_total = num_tokens * cfg->n_ff;
+#ifdef USE_NEON
+                    neon_swiglu(ffn_gate, ffn_gate, ffn_up, ffn_total);
+#else
                     for (int i = 0; i < ffn_total; i++) {
                         float g = ffn_gate[i];
                         ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
                     }
+#endif
                     batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
                 } else if (lw->w2 && lw->w3) {
                     /* Simple MLP */
@@ -2614,9 +2682,13 @@ DetTensor* det_model_forward(DetModel* model,
                 }
 
                 /* Add FFN residual */
+#ifdef USE_NEON
+                neon_add_inplace(hidden, residual, num_tokens * cfg->n_embd);
+#else
                 for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
                     hidden[i] += residual[i];
                 }
+#endif
             }
 
             if (g_debug_timing) {
@@ -2708,10 +2780,14 @@ DetTensor* det_model_forward(DetModel* model,
                     batched_proj_smart(ffn_gate, hidden, lw->w1, num_tokens, cfg->n_embd, cfg->n_ff);
                     batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
                     int ffn_total = num_tokens * cfg->n_ff;
+#ifdef USE_NEON
+                    neon_swiglu(ffn_gate, ffn_gate, ffn_up, ffn_total);
+#else
                     for (int i = 0; i < ffn_total; i++) {
                         float g = ffn_gate[i];
                         ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
                     }
+#endif
                     batched_proj_smart(hidden, ffn_gate, lw->w2, num_tokens, cfg->n_ff, cfg->n_embd);
                 } else if (lw->w2 && lw->w3) {
                     batched_proj_smart(ffn_up, hidden, lw->w3, num_tokens, cfg->n_embd, cfg->n_ff);
@@ -2725,9 +2801,13 @@ DetTensor* det_model_forward(DetModel* model,
                 }
 
                 /* Add FFN residual */
+#ifdef USE_NEON
+                neon_add_inplace(hidden, residual, num_tokens * cfg->n_embd);
+#else
                 for (int i = 0; i < num_tokens * cfg->n_embd; i++) {
                     hidden[i] += residual[i];
                 }
+#endif
             }
 
             if (g_debug_timing) {
@@ -3357,10 +3437,14 @@ DetTensor* det_model_forward(DetModel* model,
                     }
 #endif
                     if (use_cpu) {
+#ifdef USE_NEON
+                        neon_swiglu(ffn_gate, ffn_gate, ffn_up, ffn_total);
+#else
                         for (int i = 0; i < ffn_total; i++) {
                             float g = ffn_gate[i];
                             ffn_gate[i] = (g / (1.0f + expf(-g))) * ffn_up[i];
                         }
+#endif
                     }
                 }
 
