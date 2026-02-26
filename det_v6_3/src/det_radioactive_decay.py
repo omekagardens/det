@@ -117,6 +117,8 @@ class DETDecaySimulator:
         self.N = collider.p.N
         
         # Flux history for computing T_eff (effective temperature)
+        # Each element is an array of local dF values for the entire lattice at a given step.
+        # The variance is computed across time for each spatial position independently, ensuring locality.
         self.flux_history: List[np.ndarray] = []
         
         # Decay event log
@@ -174,6 +176,8 @@ class DETDecaySimulator:
         T_eff_i = Var(dF_i) over the last T_eff_window steps.
         
         This is the "noise" that drives the system over the barrier.
+        The variance is computed for each spatial position independently across the time window,
+        ensuring that T_eff is a strictly local property and does not introduce global coupling.
         """
         dp = self.dp
         
@@ -300,6 +304,9 @@ class DETDecaySimulator:
         self.sim.pi_R += dp.momentum_kick * kick_env * direction
         
         # 4. Coherence damage: reduce coherence in the neighborhood
+        # This is a discrete event applied to the C_R field. The effect on neighboring
+        # nodes (via L(C_R)) will be reflected in the next simulation step, preserving
+        # the strict locality and antisymmetry of bond updates within the collider's step.
         damage_mask = dist <= dp.coherence_damage_radius
         self.sim.C_R[damage_mask] *= (1.0 - dp.coherence_damage_factor)
         

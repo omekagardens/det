@@ -95,6 +95,9 @@ class DETParams1D:
     # Numerical stability
     outflow_limit: float = 0.25
 
+    # Environmental shifts are introduced via initial conditions (e.g., F_VAC, C_init, initial q)
+    # or boundary operators, not through hidden global scaling or normalization.
+
 
 def periodic_local_sum_1d(x: np.ndarray, radius: int) -> np.ndarray:
     """Compute local sum within radius (periodic BCs)."""

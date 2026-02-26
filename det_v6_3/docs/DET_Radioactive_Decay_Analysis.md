@@ -15,12 +15,12 @@ The project successfully translated the theoretical concept of decay—as a lawf
 
 The proposal to model radioactive decay as a deterministic process is a natural and powerful extension of the DET framework. It reframes decay not as an irreducibly random event, but as a **lawful discharge of accumulated structural debt (q^D)**, which aligns perfectly with the core tenets of DET. This provides a more mechanistic and potentially falsifiable understanding of nuclear stability.
 
-To enhance the model's rigor and prepare it for implementation, several concepts from the initial proposal required more precise mathematical and operational definitions. The following table summarizes the key areas of clarification that were addressed in the simulation design.
+To enhance the model's rigor and prepare it for implementation, several concepts from the initial proposal required more precise mathematical and operational definitions. The following table summarizes the key areas of clarification that were addressed in the simulation design, ensuring adherence to DET's core principles of strict locality and non-coercive dynamics.
 
 | Concept | Initial Proposal | Implemented Definition in Simulation |
 | :--- | :--- | :--- |
 | **Instability Score (s_i)** | A weighted sum of debt, debt gradient, and coherence. | The weights (w_q, w_∇, w_C) were defined as adjustable parameters in the `DecayParams` class, with default values set to `1.0`, `0.5`, and `0.3` respectively. The critical threshold `s_crit` was also defined as a key parameter. |
-| **Effective Temperature (T_eff)** | "Fluctuation scale derived from local flux and momentum noise." | Implemented as the variance of the local resource change (`dF`) over a moving window of 20 simulation steps. This directly links `T_eff` to the "noise" or fluctuation level of the system's resource dynamics. |
+| **Effective Temperature (T_eff)** | "Fluctuation scale derived from local flux and momentum noise." | Implemented as the variance of the local resource change (`dF`) over a moving window of 20 simulation steps. Crucially, this variance is computed **independently for each spatial position** across the time window, ensuring that `T_eff` is a strictly local property and does not introduce hidden global coupling. |
 | **Attempt Frequency (ν_i)** | "Local attempt frequency." | Directly linked to the local proper time `P_i` from the DET collider, representing the intrinsic clock rate at which a nucleus "attempts" to overcome the instability barrier. |
 
 By formalizing these definitions, the model was made computationally tractable and its parameters were grounded in the existing variables of the DET simulation environment.
@@ -29,7 +29,7 @@ By formalizing these definitions, the model was made computationally tractable a
 
 Based on the full capabilities of the DET v6.3/v6.4 framework, several enhancements to the initial model were proposed and subsequently implemented in the simulation scenarios:
 
-*   **Dynamic Coherence-Instability Feedback:** The simulation included a mechanism where a decay event locally damages the coherence field (`C_ij`), thereby increasing the instability of neighboring nuclei. This creates the potential for **contagious decay**, a novel prediction of the model.
+*   **Dynamic Coherence-Instability Feedback:** The simulation included a mechanism where a decay event locally damages the coherence field (`C_ij`), thereby increasing the instability of neighboring nuclei. This damage is applied as a discrete event to the local coherence field. The subsequent effects on neighboring nodes are processed in the next simulation step, preserving the strict antisymmetry of bond updates within the collider's step. This creates the potential for **contagious decay**, a novel prediction of the model.
 *   **Decay Chains and Transmutation:** The simulation was programmed to model the products of decay. A decay event now releases a pulse of energy (`F`), reduces the local structural debt (`q^D`) to represent the daughter nucleus, and imparts momentum (`π`) to the products. This allows for the simulation of entire decay chains.
 
 ---
@@ -96,4 +96,4 @@ The key takeaways are:
 2.  **Coherence is Stability:** Coherence is a powerful, computationally verified stabilizing force against structural decay.
 3.  **Half-Life is Not Fundamental:** Decay rates are shown to be dependent on the local environment, including fluctuation amplitude and background structural debt.
 
-This work provides a robust computational foundation for the proposed theory of radioactive decay and opens up numerous avenues for future research, including the design of self-healing materials and the exploration of cosmological models where physical constants can evolve. constants may vary.
+This work provides a robust computational foundation for the proposed theory of radioactive decay and opens up numerous avenues for future research, including the design of self-healing materials and the exploration of cosmological models where physical constants can evolve. Environmental shifts in these simulations arise solely from changes in initial conditions (e.g., `F_VAC`, `C_init`, initial `q`) or boundary operators, without relying on any hidden global scaling or normalization, thus preserving the strictly local nature of DET.
