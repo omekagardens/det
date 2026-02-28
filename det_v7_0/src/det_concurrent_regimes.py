@@ -353,7 +353,7 @@ def experiment_E1_adjacent_regimes(output_dir: str = "/home/ubuntu/det_regime_re
         C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.01,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
         boundary_enabled=True, grace_enabled=True
@@ -546,7 +546,7 @@ def experiment_E2_asymmetry_test(output_dir: str = "/home/ubuntu/det_regime_resu
         C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.01,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
         boundary_enabled=True, grace_enabled=True
@@ -699,7 +699,7 @@ def experiment_E3_attunement_feedback(output_dir: str = "/home/ubuntu/det_regime
             C_init=0.3,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.01,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
             boundary_enabled=True, grace_enabled=True
@@ -869,8 +869,8 @@ def experiment_falsifiers(output_dir: str = "/home/ubuntu/det_regime_results"):
     regime_C = DETRegimeSimulator(collider_C, RegimeParams())
     
     for t in range(100):
-        # Force a=0 after each collider step (collider's agency update would
-        # restore a via the ceiling law; we override to test the O_i gate)
+        # Force a=0 after each collider step (collider's agency relaxation can
+        # raise a toward a0; we override to test the strict O_i gate at a=0)
         diag_C = regime_C.step(t)
         collider_C.a[:] = 0.0
         # Recompute O with forced a=0
@@ -997,7 +997,7 @@ def experiment_E4_decay_regime_coupling(output_dir: str = "/home/ubuntu/det_regi
         C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.015,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
         boundary_enabled=True, grace_enabled=True

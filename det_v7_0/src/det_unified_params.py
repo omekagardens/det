@@ -100,7 +100,6 @@ class DETUnifiedParams:
     a0: float = 1.0
     epsilon_a: float = 0.0
     gamma_v: float = 1.0
-    lambda_a: float = 30.0  # Deprecated compatibility alias
 
     # Momentum caps
     pi_max: float = 3.0
@@ -233,7 +232,6 @@ class DETUnifiedParams:
             gamma_v=self.gamma_v,
 
             agency_dynamic=self.agency_dynamic,
-            lambda_a=self.lambda_a,
             beta_a=self.beta_a,
             gamma_a_max=self.gamma_a_max,
             gamma_a_power=self.gamma_a_power,

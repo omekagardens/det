@@ -56,7 +56,7 @@ def experiment_B1_self_healing():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.5,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.005,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )
@@ -236,7 +236,7 @@ def experiment_B2_coherence_engineering():
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=C_val,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.005,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False, boundary_enabled=False
         )
@@ -353,7 +353,7 @@ def experiment_B3_stress_strain():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.5,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.002,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )

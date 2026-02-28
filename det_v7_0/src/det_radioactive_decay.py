@@ -402,7 +402,7 @@ def scenario_single_nucleus_decay(output_dir: str = "/home/ubuntu/det_decay_resu
         C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.015,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
         boundary_enabled=True, grace_enabled=True
@@ -599,7 +599,7 @@ def scenario_half_life_measurement(output_dir: str = "/home/ubuntu/det_decay_res
         C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.015,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
         boundary_enabled=True, grace_enabled=True
@@ -785,7 +785,7 @@ def scenario_coherence_stabilization(output_dir: str = "/home/ubuntu/det_decay_r
             C_init=C_init_val,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.015,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
             boundary_enabled=True, grace_enabled=True
@@ -915,7 +915,7 @@ def scenario_decay_chain(output_dir: str = "/home/ubuntu/det_decay_results"):
         C_init=0.25,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.02,  # Slightly higher q accumulation
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
         boundary_enabled=True, grace_enabled=True
@@ -1059,7 +1059,7 @@ def scenario_environmental_dependence(output_dir: str = "/home/ubuntu/det_decay_
             C_init=cond["C_init"],
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.015,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
             boundary_enabled=True, grace_enabled=True

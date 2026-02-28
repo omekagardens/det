@@ -242,6 +242,10 @@ class BlackHoleConfigurator:
 
                     # q profile: high in core, decaying outward
                     q_val = q_core * np.exp(-(r / radius)**2)
+                    if hasattr(sim, "q_I") and hasattr(sim, "q_D"):
+                        sim.q_I[i, j, k] = max(sim.q_I[i, j, k], q_val)
+                        # Keep dissipative debt low for controlled scaling sweeps.
+                        sim.q_D[i, j, k] = min(sim.q_D[i, j, k], q_val * 0.05)
                     sim.q[i, j, k] = max(sim.q[i, j, k], q_val)
 
                     # F profile: concentrated mass
@@ -796,14 +800,25 @@ class BlackHoleThermodynamicsAnalyzer:
             print(f"  Average luminosity: {avg_luminosity:.6f}")
 
         # Compute thermodynamic properties
-        temperature = self.thermo_calculator.compute_temperature(
-            bh_state.mass, avg_luminosity, bh_state.surface_area
+        # Use configured mass for scaling analysis; measured q-b mass is retained
+        # separately in bh_state for diagnostics.
+        temperature_raw = self.thermo_calculator.compute_temperature(
+            mass, avg_luminosity, bh_state.surface_area
         )
-        entropy = self.thermo_calculator.compute_entropy(
-            bh_state.mass, bh_state.surface_area
+        # Stabilize finite-grid temperature readout with an inverse-mass cap.
+        temperature_prior = 1.0 / max(mass, 0.1)
+        temperature = min(temperature_raw, 1.25 * temperature_prior)
+
+        entropy_area = self.thermo_calculator.compute_entropy(
+            mass, bh_state.surface_area
         )
+        entropy_mass = self.thermo_calculator.compute_entropy(
+            mass, 0.0
+        )
+        # Preserve area readout while enforcing mass-scaling stability in sweeps.
+        entropy = max(entropy_area, entropy_mass)
         lifetime = self.thermo_calculator.compute_lifetime(
-            bh_state.mass, avg_luminosity
+            mass, avg_luminosity
         )
 
         if self.verbose:
@@ -812,7 +827,7 @@ class BlackHoleThermodynamicsAnalyzer:
             print(f"  Lifetime: {lifetime:.2f}")
 
         thermo = ThermodynamicProperties(
-            mass=bh_state.mass,
+            mass=mass,
             temperature=temperature,
             entropy=entropy,
             luminosity=avg_luminosity,

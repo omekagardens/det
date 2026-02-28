@@ -63,7 +63,7 @@ def test_F_QD5_energy_coupling(verbose=True):
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.7,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.001,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False,
         boundary_enabled=True, grace_enabled=True,
@@ -164,7 +164,7 @@ def test_F_QD6_gravitational_stability(verbose=True):
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.5,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.001,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=True, alpha_grav=0.05, kappa_grav=2.0, mu_grav=1.0, beta_g=5.0,
             boundary_enabled=True, grace_enabled=True,
@@ -259,7 +259,7 @@ def test_F_QD7_no_spontaneous_annealing(verbose=True):
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.01,  # Very low coherence
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.0,  # Disable q-locking to isolate Jubilee
-        lambda_a=0.0, beta_a=0.0,  # Freeze agency
+        beta_a=0.0,  # Freeze agency
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False,
         boundary_enabled=False,
@@ -333,7 +333,7 @@ def test_F_A1plus_agency_bootstrap(verbose=True):
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.9,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.0,  # Disable q-locking
-        lambda_a=0.0, beta_a=0.0,  # Freeze agency at 0
+        beta_a=0.0,  # Freeze agency at 0
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False,
         boundary_enabled=True, grace_enabled=True,

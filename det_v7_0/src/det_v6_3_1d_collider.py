@@ -630,7 +630,7 @@ def test_v6_3_binding(verbose: bool = True) -> bool:
         C_init=0.5,
         momentum_enabled=True, alpha_pi=0.2, lambda_pi=0.002, mu_pi=1.0,
         q_enabled=True, alpha_q=0.02,
-        lambda_a=3.0, beta_a=0.05,
+        beta_a=0.05,
         floor_enabled=False,
         gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=5.0,
         beta_g=25.0,  # v6.3 gravity-momentum coupling
@@ -727,7 +727,7 @@ def test_v6_3_option_b_coherence_weighted_H(verbose: bool = True) -> bool:
         C_init=0.5,
         momentum_enabled=True, alpha_pi=0.2, lambda_pi=0.002, mu_pi=1.0,
         q_enabled=True, alpha_q=0.02,
-        lambda_a=3.0, beta_a=0.05,
+        beta_a=0.05,
         floor_enabled=False,
         gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=5.0,
         beta_g=25.0,

@@ -87,7 +87,7 @@ def experiment_T1_driven_transition():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.1,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )
@@ -374,7 +374,7 @@ def experiment_T2_hysteresis():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.1,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )
@@ -525,7 +525,7 @@ def experiment_T3_critical_slowing():
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=C_val,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.003,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False, boundary_enabled=False
         )
@@ -640,7 +640,7 @@ def experiment_T4_phase_portrait():
                 N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=C_val,
                 momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
                 q_enabled=True, alpha_q=0.001,
-                lambda_a=30.0, beta_a=0.2,
+                beta_a=0.2,
                 floor_enabled=True, eta_floor=0.15, F_core=5.0,
                 gravity_enabled=False, boundary_enabled=False
             )
@@ -747,7 +747,7 @@ def experiment_T5_spontaneous():
                 N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=C_start,
                 momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
                 q_enabled=True, alpha_q=0.003,
-                lambda_a=30.0, beta_a=0.2,
+                beta_a=0.2,
                 floor_enabled=True, eta_floor=0.15, F_core=5.0,
                 gravity_enabled=False, boundary_enabled=False
             )
@@ -843,7 +843,7 @@ def experiment_T6_universality():
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.1,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.003,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False, boundary_enabled=False
         )

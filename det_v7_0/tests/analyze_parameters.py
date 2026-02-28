@@ -33,7 +33,8 @@ params = {
 
     # Structure/Agency
     'alpha_q': 0.012,
-    'lambda_a': 30.0,
+    'lambda_DP': 3.0,
+    'lambda_IP': 1.0,
     'beta_a': 0.2,
     'gamma_a_max': 0.15,
     'gamma_a_power': 2.0,

@@ -326,7 +326,7 @@ def test_F6_gravitational_binding(verbose: bool = True) -> Dict:
         momentum_enabled=True, alpha_pi=0.1, lambda_pi=0.002, mu_pi=0.5,
         angular_momentum_enabled=False, floor_enabled=False,
         q_enabled=True, alpha_q=0.02,
-        agency_dynamic=True, lambda_a=3.0, beta_a=0.05,
+        agency_dynamic=True, beta_a=0.05,
         gravity_enabled=True, alpha_grav=0.01, kappa_grav=10.0, mu_grav=3.0,
         boundary_enabled=True, grace_enabled=True
     )
@@ -773,7 +773,9 @@ def test_F_GTD1_time_dilation(verbose: bool = True) -> Dict:
     """
     F_GTD1: Gravitational Time Dilation Test
 
-    Verify presence-based time dilation: P = a*sigma/(1+F)/(1+H)
+    Verify presence-based time dilation with drag:
+    P = a*sigma/(1+F)/(1+H)/gamma_v * D
+    D = 1/(1 + lambda_DP*q_D + lambda_IP*q_I)
     High-F regions should have lower presence (slower proper time).
     """
     if verbose:
@@ -805,18 +807,34 @@ def test_F_GTD1_time_dilation(verbose: bool = True) -> Dict:
     P_center = sim.P[center, center, center]
     P_edge = sim.P[center, center, center + 10]
 
-    # With uniform a=1, sigma=1, H=sigma=1: P = 1/(1+F)/2
-    # So P_center/P_edge = (1+F_edge)/(1+F_center)
     a_center = sim.a[center, center, center]
     a_edge = sim.a[center, center, center + 10]
     sigma_center = sim.sigma[center, center, center]
     sigma_edge = sim.sigma[center, center, center + 10]
     H_center = sigma_center
     H_edge = sigma_edge
+    gamma_v = getattr(sim.p, "gamma_v", 1.0)
 
-    # Full formula: P = a*sigma/(1+F)/(1+H)
-    predicted_P_center = a_center * sigma_center / (1 + F_center) / (1 + H_center)
-    predicted_P_edge = a_edge * sigma_edge / (1 + F_edge) / (1 + H_edge)
+    if hasattr(sim, "q_I"):
+        qI_center = sim.q_I[center, center, center]
+        qI_edge = sim.q_I[center, center, center + 10]
+    else:
+        qI_center = sim.q[center, center, center]
+        qI_edge = sim.q[center, center, center + 10]
+
+    if hasattr(sim, "q_D"):
+        qD_center = sim.q_D[center, center, center]
+        qD_edge = sim.q_D[center, center, center + 10]
+    else:
+        qD_center = 0.0
+        qD_edge = 0.0
+
+    D_center = 1.0 / (1.0 + sim.p.lambda_DP * qD_center + sim.p.lambda_IP * qI_center)
+    D_edge = 1.0 / (1.0 + sim.p.lambda_DP * qD_edge + sim.p.lambda_IP * qI_edge)
+
+    # Full v7 formula
+    predicted_P_center = a_center * sigma_center / (1 + F_center) / (1 + H_center) / gamma_v * D_center
+    predicted_P_edge = a_edge * sigma_edge / (1 + F_edge) / (1 + H_edge) / gamma_v * D_edge
 
     # Key test: higher F should mean lower P (time dilation)
     time_dilated = P_center < P_edge

@@ -1,26 +1,23 @@
 """
-Test DET Gravity Profile vs 1/r²
-================================
+Test DET gravity profile behavior.
 
-Question: Can we tune DET parameters to get 1/r² gravity?
-
-Key parameters:
-- alpha_grav: Helmholtz screening (lower = less screening = closer to 1/r²)
-- kappa_grav: Poisson coupling strength
+This module provides:
+- a reusable helper (`run_gravity_profile`) for exploratory scripts, and
+- a pytest smoke test ensuring the profile routine runs deterministically.
 """
 
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from det_v6_3_3d_collider import DETCollider3D, DETParams3D
 
 
-def test_gravity_profile(alpha_grav, kappa_grav, title=""):
-    """Test gravity profile with given parameters."""
-
+def run_gravity_profile(alpha_grav: float, kappa_grav: float):
+    """Return sampled |g| and |g|*r^2 for a central packet."""
     N = 64
     center = N // 2
 
@@ -37,20 +34,15 @@ def test_gravity_profile(alpha_grav, kappa_grav, title=""):
         momentum_enabled=False,
         angular_momentum_enabled=False,
         floor_enabled=False,
-        boundary_enabled=False
+        boundary_enabled=False,
     )
 
     sim = DETCollider3D(params)
+    sim.add_packet((center, center, center), mass=50.0, width=2.0, momentum=(0, 0, 0), initial_q=0.9)
 
-    # Add point-like mass
-    sim.add_packet((center, center, center), mass=50.0, width=2.0,
-                   momentum=(0, 0, 0), initial_q=0.9)
-
-    # Establish gravity
     for _ in range(200):
         sim.step()
 
-    # Profile
     radii = [3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20]
     g_values = []
     g_r2_values = []
@@ -58,134 +50,52 @@ def test_gravity_profile(alpha_grav, kappa_grav, title=""):
     for r in radii:
         if center + r < N - 2:
             g_mag = np.sqrt(
-                sim.gx[center, center, center + r]**2 +
-                sim.gy[center, center, center + r]**2 +
-                sim.gz[center, center, center + r]**2
+                sim.gx[center, center, center + r] ** 2
+                + sim.gy[center, center, center + r] ** 2
+                + sim.gz[center, center, center + r] ** 2
             )
             g_values.append(g_mag)
             g_r2_values.append(g_mag * r**2)
 
-    # Compute CV for |g|*r² (should be ~0 for 1/r²)
     mean_gr2 = np.mean(g_r2_values)
     std_gr2 = np.std(g_r2_values)
-    cv = std_gr2 / mean_gr2 if mean_gr2 > 0 else float('inf')
+    cv = std_gr2 / mean_gr2 if mean_gr2 > 0 else float("inf")
 
-    return radii[:len(g_values)], g_values, g_r2_values, cv
+    return radii[: len(g_values)], np.array(g_values), np.array(g_r2_values), cv
+
+
+def test_gravity_profile_smoke():
+    """Profile routine should return finite outputs."""
+    radii, g_vals, gr2_vals, cv = run_gravity_profile(alpha_grav=0.01, kappa_grav=20.0)
+
+    assert len(radii) > 3
+    assert g_vals.shape[0] == len(radii)
+    assert gr2_vals.shape[0] == len(radii)
+    assert np.all(np.isfinite(g_vals))
+    assert np.all(np.isfinite(gr2_vals))
+    assert np.isfinite(cv)
 
 
 def main():
-    print("="*70)
-    print("DET GRAVITY PROFILE ANALYSIS")
-    print("="*70)
-    print("\nGoal: Find parameters that give 1/r² gravity (|g|*r² = const)")
-
-    # Test different alpha_grav values
+    """CLI helper for manual inspection."""
     alpha_values = [0.1, 0.05, 0.02, 0.01, 0.005, 0.001]
     kappa = 20.0
 
-    print("\n" + "-"*70)
-    print(f"Testing α_grav values (κ = {kappa})")
-    print("-"*70)
+    print("=" * 70)
+    print("DET GRAVITY PROFILE ANALYSIS")
+    print("=" * 70)
 
-    results = []
+    best_alpha = None
+    best_cv = float("inf")
+
     for alpha in alpha_values:
-        radii, g_vals, gr2_vals, cv = test_gravity_profile(alpha, kappa)
-        results.append((alpha, cv, radii, g_vals, gr2_vals))
-        print(f"α_grav = {alpha:.3f}: CV(|g|*r²) = {cv:.4f}")
+        _, _, _, cv = run_gravity_profile(alpha_grav=alpha, kappa_grav=kappa)
+        print(f"alpha_grav={alpha:.4f} -> CV(|g|*r^2)={cv:.4f}")
+        if cv < best_cv:
+            best_cv = cv
+            best_alpha = alpha
 
-    # Find best alpha
-    best = min(results, key=lambda x: x[1])
-    print(f"\nBest α_grav = {best[0]:.3f} with CV = {best[1]:.4f}")
-
-    # Show detailed profile for best
-    print("\n" + "-"*70)
-    print(f"Detailed profile for α_grav = {best[0]}")
-    print("-"*70)
-    print(f"{'r':>6} {'|g|':>12} {'|g|*r²':>12}")
-    print("-"*40)
-    for i, r in enumerate(best[2]):
-        print(f"{r:>6} {best[3][i]:>12.4f} {best[4][i]:>12.4f}")
-
-    # Test with very low alpha
-    print("\n" + "="*70)
-    print("TESTING WITH MINIMAL SCREENING (α_grav = 0.0001)")
-    print("="*70)
-
-    radii, g_vals, gr2_vals, cv = test_gravity_profile(0.0001, kappa)
-    print(f"\nCV(|g|*r²) = {cv:.4f}")
-
-    print("\n" + "-"*40)
-    print(f"{'r':>6} {'|g|':>12} {'|g|*r²':>12}")
-    print("-"*40)
-    for i, r in enumerate(radii):
-        print(f"{r:>6} {g_vals[i]:>12.4f} {gr2_vals[i]:>12.4f}")
-
-    # Analyze the power law
-    print("\n" + "="*70)
-    print("POWER LAW ANALYSIS")
-    print("="*70)
-
-    # Fit |g| = A * r^n to find n
-    radii, g_vals, _, cv = test_gravity_profile(0.001, kappa)
-
-    log_r = np.log(radii)
-    log_g = np.log(g_vals)
-
-    # Linear regression: log(g) = log(A) + n*log(r)
-    n, log_A = np.polyfit(log_r, log_g, 1)
-    A = np.exp(log_A)
-
-    print(f"\nFitted power law: |g| = {A:.4f} * r^{n:.4f}")
-    print(f"Expected for 1/r²: |g| ∝ r^-2")
-    print(f"\nExponent n = {n:.4f} (should be -2.0 for 1/r²)")
-
-    if abs(n + 2) < 0.3:
-        print("✓ Close to 1/r² law")
-    else:
-        print(f"✗ Deviates from 1/r² by {abs(n + 2):.2f}")
-
-    # Summary - based on actual measured data
-    print("\n" + "="*70)
-    print("SUMMARY")
-    print("="*70)
-
-    # Determine if gravity is close to 1/r² based on measurements
-    is_inverse_square = abs(n + 2) < 0.3  # n should be -2 for 1/r²
-    best_cv = best[1] if results else float('inf')
-
-    print(f"\nMeasured Results:")
-    print(f"  Power law exponent n = {n:.4f} (1/r² requires n = -2)")
-    print(f"  Best CV(|g|*r²) = {best_cv:.4f}")
-    print(f"  Deviation from 1/r²: {abs(n + 2):.4f}")
-
-    if is_inverse_square and best_cv < 0.3:
-        print("\n[VERIFIED] DET gravity is approximately 1/r² (Newtonian-like)")
-        print("  Kepler's Third Law should emerge naturally.")
-    else:
-        print(f"\n[VERIFIED] DET gravity deviates from pure 1/r².")
-        print(f"  Exponent = {n:.4f} (expected -2.0), CV = {best_cv:.4f}")
-        print("""
-Root cause: The baseline field b in DET (screened Poisson) modifies the
-effective source. The Helmholtz equation:
-
-    (L - α)b = -α*q
-
-creates an exponentially-screened baseline, so:
-
-    ρ = q - b
-
-is a modified source that doesn't equal a point mass.
-
-IMPLICATIONS FOR KEPLER:
-- DET gravity law deviates from Newtonian 1/r²
-- Kepler's Third Law (T² ∝ r³) relies on 1/r² gravity
-- This may affect orbital dynamics predictions
-
-POTENTIAL FIXES:
-1. Bypass Helmholtz baseline: Set b = 0 (no screening)
-2. Use direct Poisson: L*Φ = -κ*q (no baseline subtraction)
-3. Accept modified gravity as a DET prediction
-""")
+    print(f"Best alpha_grav={best_alpha} with CV={best_cv:.4f}")
 
 
 if __name__ == "__main__":

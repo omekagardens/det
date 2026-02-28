@@ -1,14 +1,9 @@
 """
-DET v6.4 Quantum-Classical Transition: Agency-Coherence Interplay
-=================================================================
-
-LEGACY MODULE NOTICE (2026-02-28):
-This analyzer retains pre-v6.5.1 agency-ceiling diagnostics for historical
-comparison only. Canonical v7 core dynamics use Agency-First invariance with
-structural drag (no structural agency ceiling).
+DET v7 Quantum-Classical Transition: Agency-Coherence Interplay
+===============================================================
 
 Roadmap Item #6: Study how DET transitions between quantum-like coherent
-behavior and classical definite-outcome behavior.
+behavior and classical definite-outcome behavior under v6.5.1/v7 laws.
 
 Theoretical Framework
 ---------------------
@@ -18,32 +13,15 @@ In DET, the quantum-classical transition is governed by:
    - High C: Quantum regime (entanglement-like correlations)
    - Low C: Classical regime (definite outcomes)
 
-2. **Agency (a):** Tracks decision-making capacity
-   - Bounded by structural ceiling: a_max = 1/(1 + λ_a * q²)
-   - Governs responsiveness to relational gradients
+2. **Agency (a):** Tracks decision-making capacity (A0 primitive)
+   - No structural ceiling
+   - Debt influences expression through structural drag in presence
 
 3. **Presence (P):** Effective clock rate
-   - P = a * σ / (1+F) / (1+H)
-   - Vanishes for frozen/classical states
+   - P = base_presence * D
+   - D = 1 / (1 + lambda_DP*q_D + lambda_IP*q_I)
 
-Key Dynamics
-------------
-**Coherence evolution:**
-    dC/dt = α_C * |J_diff| - λ_C * C - λ_M * M * C
-
-where:
-- α_C: coherence growth from flux
-- λ_C: natural decoherence rate
-- λ_M: measurement-induced decoherence
-- M: detection/measurement indicator
-
-**Agency evolution:**
-    da/dt = β_a * (a_max - a) + γ_a * relational_drive
-
-**Quantum gate in grace:**
-    Q_ij = exp(-C_ij / C_threshold)
-
-Reference: DET Theory Card v6.3, Sections III, VI
+Reference: DET Theory Card v6.5.1
 """
 
 import numpy as np
@@ -87,10 +65,10 @@ class CoherenceState:
 @dataclass
 class AgencyState:
     """State of agency field."""
-    a_mean: float               # Mean agency
-    a_max_achieved: float       # Maximum agency achieved
-    a_ceiling_mean: float       # Mean structural ceiling
-    constrained_fraction: float # Fraction at ceiling
+    a_mean: float                  # Mean agency
+    a_peak: float                  # Maximum agency observed
+    drag_mean: float               # Mean structural drag multiplier
+    high_agency_fraction: float    # Fraction with a >= 0.8
 
 
 @dataclass
@@ -287,43 +265,50 @@ class CoherenceAnalyzer:
 
 class AgencyAnalyzer:
     """
-    Analyze agency dynamics and structural constraints.
+    Analyze agency dynamics and structural drag.
 
-    Agency a represents decision-making capacity, bounded by:
-    a_max = 1 / (1 + λ_a * q²)
+    Under v7, agency is not ceiling-bounded by debt.
+    Debt enters through the drag multiplier D in presence.
     """
 
-    def __init__(self, lambda_a: float = 30.0, verbose: bool = True):
+    def __init__(self, lambda_DP: float = 3.0, lambda_IP: float = 1.0, verbose: bool = True):
         """
         Initialize agency analyzer.
 
         Parameters
         ----------
-        lambda_a : float
-            Structural ceiling coupling
+        lambda_DP : float
+            Drag coupling on dissipative debt q_D
+        lambda_IP : float
+            Drag coupling on identity debt q_I
         verbose : bool
             Print progress
         """
-        self.lambda_a = lambda_a
+        self.lambda_DP = lambda_DP
+        self.lambda_IP = lambda_IP
         self.verbose = verbose
 
-    def compute_agency_ceiling(self, q: np.ndarray) -> np.ndarray:
+    def compute_structural_drag(self, q_I: np.ndarray, q_D: Optional[np.ndarray] = None) -> np.ndarray:
         """
-        Compute agency ceiling from structural debt.
+        Compute drag multiplier from decomposed debt.
 
-        a_max = 1 / (1 + λ_a * q²)
+        D = 1 / (1 + lambda_DP*q_D + lambda_IP*q_I)
 
         Parameters
         ----------
-        q : np.ndarray
-            Structural debt field
+        q_I : np.ndarray
+            Identity debt
+        q_D : np.ndarray, optional
+            Dissipative debt
 
         Returns
         -------
         np.ndarray
-            Agency ceiling field
+            Drag multiplier field
         """
-        return 1.0 / (1.0 + self.lambda_a * q**2)
+        if q_D is None:
+            q_D = np.zeros_like(q_I)
+        return 1.0 / (1.0 + self.lambda_DP * q_D + self.lambda_IP * q_I)
 
     def measure_agency_state(self, sim: DETCollider3D) -> AgencyState:
         """
@@ -340,23 +325,23 @@ class AgencyAnalyzer:
             Current agency statistics
         """
         a = sim.a
-        q = sim.q
-
-        a_ceiling = self.compute_agency_ceiling(q)
+        if hasattr(sim, "q_I"):
+            q_I = sim.q_I
+        else:
+            q_I = sim.q
+        q_D = sim.q_D if hasattr(sim, "q_D") else np.zeros_like(q_I)
+        drag = self.compute_structural_drag(q_I, q_D)
 
         a_mean = np.mean(a)
-        a_max_achieved = np.max(a)
-        a_ceiling_mean = np.mean(a_ceiling)
-
-        # Fraction of nodes at or near ceiling
-        constrained_mask = a >= 0.95 * a_ceiling
-        constrained_fraction = np.sum(constrained_mask) / a.size
+        a_peak = np.max(a)
+        drag_mean = np.mean(drag)
+        high_agency_fraction = np.mean(a >= 0.8)
 
         return AgencyState(
             a_mean=a_mean,
-            a_max_achieved=a_max_achieved,
-            a_ceiling_mean=a_ceiling_mean,
-            constrained_fraction=constrained_fraction
+            a_peak=a_peak,
+            drag_mean=drag_mean,
+            high_agency_fraction=high_agency_fraction
         )
 
     def compute_agency_coherence_correlation(self, sim: DETCollider3D) -> float:
@@ -903,7 +888,7 @@ class QuantumClassicalAnalyzer:
         agency_state = self.agency_analyzer.measure_agency_state(sim)
         if self.verbose:
             print(f"  Mean agency: {agency_state.a_mean:.4f}")
-            print(f"  Agency ceiling: {agency_state.a_ceiling_mean:.4f}")
+            print(f"  Mean drag: {agency_state.drag_mean:.4f}")
 
         # Entanglement metrics
         entanglement = self.entanglement_analyzer.measure_entanglement_metrics(sim)

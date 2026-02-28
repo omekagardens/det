@@ -52,20 +52,33 @@ Added mandatory v6.5.1/v7 falsifiers:
 
 ## 5. Calibration/EM
 - Updated `det_v7_0/calibration/black_hole_thermodynamics.py` for drag-inclusive presence semantics.
-- Added legacy notice to `det_v7_0/calibration/quantum_classical_transition.py`.
+- Updated `det_v7_0/calibration/quantum_classical_transition.py` to drag-era agency analysis (no structural ceiling).
 - Updated EM module helper for drag-aware presence coupling:
   - `det_v7_0/src/det_em/det_em_v6_3.py`
 
 ## 6. Validation Execution Status
 ### Completed
-- Syntax validation via `python3 -m py_compile` / `compileall` across changed `src`, `core`, `tests`, `calibration`.
-
-### Blocked
-Runtime falsifiers/tests/colliders could not be executed in this environment because required Python dependencies are unavailable and network package install is blocked:
-- missing `numpy`/`scipy`/`pytest`
-- `pip install` fails due offline index access
+- Installed runtime dependencies in `.venv`: `numpy`, `scipy`, `pytest`, `matplotlib`, `pandas`, `torch`.
+- Full test suite:
+  - `pytest det_v7_0/tests -q` -> **199 passed**, 0 failed.
+- Mandatory v6.5.1/v7 falsifiers:
+  - `python det_v7_0/tests/det_v651_falsifiers.py` -> **5/5 passed**.
+- Legacy/extended falsifiers:
+  - `python det_v7_0/tests/det_v65_falsifiers.py` -> **8/8 passed**.
+  - `python det_v7_0/tests/det_v65b_falsifiers.py` -> **4/4 passed**.
+  - `python det_v7_0/tests/det_comprehensive_falsifiers.py` -> **15/15 passed**.
+- Validation harness:
+  - `python det_v7_0/validation/det_validation_harness.py --all` -> **6/6 passed**.
+- Additional validation scripts:
+  - `gps_realistic_test.py` -> PASS
+  - `hafele_keating_test.py` -> PASS
+  - `gps_data_loader.py` + `bell_data_loader.py` -> executed successfully
+- Collider/EM smoke:
+  - 1D/2D/3D NumPy colliders, Torch collider, and EM module stepped successfully.
+- Syntax validation:
+  - `python -m compileall -q det_v7_0/src det_v7_0/core det_v7_0/tests det_v7_0/calibration det_v7_0/validation` -> PASS
 
 ## 7. Risk Notes
-- Legacy calibration modules and narrative docs are retained for traceability; several still contain pre-v6.5.1 ceiling language and are explicitly marked historical in migration docs.
-- Canonical claims should be tied to v7 falsifier outputs once dependencies are available and runs are executed.
-- Additional legacy references to `lambda_a` remain in non-canonical application/demo scripts and historical falsifier suites under `det_v7_0/src` and `det_v7_0/tests`; these are now explicitly categorized in `v7_migration_deprecation_map.md`.
+- `kepler_live_test.py` with full default live-orbit settings was computationally long in this environment and was manually interrupted during the largest radius case.
+- A reduced live run (`--radii 6 8 --orbits 1 --grid 48`) completed and reported `KEPLER'S THIRD LAW: NOT SATISFIED` (CV 13.07%).
+- The canonical repository validation gate remains the deterministic harness/falsifier suites above, all of which passed.

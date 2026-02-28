@@ -67,7 +67,7 @@ def experiment_D1_diagnose_bottleneck():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.15,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False,
         boundary_enabled=True, grace_enabled=True,
@@ -87,7 +87,7 @@ def experiment_D1_diagnose_bottleneck():
     # Trace node 25
     node = 25
     traces = {k: [] for k in ['K', 'O', 'Xi', 'Xi_seen', 'C', 'q', 'a', 'F', 'P',
-                                'grace', 'healing', 'dissipation', 'a_max']}
+                                'grace', 'healing', 'dissipation', 'drag']}
     
     for t in range(2000):
         diag = regime.step(t)
@@ -111,9 +111,11 @@ def experiment_D1_diagnose_bottleneck():
         D = np.abs(collider.pi_R)  # proxy for flow
         traces['dissipation'].append(float(D[node]))
         
-        # Agency ceiling
-        a_max = 1.0 / (1.0 + params.lambda_a * collider.q[node]**2)
-        traces['a_max'].append(a_max)
+        # Structural drag (v7 law, no agency ceiling)
+        q_i = collider.q_I[node] if hasattr(collider, "q_I") else collider.q[node]
+        q_d = collider.q_D[node] if hasattr(collider, "q_D") else 0.0
+        drag = 1.0 / (1.0 + params.lambda_DP * q_d + params.lambda_IP * q_i)
+        traces['drag'].append(float(drag))
     
     # Print final state
     print(f"  Node {node} final state:")
@@ -127,12 +129,11 @@ def experiment_D1_diagnose_bottleneck():
     print(f"\n  Attunement increment per step: {dC_attune:.2e}")
     print(f"  Steps needed for ΔC=0.1: {0.1/max(dC_attune, 1e-20):.0f}")
     
-    # THE KEY: a_max with q=0.5
-    a_max_at_q05 = 1.0 / (1.0 + 30.0 * 0.5**2)
-    print(f"\n  Agency ceiling at q=0.5: a_max = {a_max_at_q05:.4f}")
-    print(f"  Agency ceiling at q=0.3: a_max = {1.0/(1+30*0.3**2):.4f}")
-    print(f"  Agency ceiling at q=0.1: a_max = {1.0/(1+30*0.1**2):.4f}")
-    print(f"  Agency ceiling at q=0.0: a_max = {1.0/(1+30*0.0**2):.4f}")
+    print("\n  Structural drag examples (q_D=0):")
+    print(f"  D(q_I=0.5) = {1.0/(1.0 + params.lambda_IP*0.5):.4f}")
+    print(f"  D(q_I=0.3) = {1.0/(1.0 + params.lambda_IP*0.3):.4f}")
+    print(f"  D(q_I=0.1) = {1.0/(1.0 + params.lambda_IP*0.1):.4f}")
+    print(f"  D(q_I=0.0) = {1.0/(1.0 + params.lambda_IP*0.0):.4f}")
     
     # Plot
     fig, axes = plt.subplots(3, 3, figsize=(18, 14))
@@ -207,7 +208,7 @@ def experiment_D2_q_decay_hypothesis():
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.15,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.003,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False,
             boundary_enabled=True, grace_enabled=True,
@@ -357,7 +358,7 @@ def experiment_D3_enhanced_healing():
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.15,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.003,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False,
             boundary_enabled=True, grace_enabled=True,

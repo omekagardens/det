@@ -59,7 +59,7 @@ def test_F_QD1_jubilee_non_coercion(verbose=True):
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.5,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False,
         boundary_enabled=True, grace_enabled=True,
@@ -149,7 +149,7 @@ def test_F_QD2_no_hidden_globals(verbose=True):
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.5,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.003,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False,
             boundary_enabled=False,  # No boundary to avoid grace interference
@@ -210,7 +210,7 @@ def test_F_QD3_no_cheap_redemption(verbose=True):
         N=N, DT=0.02, F_VAC=1.0, F_MIN=0.0, C_init=0.9,
         momentum_enabled=False,  # No momentum → no momentum flux
         q_enabled=True, alpha_q=0.0,  # No q-locking (prevent q increase)
-        lambda_a=0.0, beta_a=0.0,  # No agency dynamics
+        beta_a=0.0,  # No agency dynamics
         floor_enabled=False,
         gravity_enabled=False,
         boundary_enabled=False,
@@ -276,7 +276,7 @@ def test_F_QD4_WK_transition(verbose=True):
             N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.15,
             momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
             q_enabled=True, alpha_q=0.001,
-            lambda_a=30.0, beta_a=0.2,
+            beta_a=0.2,
             floor_enabled=True, eta_floor=0.15, F_core=5.0,
             gravity_enabled=False,
             boundary_enabled=True, grace_enabled=True,
@@ -404,7 +404,7 @@ def test_F_A0_spontaneous_structure(verbose=True):
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.0,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=False,  # No q dynamics
-        lambda_a=0.0, beta_a=0.0,  # No agency dynamics
+        beta_a=0.0,  # No agency dynamics
         floor_enabled=False,
         gravity_enabled=False,
         boundary_enabled=False,
@@ -627,7 +627,7 @@ def test_qI_immutability(verbose=True):
         N=N, DT=0.02, F_VAC=0.01, C_init=0.8,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.001,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False,
         boundary_enabled=True, grace_enabled=True,

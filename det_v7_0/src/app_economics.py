@@ -66,7 +66,7 @@ def experiment_C1_market_regimes():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )
@@ -233,7 +233,7 @@ def experiment_C2_contagion():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )
@@ -399,7 +399,7 @@ def experiment_C3_regulation():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.2,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )
@@ -548,7 +548,7 @@ def experiment_C4_information_asymmetry():
         N=N, DT=0.02, F_VAC=0.01, F_MIN=0.0, C_init=0.3,
         momentum_enabled=True, alpha_pi=0.10, lambda_pi=0.02, mu_pi=0.30,
         q_enabled=True, alpha_q=0.003,
-        lambda_a=30.0, beta_a=0.2,
+        beta_a=0.2,
         floor_enabled=True, eta_floor=0.15, F_core=5.0,
         gravity_enabled=False, boundary_enabled=False
     )

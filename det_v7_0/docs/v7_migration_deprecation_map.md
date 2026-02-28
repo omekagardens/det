@@ -30,20 +30,12 @@ These documents include pre-v6.5.1 agency-ceiling language and should be read as
 - `det_v6_3_collider_torch.py` in `det_v7_0/src`: **Updated to v6.5.1/v7 canonical laws**.
 - `det_em/det_em_v6_3.py` in `det_v7_0/src`: updated with drag-aware presence helper.
 
-## 3.1 Source Modules Marked Legacy/Transitional
-The following `det_v7_0/src` files still pass legacy `lambda_a` or include ceiling-era diagnostics.
-They are retained for historical replay and should not be used for canonical v7 claims without explicit update:
-- `app_computing.py`
-- `app_economics.py`
-- `app_materials.py`
-- `det_concurrent_regimes.py`
-- `det_radioactive_decay.py`
-- `local_transition_mechanisms.py`
-- `local_transition_diagnostic.py`
-- `transition_dynamics.py`
-- `triple_lock_plots.py`
-- `triple_lock_resolution.py`
-- `det_unified_params.py` (contains deprecated compatibility alias)
+## 3.1 Second-Pass Cleanup Status
+Second-pass rewrites removed legacy `lambda_a` callsites and ceiling-era agency logic from
+app/demo/test artifacts in `det_v7_0/src` and `det_v7_0/tests`.
+
+Remaining compatibility-only legacy alias:
+- `lambda_a` field in collider parameter dataclasses (`det_v6_3_1d/2d/3d_collider.py`, `det_v6_3_collider_torch.py`) is retained only as a backward-compatible no-op.
 
 ## 4. New Core Architecture Layer (v7)
 Added under `det_v7_0/core`:
@@ -82,4 +74,4 @@ The following tests/harnesses remain useful for regression archaeology but are n
 
 ## 7. Calibration Module Status
 - Canonical readout modules remain active: `extract_g_calibration.py`, `galaxy_rotation_curves.py`, `gravitational_lensing.py`, `cosmological_scaling.py`, `black_hole_thermodynamics.py`.
-- `quantum_classical_transition.py` is retained as a legacy ceiling-era analysis and is non-canonical until fully re-derived under drag-only agency laws.
+- `quantum_classical_transition.py` was updated to drag-era agency analysis (`q_I/q_D` drag readouts, no structural ceiling).

@@ -12,7 +12,7 @@ os.makedirs(OUT, exist_ok=True)
 
 # Data from the q_D sweep (10,000 steps, delta_q=1.0, n_q=1, D_0=0.01)
 qD_init = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
-a_max_W = [0.7692, 0.5970, 0.4545, 0.3478, 0.2703, 0.2139, 0.1724, 0.1413, 0.1176]
+drag_W_initial = [0.7692, 0.5970, 0.4545, 0.3478, 0.2703, 0.2139, 0.1724, 0.1413, 0.1176]
 final_qD = [0.0409, 0.0821, 0.1378, 0.1997, 0.2543, 0.3014, 0.3462, 0.3901, 0.4336]
 delta_qD = [0.0591, 0.0679, 0.0622, 0.0503, 0.0457, 0.0486, 0.0538, 0.0599, 0.0664]
 final_K_W = [0.4886, 0.4402, 0.3822, 0.3256, 0.2809, 0.2503, 0.2259, 0.2051, 0.1867]
@@ -77,15 +77,16 @@ fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 fig.suptitle("The Jubilee Cascade: How the Triple Lock Breaks",
              fontsize=14, fontweight='bold')
 
-# Show the feedback loop: lower q_D → higher a_max → more flow → more Jubilee
-final_a_max = [1.0 / (1.0 + 30.0 * q**2) for q in final_qD]
+# Show the feedback loop: lower q_D -> higher drag multiplier D -> more participation
+lambda_dp = 3.0
+final_drag = [1.0 / (1.0 + lambda_dp * q) for q in final_qD]
 
-ax.plot(qD_init, a_max_W, 'o--', color='red', linewidth=2, label='Initial a_max (locked)')
-ax.plot(qD_init, final_a_max, 's-', color='green', linewidth=2, label='Final a_max (after Jubilee)')
-ax.fill_between(qD_init, a_max_W, final_a_max, alpha=0.2, color='green')
+ax.plot(qD_init, drag_W_initial, 'o--', color='red', linewidth=2, label='Initial drag D (locked)')
+ax.plot(qD_init, final_drag, 's-', color='green', linewidth=2, label='Final drag D (after Jubilee)')
+ax.fill_between(qD_init, drag_W_initial, final_drag, alpha=0.2, color='green')
 ax.set_xlabel('Initial q_D', fontsize=12)
-ax.set_ylabel('Agency Ceiling (a_max)', fontsize=12)
-ax.set_title('Agency Ceiling Recovery via Jubilee', fontsize=13)
+ax.set_ylabel('Structural Drag Multiplier D', fontsize=12)
+ax.set_title('Participation Recovery via Jubilee', fontsize=13)
 ax.legend(fontsize=11)
 ax.grid(True, alpha=0.3)
 
