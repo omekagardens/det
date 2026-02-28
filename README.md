@@ -1,28 +1,35 @@
-# Deep Existence Theory (DET) v6.3 Release
+# Deep Existence Theory (DET) Repository
 
-**Version:** 6.3  
-**Date:** January 2026  
-**Author:** Omeka Gardens
+## Active Model Families
+- `det_v6_3/`: Legacy baseline and historical artifacts.
+- `det_v7_0/`: Refactored Agency-First + structural-drag baseline.
 
-## Overview
-This package contains the complete DET v6.3 implementation, organized for clarity and verification. It includes the core theory, multi-dimensional colliders, and a categorized test suite.
+## Canonical Theory Cards
+- `det_v6_3/docs/det_theory_card_6_5_1.md`
+- `det_v7_0/docs/det_theory_card_6_5_1.md`
 
-## Package Structure
-- **`passed/`**: Verified physical proofs and successful tests.
-- **`failed/`**: Tests that deviate from classical benchmarks but are not required for DET's core proof.
-- **`src/`**: Core simulation source code (v6.3).
-- **`docs/`**: Comprehensive theory cards and technical reports.
-- **`results/`**: Generated plots and test reports from the v6.3 run.
-- **`operational_ability/`**: Step-by-step guide to running and verifying the theory.
-- **`PROJECT_STATUS_v6_2.md`**: Detailed status report on math, capabilities, and next steps.
+Legacy cards `det_theory_card_6_3.md` and `det_theory_card_6_5.md` are retained for historical traceability and explicitly marked as superseded.
 
-## Quick Start
-1. Install dependencies: `pip install numpy scipy matplotlib`
-2. Run the test suite: `python passed/run_all_tests.py`
-3. Explore the theory: Read `docs/det_theory_card_6_3.md`
+## v7 Core Architecture
+`det_v7_0/core` provides canonical law modules:
+- `presence.py`
+- `gravity.py`
+- `agency.py`
+- `structure.py`
+- `flow.py`
+- `boundary.py`
+- `update_loop.py`
 
-## Core Principles
-DET is a theory of strictly local relational dynamics where time, mass, and gravity emerge from a closed update loop over agents and bonds. It prioritizes **Agency Inviolability** and **Strict Locality**.
+## Mandatory v6.5.1/v7 Falsifiers
+Implemented in `det_v7_0/tests`:
+- `test_f_a2_prime_no_structural_suppression.py`
+- `test_f_a4_frozen_will.py`
+- `test_f_a5_runaway_agency_sweep.py`
+- `test_gtd5_prime_drag_clock_ratio.py`
+- `test_bh_drag_scaling_3d.py`
+- runner: `det_v651_falsifiers.py`
 
----
-*This package was generated following a deep review and re-execution of all tests to ensure result integrity.*
+## Notes
+- Calibration and validation modules remain readout layers.
+- Legacy reports and docs are preserved; use `v7_migration_deprecation_map.md` for status.
+
