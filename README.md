@@ -4,11 +4,12 @@
 - `det_v6_3/`: Legacy baseline and historical artifacts.
 - `det_v7_0/`: Refactored Agency-First + structural-drag baseline.
 
-## Canonical Theory Cards
-- `det_v6_3/docs/det_theory_card_6_5_1.md`
-- `det_v7_0/docs/det_theory_card_6_5_1.md`
+## Canonical Model Card
+- `det_v7_0/docs/det_model_v7_0.md`
 
-Legacy cards `det_theory_card_6_3.md` and `det_theory_card_6_5.md` are retained for historical traceability and explicitly marked as superseded.
+Legacy cards `det_theory_card_6_3.md`, `det_theory_card_6_5.md`, and
+`det_theory_card_6_5_1.md` are retained for historical traceability and are
+explicitly marked as superseded.
 
 ## v7 Core Architecture
 `det_v7_0/core` provides canonical law modules:
@@ -32,4 +33,3 @@ Implemented in `det_v7_0/tests`:
 ## Notes
 - Calibration and validation modules remain readout layers.
 - Legacy reports and docs are preserved; use `v7_migration_deprecation_map.md` for status.
-

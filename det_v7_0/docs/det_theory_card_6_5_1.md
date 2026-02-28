@@ -1,5 +1,7 @@
 # Deep Existence Theory (DET) v6.5.1
 
+> **Legacy Patch Card Notice (2026-02-28):** Canonical reference has moved to `det_model_v7_0.md` (single unified DET v7 model card).
+
 **Patch ID:** `DET-6.5.1-A0-DRAG`  
 **Status:** Experimental baseline (recommended replacement for v6.4 ceiling law)  
 **Date:** 2026-02-28
@@ -137,4 +139,3 @@ If BH scaling is not yet validated in 3D, black-hole thermodynamic claims remain
 ## 10. Final Principle
 History slows participation-time.  
 History does not delete will.
-

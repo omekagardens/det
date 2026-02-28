@@ -4,9 +4,10 @@
 **Scope reviewed:** `/docs`, `/src`, `/tests`, `/validation`, `/reports`
 
 ## 1. Canonical Docs
-- `det_theory_card_6_5_1.md`: **Canonical baseline** for Agency-First + structural drag.
+- `det_model_v7_0.md`: **Single canonical DET v7.0 model card**.
+- `det_theory_card_6_5_1.md`: **Legacy patch card**, superseded as canonical reference by `det_model_v7_0.md`.
 - `det_theory_card_6_3.md`: **Legacy/superseded** for core law; keep as historical reference.
-- `det_theory_card_6_5.md`: **Legacy/superseded** by v6.5.1 card.
+- `det_theory_card_6_5.md`: **Legacy/superseded** historical iteration.
 
 ## 2. Docs to Treat as Historical/Contextual (Not Canonical Dynamics)
 The following are retained as domain/application narrative and should not be used as canonical core laws:

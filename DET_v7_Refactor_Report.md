@@ -5,7 +5,10 @@
 
 ## 1. Scope Completed
 - Created new model family directory: `det_v7_0/` (copied from `det_v6_3/` then refactored).
-- Added canonical `det_theory_card_6_5_1.md` to both:
+- Added unified canonical model card:
+  - `det_v7_0/docs/det_model_v7_0.md`
+  - pointer in legacy tree: `det_v6_3/docs/det_model_v7_0.md`
+- Added `det_theory_card_6_5_1.md` patch card to both trees (now legacy patch reference):
   - `det_v6_3/docs/`
   - `det_v7_0/docs/`
 - Marked `det_theory_card_6_3.md` and `det_theory_card_6_5.md` as legacy/superseded.
@@ -82,3 +85,5 @@ Added mandatory v6.5.1/v7 falsifiers:
 - `kepler_live_test.py` with full default live-orbit settings was computationally long in this environment and was manually interrupted during the largest radius case.
 - A reduced live run (`--radii 6 8 --orbits 1 --grid 48`) completed and reported `KEPLER'S THIRD LAW: NOT SATISFIED` (CV 13.07%).
 - The canonical repository validation gate remains the deterministic harness/falsifier suites above, all of which passed.
+- Consistency audit document added:
+  - `det_v7_0/docs/v7_consistency_review_2026_02_28.md`
