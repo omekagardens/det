@@ -22,7 +22,7 @@ This framework has profound implications from computing to biology to the nature
 | Document | Description |
 |----------|-------------|
 | `det_structural_debt.md` | Foundational theory: q as future-biasing mechanism |
-| `det_model_v7_0.md` | Canonical DET v7 reference (agency-first + drag + debt decomposition) |
+| `det_theory_card_7_0.md` | Canonical DET v7 reference (agency-first + drag + debt decomposition) |
 
 ### Implementation
 

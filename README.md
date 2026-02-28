@@ -5,7 +5,7 @@
 - `det_v7_0/`: Refactored Agency-First + structural-drag baseline.
 
 ## Canonical Model Card
-- `det_v7_0/docs/det_model_v7_0.md`
+- `det_v7_0/docs/det_theory_card_7_0.md`
 
 Legacy cards `det_theory_card_6_3.md`, `det_theory_card_6_5.md`, and
 `det_theory_card_6_5_1.md` are retained for historical traceability and are

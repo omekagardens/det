@@ -6,8 +6,8 @@
 ## 1. Scope Completed
 - Created new model family directory: `det_v7_0/` (copied from `det_v6_3/` then refactored).
 - Added unified canonical model card:
-  - `det_v7_0/docs/det_model_v7_0.md`
-  - pointer in legacy tree: `det_v6_3/docs/det_model_v7_0.md`
+  - `det_v7_0/docs/det_theory_card_7_0.md`
+  - pointer in legacy tree: `det_v6_3/docs/det_theory_card_7_0.md`
 - Added `det_theory_card_6_5_1.md` patch card to both trees (now legacy patch reference):
   - `det_v6_3/docs/`
   - `det_v7_0/docs/`

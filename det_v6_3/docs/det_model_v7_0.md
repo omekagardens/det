@@ -3,7 +3,7 @@
 This is a compatibility pointer for legacy tree navigation.
 
 Canonical file:
-- `det_v7_0/docs/det_model_v7_0.md`
+- `det_v7_0/docs/det_theory_card_7_0.md`
 
 Use the canonical file above for all current model definitions,
 validation gates, and implementation-level rules.

@@ -1,6 +1,6 @@
 # Deep Existence Theory (DET) v6.3
 
-> **Legacy Card Notice (2026-02-28):** Superseded for canonical work by `det_model_v7_0.md` (single unified DET v7 model card).
+> **Legacy Card Notice (2026-02-28):** Superseded for canonical work by `det_theory_card_7_0.md` (single unified DET v7 model card).
 
 **Unified Canonical Formulation (Strictly Local, Law-Bound Boundary Action)**
 

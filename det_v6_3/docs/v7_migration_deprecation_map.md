@@ -4,8 +4,8 @@
 **Scope reviewed:** `/docs`, `/src`, `/tests`, `/validation`, `/reports`
 
 ## 1. Canonical Docs
-- `det_model_v7_0.md`: **Single canonical DET v7.0 model card**.
-- `det_theory_card_6_5_1.md`: **Legacy patch card**, superseded as canonical reference by `det_model_v7_0.md`.
+- `det_theory_card_7_0.md`: **Single canonical DET v7.0 model card**.
+- `det_theory_card_6_5_1.md`: **Legacy patch card**, superseded as canonical reference by `det_theory_card_7_0.md`.
 - `det_theory_card_6_3.md`: **Legacy/superseded** for core law; keep as historical reference.
 - `det_theory_card_6_5.md`: **Legacy/superseded** historical iteration.
 

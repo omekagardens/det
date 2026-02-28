@@ -10,7 +10,7 @@
 
 ## Canonical Reference Decision
 - Canonical model definition is now centralized in:
-  - `det_v7_0/docs/det_model_v7_0.md`
+  - `det_v7_0/docs/det_theory_card_7_0.md`
 - Legacy cards are retained but explicitly marked superseded.
 
 ## Module Consistency Summary
@@ -24,7 +24,7 @@
   - Legacy falsifier suites retained for regression archaeology.
 
 ## Document Consistency Summary
-- Unified canonical card added: `det_model_v7_0.md`.
+- Unified canonical card added: `det_theory_card_7_0.md`.
 - README and migration maps now point to unified card.
 - `det_theory_card_6_3.md`, `det_theory_card_6_5.md`, `det_theory_card_6_5_1.md` marked as legacy/superseded.
 
@@ -34,7 +34,7 @@ The following remain intentionally historical or application-narrative and are n
 - structural debt application narratives
 - historical analyses/reports generated against prior version labels
 
-These remain for traceability and should not override `det_model_v7_0.md`.
+These remain for traceability and should not override `det_theory_card_7_0.md`.
 
 ## Validation Snapshot
 - `pytest det_v7_0/tests -q`: pass

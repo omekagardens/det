@@ -1,6 +1,6 @@
 # Deep Existence Theory (DET) v6.5.1
 
-> **Legacy Patch Card Notice (2026-02-28):** Canonical reference has moved to `det_model_v7_0.md` (single unified DET v7 model card).
+> **Legacy Patch Card Notice (2026-02-28):** Canonical reference has moved to `det_theory_card_7_0.md` (single unified DET v7 model card).
 
 **Patch ID:** `DET-6.5.1-A0-DRAG`  
 **Status:** Experimental baseline (recommended replacement for v6.4 ceiling law)  
