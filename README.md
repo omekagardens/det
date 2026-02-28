@@ -7,6 +7,9 @@
 ## Canonical Model Card
 - `det_v7_0/docs/det_theory_card_7_0.md`
 
+## v7 Applications Review
+- `det_v7_0/docs/det_v7_applications_review.md`
+
 Legacy cards `det_theory_card_6_3.md`, `det_theory_card_6_5.md`, and
 `det_theory_card_6_5_1.md` are retained for historical traceability and are
 explicitly marked as superseded.

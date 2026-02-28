@@ -36,6 +36,7 @@ This framework has profound implications from computing to biology to the nature
 | Document | Focus |
 |----------|-------|
 | `det_structural_debt_applications.md` | Computing, bioengineering, living buildings |
+| `det_v7_applications_review.md` | v7 practical roadmap: control, maintenance, timing, calibration programs |
 | `det_spirit_debt_applications.md` | Identity-preserving systems, AI accountability |
 
 ### Deep Theory
