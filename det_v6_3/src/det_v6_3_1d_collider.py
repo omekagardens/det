@@ -92,6 +92,23 @@ class DETParams1D:
     # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
     coherence_weighted_H: bool = False
 
+    # v6.5: Jubilee / Forgiveness operator (q-decay)
+    jubilee_enabled: bool = False
+    delta_q: float = 0.001       # Jubilee decay rate
+    n_q: float = 2.0             # Coherence exponent for Jubilee activation
+    D_0: float = 0.05            # Dissipation saturation constant
+    # Optional: Relational Jubilee (bond-consensual)
+    relational_jubilee: bool = False
+    eta_RJ: float = 0.5          # Relational Jubilee coupling
+    m_q: float = 2.0             # Coherence exponent for relational term
+    J_0: float = 0.05            # Flow saturation constant
+    # v6.5b: Energy coupling (mandatory per thermodynamic consistency review)
+    # Jubilee cost: dq_D is capped by min(q_D, F_op/(1+F_op))
+    # This binds forgiveness to available free resource.
+    jubilee_energy_coupling: bool = True  # Default ON for thermodynamic safety
+    # q-split: fraction of q-locking that goes to q_I (identity debt)
+    q_I_fraction: float = 0.0    # Default: 100% to q_D
+
     # Numerical stability
     outflow_limit: float = 0.25
 
@@ -127,6 +144,8 @@ class DETCollider1D:
         # Per-node state
         self.F = np.ones(N) * self.p.F_VAC
         self.q = np.zeros(N)
+        self.q_I = np.zeros(N)  # v6.5: Identity debt (irreversible)
+        self.q_D = np.zeros(N)  # v6.5: Damage debt (recoverable)
         self.a = np.ones(N)
 
         # Per-bond state
@@ -152,6 +171,10 @@ class DETCollider1D:
         self.last_grace_injection = np.zeros(N)
         self.last_healing = np.zeros(N)
         self.total_grace_injected = 0.0
+
+        # v6.5: Jubilee diagnostics
+        self.last_jubilee = np.zeros(N)
+        self.total_jubilee = 0.0
 
         self._setup_fft_solvers()
 
@@ -239,6 +262,49 @@ class DETCollider1D:
         dC_heal = p.eta_heal * g_R * room * D_avg_R * Delta_tau_R
         return dC_heal
 
+    def compute_jubilee(self, D: np.ndarray) -> np.ndarray:
+        """Jubilee / Forgiveness operator (v6.5): reduces damage debt q_D.
+
+        S_i = a_i * C_i^n_q * D_i/(D_i + D_0)
+        dq_D = -delta_q * S_i * Delta_tau_i
+
+        Optional Relational Jubilee adds bond-consensual term.
+        """
+        p = self.p
+        R = lambda x: np.roll(x, -1)
+        L = lambda x: np.roll(x, 1)
+
+        # Node coherence proxy: average of left and right bond coherences
+        C_i = 0.5 * (self.C_R + L(self.C_R))
+
+        # Activation: agency * coherence^n * dissipation_saturation
+        S_i = self.a * (C_i ** p.n_q) * (D / (D + p.D_0))
+
+        # Node-local Jubilee
+        dq = p.delta_q * S_i * self.Delta_tau
+
+        # v6.5b: Energy coupling — cap forgiveness by available free resource
+        # Δq_D ≤ min(q_D, F_op/(1+F_op))
+        # This prevents free entropy reduction and preserves thermodynamic arrow.
+        if p.jubilee_energy_coupling:
+            F_op = np.maximum(self.F - p.F_VAC, 0.0)  # operational resource
+            energy_cap = F_op / (1.0 + F_op)
+            dq = np.minimum(dq, energy_cap)
+            dq = np.minimum(dq, self.q_D)  # can't forgive more than exists
+
+        # Optional: Relational Jubilee (bond-consensual)
+        if p.relational_jubilee:
+            # R_{ij} = sqrt(a_i*a_j) * C_ij^m_q * |J_ij|/(|J_ij| + J_0)
+            g_R = np.sqrt(self.a * R(self.a))
+            J_R_mag = np.abs(self.pi_R)  # proxy for flow magnitude on right bond
+            R_ij = g_R * (self.C_R ** p.m_q) * (J_R_mag / (J_R_mag + p.J_0))
+
+            # Symmetric: average of right and left bond contributions
+            R_avg = 0.5 * (R_ij + L(R_ij))
+            dq += p.delta_q * p.eta_RJ * R_avg * self.Delta_tau
+
+        return dq
+
     def add_packet(self, center: int, mass: float = 5.0,
                    width: float = 5.0, momentum: float = 0, initial_q: float = 0.0):
         """Add a Gaussian resource packet."""
@@ -255,13 +321,19 @@ class DETCollider1D:
             self.pi_R += momentum * mom_env
 
         if initial_q > 0:
-            self.q += initial_q * envelope
+            q_add = initial_q * envelope
+            self.q += q_add
+            # v6.5: initial q goes to q_D by default
+            self.q_D += q_add * (1.0 - self.p.q_I_fraction)
+            self.q_I += q_add * self.p.q_I_fraction
 
         self._clip()
 
     def _clip(self):
         self.F = np.clip(self.F, self.p.F_MIN, 1000)
         self.q = np.clip(self.q, 0, 1)
+        self.q_I = np.clip(self.q_I, 0, 1)
+        self.q_D = np.clip(self.q_D, 0, 1)
         self.a = np.clip(self.a, 0, 1)
         self.pi_R = np.clip(self.pi_R, -self.p.pi_max, self.p.pi_max)
 
@@ -382,9 +454,16 @@ class DETCollider1D:
                 dpi_grav = 0
             self.pi_R = decay_R * self.pi_R + dpi_diff + dpi_grav
 
-        # STEP 7: Structure update
+        # STEP 7: Structure update (q-locking)
         if p.q_enabled:
-            self.q = np.clip(self.q + p.alpha_q * np.maximum(0, -dF), 0, 1)
+            dq_lock = p.alpha_q * np.maximum(0, -dF)
+            if p.jubilee_enabled:
+                # v6.5: q-locking updates q_D (and optionally q_I)
+                self.q_D = np.clip(self.q_D + dq_lock * (1.0 - p.q_I_fraction), 0, 1)
+                self.q_I = np.clip(self.q_I + dq_lock * p.q_I_fraction, 0, 1)
+                self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            else:
+                self.q = np.clip(self.q + dq_lock, 0, 1)
 
         # STEP 8: Bond Healing
         if p.boundary_enabled and p.healing_enabled:
@@ -394,9 +473,21 @@ class DETCollider1D:
         else:
             self.last_healing = np.zeros(N)
 
+        # STEP 8b: Jubilee / Forgiveness (v6.5)
+        if p.jubilee_enabled:
+            dq_jubilee = self.compute_jubilee(D)
+            self.q_D = np.clip(self.q_D - dq_jubilee, 0, 1)
+            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            self.last_jubilee = dq_jubilee.copy()
+            self.total_jubilee += float(np.sum(dq_jubilee))
+        else:
+            self.last_jubilee = np.zeros(N)
+
         # STEP 9: Agency update - v6.4 Law
         # Step 1: Structural ceiling (matter law)
-        a_max = 1.0 / (1.0 + p.lambda_a * self.q**2)
+        # v6.5: agency ceiling depends on q_D only (recovery-permitting)
+        q_for_ceiling = self.q_D if p.jubilee_enabled else self.q
+        a_max = 1.0 / (1.0 + p.lambda_a * q_for_ceiling**2)
 
         # Step 2: Relational drive (life law)
         # Local average presence (self + 2 neighbors)
