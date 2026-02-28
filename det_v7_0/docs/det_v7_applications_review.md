@@ -214,6 +214,7 @@ These are engineering constraints, not optional conventions.
 1. `det_v7_0/reports/det_v7_applications_program_plan.md` (execution plan with owners and milestones)
 2. `det_v7_0/tests/test_v7_controller_degradation_modes.py` (new practical-control falsifier)
 3. `det_v7_0/validation/det_v7_applications_harness.py` (cross-domain benchmark runner)
+4. `det_v7_0/docs/det_v7_battery_storage_recovery_review.md` (domain deep-dive for fast charging via recoverable drag reduction)
 
 ---
 

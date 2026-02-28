@@ -9,6 +9,7 @@
 
 ## v7 Applications Review
 - `det_v7_0/docs/det_v7_applications_review.md`
+- `det_v7_0/docs/det_v7_battery_storage_recovery_review.md`
 
 Legacy cards `det_theory_card_6_3.md`, `det_theory_card_6_5.md`, and
 `det_theory_card_6_5_1.md` are retained for historical traceability and are
