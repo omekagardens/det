@@ -30,6 +30,21 @@ These documents include pre-v6.5.1 agency-ceiling language and should be read as
 - `det_v6_3_collider_torch.py` in `det_v7_0/src`: **Updated to v6.5.1/v7 canonical laws**.
 - `det_em/det_em_v6_3.py` in `det_v7_0/src`: updated with drag-aware presence helper.
 
+## 3.1 Source Modules Marked Legacy/Transitional
+The following `det_v7_0/src` files still pass legacy `lambda_a` or include ceiling-era diagnostics.
+They are retained for historical replay and should not be used for canonical v7 claims without explicit update:
+- `app_computing.py`
+- `app_economics.py`
+- `app_materials.py`
+- `det_concurrent_regimes.py`
+- `det_radioactive_decay.py`
+- `local_transition_mechanisms.py`
+- `local_transition_diagnostic.py`
+- `transition_dynamics.py`
+- `triple_lock_plots.py`
+- `triple_lock_resolution.py`
+- `det_unified_params.py` (contains deprecated compatibility alias)
+
 ## 4. New Core Architecture Layer (v7)
 Added under `det_v7_0/core`:
 - `presence.py`
@@ -53,7 +68,18 @@ New mandatory v6.5.1/v7 falsifier tests were added under `det_v7_0/tests`:
 
 Legacy `det_v6_3/tests` suites remain for historical continuity and compatibility checks.
 
+## 5.1 Legacy Test Artifacts
+The following tests/harnesses remain useful for regression archaeology but are not canonical v7 falsifier gates:
+- `det_v65_falsifiers.py`
+- `det_v65b_falsifiers.py`
+- `det_comprehensive_falsifiers.py`
+- `test_quantum_classical_transition.py`
+- `analyze_parameters.py`
+
 ## 6. Validation and Reports
 - Validation harnesses under `/validation` and legacy reports under `/reports` are retained as historical outputs.
 - For canonical claims, use the new falsifier set above plus calibration outputs generated from `det_v7_0` colliders.
 
+## 7. Calibration Module Status
+- Canonical readout modules remain active: `extract_g_calibration.py`, `galaxy_rotation_curves.py`, `gravitational_lensing.py`, `cosmological_scaling.py`, `black_hole_thermodynamics.py`.
+- `quantum_classical_transition.py` is retained as a legacy ceiling-era analysis and is non-canonical until fully re-derived under drag-only agency laws.

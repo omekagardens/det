@@ -18,3 +18,14 @@ This executes:
 Legacy v6.3/v6.5 test files are retained for historical continuity and
 regression checks. For canonical v7 claims, rely on the mandatory set above.
 
+Explicitly legacy/non-gate suites:
+- `det_v65_falsifiers.py`
+- `det_v65b_falsifiers.py`
+- `det_comprehensive_falsifiers.py`
+- `test_quantum_classical_transition.py`
+
+## Runtime Dependencies
+Mandatory falsifier execution requires:
+- `numpy`
+- `scipy`
+- `pytest`

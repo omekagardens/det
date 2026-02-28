@@ -68,4 +68,4 @@ Runtime falsifiers/tests/colliders could not be executed in this environment bec
 ## 7. Risk Notes
 - Legacy calibration modules and narrative docs are retained for traceability; several still contain pre-v6.5.1 ceiling language and are explicitly marked historical in migration docs.
 - Canonical claims should be tied to v7 falsifier outputs once dependencies are available and runs are executed.
-
+- Additional legacy references to `lambda_a` remain in non-canonical application/demo scripts and historical falsifier suites under `det_v7_0/src` and `det_v7_0/tests`; these are now explicitly categorized in `v7_migration_deprecation_map.md`.
