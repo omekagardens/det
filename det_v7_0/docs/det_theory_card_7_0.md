@@ -70,6 +70,11 @@ It does not delete will.
 All major claims require explicit falsifiers with declared thresholds.
 Calibration modules remain readout layers only.
 
+### 1.5 Boundary-Agent Continuity (Carried from v6.3)
+DET v7 retains the boundary-agent layer.
+It acts only through explicit local operators (Grace, Healing, Jubilee), with no direct write to agency and no hidden nonlocal state.
+Boundary action is lawful local dynamics, not arbitrary override.
+
 ---
 
 ## 2) Canonical State Variables
@@ -191,6 +196,36 @@ Source and potential:
 
 Poisson-like local solve and local gradient readout define gravity field.
 
+### 3.6 Boundary Operators (Canonical v7)
+Local dissipation proxy from limited flux:
+
+\[
+D_i = \sum_{j \in \mathcal{N}(i)} |J_{i\to j}|\,\Delta\tau_i
+\]
+
+Grace injection (v6.2-style local node operator used in canonical colliders):
+
+\[
+n_i = \max(0, F_{MIN}^{grace} - F_i),\quad w_i = a_i n_i
+\]
+\[
+I_{g\to i} = D_i \frac{w_i}{\sum_{k \in \mathcal{N}_R(i)} w_k + \varepsilon}
+\]
+
+Properties:
+- strictly local neighborhood normalization,
+- agency-gated (`a_i=0 \Rightarrow I_{g\to i}=0`),
+- modifies `F`, never modifies `a` directly.
+
+Bond healing (if enabled):
+
+\[
+\Delta C^{heal}_{ij} = \eta_{heal}\,g^{(a)}_{ij}\,(1-C_{ij})\,\bar D_{ij}\,\Delta\tau_{ij},
+\quad g^{(a)}_{ij}=\sqrt{a_i a_j}
+\]
+
+Jubilee remains the `q`-recovery operator in Section 3.3, energy-coupled through `F_{op}`.
+
 ---
 
 ## 4) Canonical Update Order (Must Preserve)
@@ -201,13 +236,15 @@ Poisson-like local solve and local gradient readout define gravity field.
 4. Compute `Delta_tau`
 5. Compute flux components (diffusive, momentum, rotational, floor, gravitational)
 6. Apply conservative limiter
-7. Update `F`
-8. Update momentum `pi`
-9. Update angular momentum `L`
-10. Update structure `q` (accumulation + lawful local recovery)
-11. Update agency `a`
-12. Update coherence `C`
-13. Update pointer/record diagnostics
+7. Update `F` from local flux divergence
+8. Apply boundary Grace operator to `F` (if enabled)
+9. Update momentum `pi`
+10. Update angular momentum `L`
+11. Update structure `q` from loss locking
+12. Apply boundary Healing/Jubilee operators (if enabled)
+13. Update agency `a`
+14. Update coherence `C`
+15. Update pointer/record diagnostics
 
 No out-of-band core-law insertion is allowed.
 
@@ -216,10 +253,12 @@ No out-of-band core-law insertion is allowed.
 ## 5) Boundary Operator Rules
 
 1. Boundary operators must be strictly local.
-2. Edge operators must preserve antisymmetry where specified.
-3. Operators may not inject hidden global state.
-4. Operators may not directly modify agency.
-5. Jubilee acts on `q` (mutable combined debt), with local gating and energy coupling.
+2. Operators may not inject hidden global state.
+3. Operators may not directly modify agency.
+4. Grace acts on `F` via local depletion need and local dissipation budget.
+5. Healing acts on bond coherence `C_ij` only.
+6. Jubilee acts on `q` only, with local gating and optional energy coupling cap.
+7. Any alternate edge-flux Grace law must be explicitly declared as a selectable submodel.
 
 ---
 
@@ -232,6 +271,11 @@ No out-of-band core-law insertion is allowed.
 - `n_q`: Jubilee coherence exponent
 - `D_0`: Jubilee drag-activation scale
 - `F_VAC`: vacuum floor for operational free-resource readout `F_op`
+- `F_MIN_grace`: Grace depletion threshold
+- `R_boundary`: Grace local neighborhood radius
+- `eta_heal`: bond-healing coupling (if enabled)
+- `boundary_enabled`, `grace_enabled`, `healing_enabled`, `jubilee_enabled`: boundary operator toggles
+- `jubilee_energy_coupling`: enforce `F_op` energy cap on Jubilee
 - `beta_a`: agency relaxation rate
 - `a0`: agency attractor (default `1.0`)
 - `gamma_max`, `n`: coherence gate parameters
@@ -333,6 +377,9 @@ Executed against repository state on `codex/det-v7-refactor`:
 - full `pytest det_v7_0/tests -q`: 204 passed
 
 Warnings remain in legacy-style tests returning non-`None`; no failing assertions.
+
+Focused boundary-operator study artifact:
+- `det_v7_0/reports/grace_jubilee_energy_interaction_2026_03_03.md`
 
 ---
 

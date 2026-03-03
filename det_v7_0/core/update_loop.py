@@ -8,11 +8,13 @@ CANONICAL_STEPS = (
     "compute_flux_components",
     "apply_conservative_limiter",
     "update_F",
+    "apply_boundary_grace",
     "update_momentum",
     "update_angular_momentum",
-    "update_structure_qd",
+    "update_structure_q",
+    "apply_boundary_healing",
+    "apply_boundary_jubilee",
     "update_agency",
     "update_coherence",
     "update_pointer_records",
 )
-
