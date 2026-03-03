@@ -66,6 +66,9 @@ class DETParams3D:
     # Structure (q-locking)
     q_enabled: bool = True
     alpha_q: float = 0.012
+    q_mutable_local_enabled: bool = False
+    alpha_q_local_resource_relief: float = 0.0
+    alpha_q_grace_relief: float = 0.0
 
     # Structural Debt Couplings (v6.4 extension)
     # q reshapes conductivity, temporal flow, and coherence decay
@@ -205,6 +208,11 @@ class DETCollider3D:
         # Boundary operator diagnostics
         self.last_grace_injection = np.zeros((N, N, N), dtype=np.float64)
         self.total_grace_injected = 0.0
+
+        # Structure diagnostics
+        self.last_q_locking = np.zeros((N, N, N), dtype=np.float64)
+        self.last_q_relief_local = np.zeros((N, N, N), dtype=np.float64)
+        self.last_q_relief_grace = np.zeros((N, N, N), dtype=np.float64)
 
         self._setup_fft_solvers()
 
@@ -645,6 +653,7 @@ class DETCollider3D:
         self.F = np.clip(self.F + dF, p.F_MIN, 1000)
 
         # STEP 5: Grace Injection (VI.6)
+        I_g = np.zeros((N, N, N), dtype=np.float64)
         if p.boundary_enabled and p.grace_enabled:
             I_g = self.compute_grace_injection(D)
             self.F = self.F + I_g
@@ -696,7 +705,20 @@ class DETCollider3D:
 
         # STEP 8: Structure update (q-locking)
         if p.q_enabled:
-            self.q = np.clip(self.q + p.alpha_q * np.maximum(0, -dF), 0, 1)
+            q_locking = p.alpha_q * np.maximum(0, -dF)
+
+            if p.q_mutable_local_enabled:
+                q_relief_local = p.alpha_q_local_resource_relief * np.maximum(0, dF)
+                q_relief_grace = p.alpha_q_grace_relief * I_g
+            else:
+                q_relief_local = np.zeros_like(self.q)
+                q_relief_grace = np.zeros_like(self.q)
+
+            self.last_q_locking = q_locking
+            self.last_q_relief_local = q_relief_local
+            self.last_q_relief_grace = q_relief_grace
+
+            self.q = np.clip(self.q + q_locking - q_relief_local - q_relief_grace, 0, 1)
 
         # STEP 9: Agency update
         if p.agency_dynamic:
