@@ -1,12 +1,12 @@
 """
-DET v7.0 3D Collider (Agency-First + Structural Drag)
-=====================================================
+DET v7.x 3D Collider (Unified Mutable Structural Debt)
+======================================================
 
-Canonical updates integrated from DET v6.5.1 patch:
-- Debt decomposition: q = q_I + q_D
-- Structural drag in presence law
+Patch alignment:
+- Unified structural debt: q only
+- Structural drag in presence law: D = 1/(1 + lambda_P*q)
 - Agency-first update without structural ceiling
-- Jubilee reduces q_D only
+- Jubilee reduces total q (lawful recovery)
 """
 
 import numpy as np
@@ -51,18 +51,12 @@ class DETParams3D:
     F_core: float = 5.0
     floor_power: float = 2.0
 
-    # Structure (q-locking)
+    # Structure (q-locking / mutable recovery)
     q_enabled: bool = True
-    alpha_q: float = 0.012  # Deprecated alias for alpha_qD
-    alpha_qD: Optional[float] = None
-    alpha_qI: float = 0.0
-    q_I_fraction: float = 0.0
-    identity_locking_enabled: bool = False
-    legacy_q_maps_to_identity: bool = True
+    alpha_q: float = 0.012
 
-    # Presence drag (v6.5.1 / v7)
-    lambda_DP: float = 3.0
-    lambda_IP: float = 1.0
+    # Presence drag (unified-q patch)
+    lambda_P: float = 3.0
     gamma_v: float = 1.0
 
     # Structural Debt Couplings (v6.4 extension)
@@ -113,7 +107,7 @@ class DETParams3D:
     # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
     coherence_weighted_H: bool = False
 
-    # Boundary Jubilee operator (q_D-only recovery)
+    # Boundary Jubilee operator (q recovery)
     jubilee_enabled: bool = False
     delta_q: float = 0.001
     n_q: float = 2.0
@@ -124,8 +118,7 @@ class DETParams3D:
     outflow_limit: float = 0.2
 
     def __post_init__(self):
-        if self.alpha_qD is None:
-            self.alpha_qD = self.alpha_q
+        self.alpha_q = float(self.alpha_q)
 
 
 def compute_lattice_correction(N: int) -> float:
@@ -177,8 +170,6 @@ class DETCollider3D:
         # Per-node state
         self.F = np.ones((N, N, N), dtype=np.float64) * self.p.F_VAC
         self.q = np.zeros((N, N, N), dtype=np.float64)
-        self.q_I = np.zeros((N, N, N), dtype=np.float64)
-        self.q_D = np.zeros((N, N, N), dtype=np.float64)
         self.a = np.ones((N, N, N), dtype=np.float64)
         self.theta = np.random.uniform(0, 2*np.pi, (N, N, N)).astype(np.float64)
 
@@ -336,21 +327,12 @@ class DETCollider3D:
         self.gz = -0.5 * (Zp(self.Phi) - Zm(self.Phi))
 
     def _sync_legacy_q_field(self):
-        """Map legacy direct writes to q into canonical (q_I, q_D)."""
-        q_split = np.clip(self.q_I + self.q_D, 0, 1)
-        if np.max(np.abs(self.q - q_split)) > 1e-12:
-            q_legacy = np.clip(self.q, 0, 1)
-            if self.p.legacy_q_maps_to_identity:
-                self.q_I = q_legacy.copy()
-                self.q_D = np.zeros_like(q_legacy)
-            else:
-                self.q_D = q_legacy.copy()
-                self.q_I = np.zeros_like(q_legacy)
-        self.q = np.clip(self.q_I + self.q_D, 0, 1)
+        """Clip externally-written q to physical bounds."""
+        self.q = np.clip(self.q, 0, 1)
 
     def _compute_drag_factor(self) -> np.ndarray:
-        """Structural drag multiplier D = 1/(1 + λ_DP*q_D + λ_IP*q_I)."""
-        return 1.0 / (1.0 + self.p.lambda_DP * self.q_D + self.p.lambda_IP * self.q_I)
+        """Structural drag multiplier D = 1/(1 + lambda_P*q)."""
+        return 1.0 / (1.0 + self.p.lambda_P * self.q)
 
     def compute_grace_injection(self, D: np.ndarray) -> np.ndarray:
         """Grace Injection per DET VI.5 (v6.2 simple form).
@@ -366,7 +348,7 @@ class DETCollider3D:
         return I_g
 
     def compute_jubilee(self, D: np.ndarray) -> np.ndarray:
-        """Jubilee operator: reduces q_D only (never agency)."""
+        """Jubilee operator: reduces total q (never agency)."""
         p = self.p
         Xm = lambda arr: np.roll(arr, 1, axis=2)
         Ym = lambda arr: np.roll(arr, 1, axis=1)
@@ -387,7 +369,7 @@ class DETCollider3D:
             F_op = np.maximum(self.F - p.F_VAC, 0.0)
             energy_cap = F_op / (1.0 + F_op)
             dq = np.minimum(dq, energy_cap)
-            dq = np.minimum(dq, self.q_D)
+            dq = np.minimum(dq, self.q)
 
         return dq
 
@@ -425,14 +407,8 @@ class DETCollider3D:
         # Add structure (sources gravity)
         if initial_q > 0:
             q_add = initial_q * envelope
-            if self.p.q_I_fraction > 0:
-                self.q_D += q_add * (1.0 - self.p.q_I_fraction)
-                self.q_I += q_add * self.p.q_I_fraction
-            elif self.p.legacy_q_maps_to_identity:
-                self.q_I += q_add
-            else:
-                self.q_D += q_add
-            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            self.q += q_add
+            self.q = np.clip(self.q, 0, 1)
 
         # Add angular momentum
         if initial_spin != 0:
@@ -460,9 +436,7 @@ class DETCollider3D:
         """Enforce physical bounds on all state variables."""
         p = self.p
         self.F = np.clip(self.F, p.F_MIN, 1000)
-        self.q_I = np.clip(self.q_I, 0, 1)
-        self.q_D = np.clip(self.q_D, 0, 1)
-        self.q = np.clip(self.q_I + self.q_D, 0, 1)
+        self.q = np.clip(self.q, 0, 1)
         self.a = np.clip(self.a, 0, 1)
         self.pi_X = np.clip(self.pi_X, -p.pi_max, p.pi_max)
         self.pi_Y = np.clip(self.pi_Y, -p.pi_max, p.pi_max)
@@ -768,20 +742,15 @@ class DETCollider3D:
             self.L_YZ = decay_YZ * self.L_YZ + p.alpha_L * curl_YZ * Delta_tau_YZ
             self.L_XZ = decay_XZ * self.L_XZ + p.alpha_L * curl_XZ * Delta_tau_XZ
 
-        # STEP 10: Structure update (q_D accumulation + optional q_I locking)
+        # STEP 10: Structure update (q accumulation)
         if p.q_enabled:
-            dq_damage = p.alpha_qD * np.maximum(0, -dF)
-            self.q_D = np.clip(self.q_D + dq_damage * (1.0 - p.q_I_fraction), 0, 1)
-            self.q_I = np.clip(self.q_I + dq_damage * p.q_I_fraction, 0, 1)
-            if p.identity_locking_enabled and p.alpha_qI > 0:
-                self.q_I = np.clip(self.q_I + p.alpha_qI * np.maximum(0, -dF), 0, 1)
-            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            dq_lock = p.alpha_q * np.maximum(0, -dF)
+            self.q = np.clip(self.q + dq_lock, 0, 1)
 
-        # Boundary operator: Jubilee / Forgiveness (q_D only)
+        # Boundary operator: Jubilee / Forgiveness (q)
         if p.jubilee_enabled:
             dq_jubilee = self.compute_jubilee(D)
-            self.q_D = np.clip(self.q_D - dq_jubilee, 0, 1)
-            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            self.q = np.clip(self.q - dq_jubilee, 0, 1)
             self.last_jubilee = dq_jubilee.copy()
             self.total_jubilee += float(np.sum(dq_jubilee))
         else:

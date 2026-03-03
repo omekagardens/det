@@ -112,9 +112,8 @@ def experiment_D1_diagnose_bottleneck():
         traces['dissipation'].append(float(D[node]))
         
         # Structural drag (v7 law, no agency ceiling)
-        q_i = collider.q_I[node] if hasattr(collider, "q_I") else collider.q[node]
-        q_d = collider.q_D[node] if hasattr(collider, "q_D") else 0.0
-        drag = 1.0 / (1.0 + params.lambda_DP * q_d + params.lambda_IP * q_i)
+        q_val = collider.q[node]
+        drag = 1.0 / (1.0 + params.lambda_P * q_val)
         traces['drag'].append(float(drag))
     
     # Print final state
@@ -129,11 +128,11 @@ def experiment_D1_diagnose_bottleneck():
     print(f"\n  Attunement increment per step: {dC_attune:.2e}")
     print(f"  Steps needed for ΔC=0.1: {0.1/max(dC_attune, 1e-20):.0f}")
     
-    print("\n  Structural drag examples (q_D=0):")
-    print(f"  D(q_I=0.5) = {1.0/(1.0 + params.lambda_IP*0.5):.4f}")
-    print(f"  D(q_I=0.3) = {1.0/(1.0 + params.lambda_IP*0.3):.4f}")
-    print(f"  D(q_I=0.1) = {1.0/(1.0 + params.lambda_IP*0.1):.4f}")
-    print(f"  D(q_I=0.0) = {1.0/(1.0 + params.lambda_IP*0.0):.4f}")
+    print("\n  Structural drag examples (q=0):")
+    print(f"  D(q=0.5) = {1.0/(1.0 + params.lambda_P*0.5):.4f}")
+    print(f"  D(q=0.3) = {1.0/(1.0 + params.lambda_P*0.3):.4f}")
+    print(f"  D(q=0.1) = {1.0/(1.0 + params.lambda_P*0.1):.4f}")
+    print(f"  D(q=0.0) = {1.0/(1.0 + params.lambda_P*0.0):.4f}")
     
     # Plot
     fig, axes = plt.subplots(3, 3, figsize=(18, 14))

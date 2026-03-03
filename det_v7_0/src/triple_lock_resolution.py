@@ -41,16 +41,12 @@ def setup_KW_system(params, N=200, K_center=50, K_width=30):
     # K-region: healthy
     sim.C_R[K_mask] = 0.85
     sim.q[K_mask] = 0.02
-    sim.q_D[K_mask] = 0.02
-    sim.q_I[K_mask] = 0.0
     sim.F[K_mask] = 3.0
     sim.a[K_mask] = 0.95
 
     # W-region: damaged
     sim.C_R[W_mask] = 0.15
     sim.q[W_mask] = 0.50
-    sim.q_D[W_mask] = 0.50
-    sim.q_I[W_mask] = 0.0
     sim.F[W_mask] = 0.5
     sim.a[W_mask] = 0.5
 
@@ -59,27 +55,25 @@ def setup_KW_system(params, N=200, K_center=50, K_width=30):
         if 0 <= i < N:
             frac = (i - (K_center - K_width - 5)) / 10.0
             sim.C_R[i] = 0.15 * (1 - frac) + 0.85 * frac
-            sim.q_D[i] = 0.50 * (1 - frac) + 0.02 * frac
-            sim.q[i] = sim.q_D[i]
+            sim.q[i] = 0.50 * (1 - frac) + 0.02 * frac
             sim.F[i] = 0.5 * (1 - frac) + 3.0 * frac
     for i in range(K_center + K_width - 5, K_center + K_width + 5):
         if 0 <= i < N:
             frac = (i - (K_center + K_width - 5)) / 10.0
             sim.C_R[i] = 0.85 * (1 - frac) + 0.15 * frac
-            sim.q_D[i] = 0.02 * (1 - frac) + 0.50 * frac
-            sim.q[i] = sim.q_D[i]
+            sim.q[i] = 0.02 * (1 - frac) + 0.50 * frac
             sim.F[i] = 3.0 * (1 - frac) + 0.5 * frac
 
     return sim, K_mask, W_mask
 
 
 def run_experiment(sim, K_mask, W_mask, steps=20000, label=""):
-    """Run simulation and track K, q_D, C, a in W-region."""
+    """Run simulation and track K, q, C, a in W-region."""
     regime = DETRegimeSimulator(sim, RegimeParams(
         attunement_enabled=True, eta_attune=0.10
     ))
 
-    trace = {'t': [], 'K_W': [], 'qD_W': [], 'C_W': [], 'a_W': [],
+    trace = {'t': [], 'K_W': [], 'q_W': [], 'C_W': [], 'a_W': [],
              'K_K': [], 'jubilee_total': []}
 
     for t in range(steps):
@@ -87,7 +81,7 @@ def run_experiment(sim, K_mask, W_mask, steps=20000, label=""):
         if t % 100 == 0:
             trace['t'].append(t)
             trace['K_W'].append(float(np.mean(diag.K[W_mask])))
-            trace['qD_W'].append(float(np.mean(sim.q_D[W_mask])))
+            trace['q_W'].append(float(np.mean(sim.q[W_mask])))
             trace['C_W'].append(float(np.mean(sim.C_R[W_mask])))
             trace['a_W'].append(float(np.mean(sim.a[W_mask])))
             trace['K_K'].append(float(np.mean(diag.K[K_mask])))
@@ -122,7 +116,7 @@ for jub_on in [False, True]:
     label = "Jubilee ON" if jub_on else "Jubilee OFF"
     trace = run_experiment(sim, K_mask, W_mask, steps=20000, label=label)
     results_R1[label] = trace
-    print(f"  {label}: final K_W={trace['K_W'][-1]:.4f}, qD_W={trace['qD_W'][-1]:.4f}")
+    print(f"  {label}: final K_W={trace['K_W'][-1]:.4f}, q_W={trace['q_W'][-1]:.4f}")
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 fig.suptitle("R1: Jubilee-Only (No Healing, No Grace)", fontsize=14, fontweight='bold')
@@ -130,11 +124,11 @@ fig.suptitle("R1: Jubilee-Only (No Healing, No Grace)", fontsize=14, fontweight=
 for label, trace in results_R1.items():
     ls = '-' if 'ON' in label else '--'
     axes[0, 0].plot(trace['t'], trace['K_W'], ls, label=label)
-    axes[0, 1].plot(trace['t'], trace['qD_W'], ls, label=label)
+    axes[0, 1].plot(trace['t'], trace['q_W'], ls, label=label)
     axes[1, 0].plot(trace['t'], trace['C_W'], ls, label=label)
     axes[1, 1].plot(trace['t'], trace['a_W'], ls, label=label)
 
-for ax, title in zip(axes.flat, ['K (Regime Index) in W', 'q_D (Damage Debt) in W',
+for ax, title in zip(axes.flat, ['K (Regime Index) in W', 'q (Structural Debt) in W',
                                    'C (Coherence) in W', 'a (Agency) in W']):
     ax.set_title(title)
     ax.set_xlabel('Step')
@@ -172,7 +166,7 @@ for config_name, jub, heal in [("Neither", False, False), ("Healing only", False
     sim, K_mask, W_mask = setup_KW_system(params, N)
     trace = run_experiment(sim, K_mask, W_mask, steps=20000)
     results_R2[config_name] = trace
-    print(f"  {config_name}: final K_W={trace['K_W'][-1]:.4f}, qD_W={trace['qD_W'][-1]:.4f}, "
+    print(f"  {config_name}: final K_W={trace['K_W'][-1]:.4f}, q_W={trace['q_W'][-1]:.4f}, "
           f"C_W={trace['C_W'][-1]:.4f}")
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -184,11 +178,11 @@ styles = {'Neither': ('--', 'gray'), 'Healing only': ('-.', 'blue'),
 for label, trace in results_R2.items():
     ls, color = styles[label]
     axes[0, 0].plot(trace['t'], trace['K_W'], ls, color=color, label=label)
-    axes[0, 1].plot(trace['t'], trace['qD_W'], ls, color=color, label=label)
+    axes[0, 1].plot(trace['t'], trace['q_W'], ls, color=color, label=label)
     axes[1, 0].plot(trace['t'], trace['C_W'], ls, color=color, label=label)
     axes[1, 1].plot(trace['t'], trace['a_W'], ls, color=color, label=label)
 
-for ax, title in zip(axes.flat, ['K (Regime Index) in W', 'q_D (Damage Debt) in W',
+for ax, title in zip(axes.flat, ['K (Regime Index) in W', 'q (Structural Debt) in W',
                                    'C (Coherence) in W', 'a (Agency) in W']):
     ax.set_title(title)
     ax.set_xlabel('Step')
@@ -225,7 +219,7 @@ for config_name, jub in [("v6.3 (no Jubilee)", False), ("v6.5 (with Jubilee)", T
     sim, K_mask, W_mask = setup_KW_system(params, N)
     trace = run_experiment(sim, K_mask, W_mask, steps=20000)
     results_R3[config_name] = trace
-    print(f"  {config_name}: final K_W={trace['K_W'][-1]:.4f}, qD_W={trace['qD_W'][-1]:.4f}, "
+    print(f"  {config_name}: final K_W={trace['K_W'][-1]:.4f}, q_W={trace['q_W'][-1]:.4f}, "
           f"C_W={trace['C_W'][-1]:.4f}, a_W={trace['a_W'][-1]:.4f}")
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -235,11 +229,11 @@ for label, trace in results_R3.items():
     ls = '-' if 'v6.5' in label else '--'
     color = 'green' if 'v6.5' in label else 'red'
     axes[0, 0].plot(trace['t'], trace['K_W'], ls, color=color, label=label, linewidth=2)
-    axes[0, 1].plot(trace['t'], trace['qD_W'], ls, color=color, label=label, linewidth=2)
+    axes[0, 1].plot(trace['t'], trace['q_W'], ls, color=color, label=label, linewidth=2)
     axes[1, 0].plot(trace['t'], trace['C_W'], ls, color=color, label=label, linewidth=2)
     axes[1, 1].plot(trace['t'], trace['a_W'], ls, color=color, label=label, linewidth=2)
 
-for ax, title in zip(axes.flat, ['K (Regime Index) in W', 'q_D (Damage Debt) in W',
+for ax, title in zip(axes.flat, ['K (Regime Index) in W', 'q (Structural Debt) in W',
                                    'C (Coherence) in W', 'a (Agency) in W']):
     ax.set_title(title)
     ax.set_xlabel('Step')
@@ -260,7 +254,7 @@ print("=" * 60)
 
 delta_q_values = [0.0, 0.001, 0.005, 0.01, 0.05, 0.10, 0.50, 1.0, 5.0]
 final_K_W = []
-final_qD_W = []
+final_q_W = []
 
 for dq in delta_q_values:
     np.random.seed(42)
@@ -282,10 +276,10 @@ for dq in delta_q_values:
         diag = regime.step(t)
 
     K_W = float(np.mean(diag.K[W_mask]))
-    qD_W = float(np.mean(sim.q_D[W_mask]))
+    q_W = float(np.mean(sim.q[W_mask]))
     final_K_W.append(K_W)
-    final_qD_W.append(qD_W)
-    print(f"  delta_q={dq:.3f}: K_W={K_W:.4f}, qD_W={qD_W:.4f}")
+    final_q_W.append(q_W)
+    print(f"  delta_q={dq:.3f}: K_W={K_W:.4f}, q_W={q_W:.4f}")
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 fig.suptitle("R4: Dose-Response Curve (Jubilee Rate Sweep)", fontsize=14, fontweight='bold')
@@ -298,9 +292,9 @@ ax1.axhline(y=0.5, color='red', linestyle='--', alpha=0.5, label='K=0.5 threshol
 ax1.legend()
 ax1.grid(True, alpha=0.3)
 
-ax2.semilogx([max(d, 1e-4) for d in delta_q_values], final_qD_W, 'o-', color='orange', linewidth=2)
+ax2.semilogx([max(d, 1e-4) for d in delta_q_values], final_q_W, 'o-', color='orange', linewidth=2)
 ax2.set_xlabel('δ_q (Jubilee Rate)')
-ax2.set_ylabel('Final q_D in W-region')
+ax2.set_ylabel('Final q in W-region')
 ax2.set_title('Damage Debt vs Jubilee Rate')
 ax2.grid(True, alpha=0.3)
 
@@ -331,7 +325,7 @@ params = DETParams1D(
 sim, K_mask, W_mask = setup_KW_system(params, N)
 trace_R5 = run_experiment(sim, K_mask, W_mask, steps=50000)
 
-print(f"  Final K_W={trace_R5['K_W'][-1]:.4f}, qD_W={trace_R5['qD_W'][-1]:.4f}, "
+print(f"  Final K_W={trace_R5['K_W'][-1]:.4f}, q_W={trace_R5['q_W'][-1]:.4f}, "
       f"C_W={trace_R5['C_W'][-1]:.4f}, a_W={trace_R5['a_W'][-1]:.4f}")
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -341,8 +335,8 @@ axes[0, 0].plot(trace_R5['t'], trace_R5['K_W'], '-', color='green', linewidth=2)
 axes[0, 0].axhline(y=0.5, color='red', linestyle='--', alpha=0.5)
 axes[0, 0].set_title('K (Regime Index) in W')
 
-axes[0, 1].plot(trace_R5['t'], trace_R5['qD_W'], '-', color='orange', linewidth=2)
-axes[0, 1].set_title('q_D (Damage Debt) in W')
+axes[0, 1].plot(trace_R5['t'], trace_R5['q_W'], '-', color='orange', linewidth=2)
+axes[0, 1].set_title('q (Structural Debt) in W')
 
 axes[1, 0].plot(trace_R5['t'], trace_R5['C_W'], '-', color='blue', linewidth=2)
 axes[1, 0].set_title('C (Coherence) in W')
@@ -371,5 +365,5 @@ print(f"  R2 (Best combo):       K_W={results_R2['Jubilee + Healing']['K_W'][-1]
 print(f"  R3 (v6.3 vs v6.5):    v6.3={results_R3['v6.3 (no Jubilee)']['K_W'][-1]:.4f}, "
       f"v6.5={results_R3['v6.5 (with Jubilee)']['K_W'][-1]:.4f}")
 print(f"  R4 (Best dose):        K_W={max(final_K_W):.4f} at δ_q={delta_q_values[final_K_W.index(max(final_K_W))]}")
-print(f"  R5 (Long-run):         K_W={trace_R5['K_W'][-1]:.4f}, qD_W={trace_R5['qD_W'][-1]:.4f}")
+print(f"  R5 (Long-run):         K_W={trace_R5['K_W'][-1]:.4f}, q_W={trace_R5['q_W'][-1]:.4f}")
 print(f"\n  All plots saved to {OUT}/")

@@ -102,7 +102,7 @@ class TestBlackHoleConfigurator:
         state = config.measure_black_hole_state(sim)
 
         # Central presence should be low due to high debt drag in v7:
-        # P = base_presence * D, D = 1/(1 + lambda_DP*q_D + lambda_IP*q_I)
+        # P = base_presence * D, D = 1/(1 + lambda_P*q)
         assert state.P_central < 1.0, "High-q BH should have reduced presence"
 
     def test_surface_area_positive(self):

@@ -22,8 +22,7 @@ def test_f_a2_prime_no_structural_suppression():
         q_enabled=False,
         coherence_dynamic=False,
         sigma_dynamic=False,
-        lambda_IP=6.0,
-        lambda_DP=6.0,
+        lambda_P=6.0,
         beta_a=0.15,
         a0=1.0,
         epsilon_a=0.0,
@@ -39,10 +38,8 @@ def test_f_a2_prime_no_structural_suppression():
     core = np.s_[c - 2 : c + 2, c - 2 : c + 2, c - 2 : c + 2]
     shell = np.s_[c - 6 : c - 3, c - 6 : c - 3, c - 6 : c - 3]
 
-    # Inject high immutable debt in the core.
-    sim.q_I[core] = 0.95
-    sim.q_D[core] = 0.0
-    sim.q = np.clip(sim.q_I + sim.q_D, 0, 1)
+    # Inject high debt in the core.
+    sim.q[core] = 0.95
 
     for _ in range(600):
         sim.step()
@@ -56,4 +53,3 @@ def test_f_a2_prime_no_structural_suppression():
     assert a_core >= 0.95
     assert a_shell >= 0.95
     assert P_core < 0.6 * P_shell
-

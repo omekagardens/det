@@ -29,20 +29,14 @@ def compute_drag_presence(a: np.ndarray,
                           sigma: np.ndarray,
                           F: np.ndarray,
                           H: np.ndarray,
-                          q_I: Optional[np.ndarray] = None,
-                          q_D: Optional[np.ndarray] = None,
-                          lambda_IP: float = 0.0,
-                          lambda_DP: float = 0.0,
+                          q: Optional[np.ndarray] = None,
+                          lambda_P: float = 0.0,
                           gamma_v: float = 1.0) -> np.ndarray:
     """Compute DET presence field with optional v7 structural drag."""
     base = a * sigma / (1.0 + F) / (1.0 + H) / max(gamma_v, 1e-12)
-    if q_I is None and q_D is None:
+    if q is None:
         return base
-    if q_I is None:
-        q_I = np.zeros_like(base)
-    if q_D is None:
-        q_D = np.zeros_like(base)
-    drag = 1.0 / (1.0 + lambda_DP * q_D + lambda_IP * q_I)
+    drag = 1.0 / (1.0 + lambda_P * q)
     return base * drag
 
 

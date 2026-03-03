@@ -22,7 +22,7 @@ This framework has profound implications from computing to biology to the nature
 | Document | Description |
 |----------|-------------|
 | `det_structural_debt.md` | Foundational theory: q as future-biasing mechanism |
-| `det_theory_card_7_0.md` | Canonical DET v7 reference (agency-first + drag + debt decomposition) |
+| `det_theory_card_7_0.md` | Canonical DET v7 reference (agency-first + drag + mutable combined q) |
 
 ### Implementation
 
@@ -37,7 +37,7 @@ This framework has profound implications from computing to biology to the nature
 |----------|-------|
 | `det_structural_debt_applications.md` | Computing, bioengineering, living buildings |
 | `det_v7_applications_review.md` | v7 practical roadmap: control, maintenance, timing, calibration programs |
-| `det_v7_battery_storage_recovery_review.md` | battery fast-charge and recovery strategy using q_I/q_D and drag reduction |
+| `det_v7_battery_storage_recovery_review.md` | battery fast-charge and recovery strategy using mutable q and drag reduction |
 | `det_spirit_debt_applications.md` | Identity-preserving systems, AI accountability |
 
 ### Deep Theory

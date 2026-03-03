@@ -2,7 +2,7 @@
 
 ## Active Model Families
 - `det_v6_3/`: Legacy baseline and historical artifacts.
-- `det_v7_0/`: Refactored Agency-First + structural-drag baseline.
+- `det_v7_0/`: Refactored Agency-First + structural-drag baseline (mutable combined `q` canonical path).
 
 ## Canonical Model Card
 - `det_v7_0/docs/det_theory_card_7_0.md`
@@ -25,11 +25,16 @@ explicitly marked as superseded.
 - `boundary.py`
 - `update_loop.py`
 
-## Mandatory v6.5.1/v7 Falsifiers
+## Mandatory v7 Falsifiers
 Implemented in `det_v7_0/tests`:
 - `test_f_a2_prime_no_structural_suppression.py`
 - `test_f_a4_frozen_will.py`
 - `test_f_a5_runaway_agency_sweep.py`
+- `test_f_qm1_total_annealing_stability.py`
+- `test_f_qm2_identity_persistence.py`
+- `test_f_qm3_kepler_stability.py`
+- `test_f_qm4_no_oscillatory_collapse.py`
+- `test_f_qm5_arrow_of_time_integrity.py`
 - `test_gtd5_prime_drag_clock_ratio.py`
 - `test_bh_drag_scaling_3d.py`
 - runner: `det_v651_falsifiers.py`

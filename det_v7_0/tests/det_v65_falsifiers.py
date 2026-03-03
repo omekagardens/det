@@ -5,13 +5,13 @@ DET v6.5 Falsifier Suite: Jubilee Operator + Agency-First
 New falsifiers for the v6.5 patch:
 
   F_QD1 — Jubilee Non-Coercion:
-    If any node with a_i=0 experiences q_D decrease → FAIL
+    If any node with a_i=0 experiences q decrease → FAIL
 
   F_QD2 — No Hidden Globals:
     If adding disconnected components changes Jubilee rates → FAIL
 
   F_QD3 — No Cheap Redemption:
-    In a sealed, no-flow config with D_i=0, q_D must not decrease → FAIL
+    In a sealed, no-flow config with D_i=0, q must not decrease → FAIL
 
   F_QD4 — W→K Local Transition Exists:
     W-regime pocket adjacent to K-regime must transition with Jubilee → FAIL if not
@@ -44,10 +44,10 @@ from det_concurrent_regimes import DETRegimeSimulator, RegimeParams
 
 def test_F_QD1_jubilee_non_coercion(verbose=True):
     """
-    F_QD1: If any node with a_i=0 experiences q_D decrease → FAIL
+    F_QD1: If any node with a_i=0 experiences q decrease → FAIL
 
-    Setup: Create nodes with a=0 and high q_D. Run with Jubilee enabled.
-    Verify that q_D does not decrease for a=0 nodes.
+    Setup: Create nodes with a=0 and high q. Run with Jubilee enabled.
+    Verify that q does not decrease for a=0 nodes.
     """
     if verbose:
         print("\n" + "="*60)
@@ -68,25 +68,24 @@ def test_F_QD1_jubilee_non_coercion(verbose=True):
     )
     sim = DETCollider1D(params)
 
-    # Set up: high q_D everywhere, active flow
-    sim.q_D[:] = 0.5
-    sim.q_I[:] = 0.0
+    # Set up: high q everywhere, active flow
+    sim.q[:] = 0.5
     sim.q[:] = 0.5
     sim.F[:] = 2.0
     sim.C_R[:] = 0.7
 
-    # Sentinel nodes: a=0 (should NEVER have q_D reduced)
+    # Sentinel nodes: a=0 (should NEVER have q reduced)
     sentinel_indices = [10, 20, 30, 40, 50]
     for idx in sentinel_indices:
         sim.a[idx] = 0.0
 
-    # Active nodes: a=1 (should have q_D reduced)
+    # Active nodes: a=1 (should have q reduced)
     active_indices = [15, 25, 35, 45, 55]
     for idx in active_indices:
         sim.a[idx] = 1.0
 
-    initial_qD_sentinels = [sim.q_D[i] for i in sentinel_indices]
-    initial_qD_active = [sim.q_D[i] for i in active_indices]
+    initial_qD_sentinels = [sim.q[i] for i in sentinel_indices]
+    initial_qD_active = [sim.q[i] for i in active_indices]
 
     # Create some flow by adding packets
     sim.add_packet(50, mass=10.0, width=10.0, momentum=0.5)
@@ -97,26 +96,26 @@ def test_F_QD1_jubilee_non_coercion(verbose=True):
         for idx in sentinel_indices:
             sim.a[idx] = 0.0
 
-    # Check: sentinel q_D must NOT have decreased
+    # Check: sentinel q must NOT have decreased
     sentinel_decreased = False
     for i, idx in enumerate(sentinel_indices):
-        if sim.q_D[idx] < initial_qD_sentinels[i] - 1e-10:
+        if sim.q[idx] < initial_qD_sentinels[i] - 1e-10:
             sentinel_decreased = True
             if verbose:
-                print(f"  VIOLATION: sentinel[{idx}] q_D decreased from "
-                      f"{initial_qD_sentinels[i]:.6f} to {sim.q_D[idx]:.6f}")
+                print(f"  VIOLATION: sentinel[{idx}] q decreased from "
+                      f"{initial_qD_sentinels[i]:.6f} to {sim.q[idx]:.6f}")
 
-    # Check: at least some active nodes should have q_D reduced
+    # Check: at least some active nodes should have q reduced
     active_any_decreased = False
     for i, idx in enumerate(active_indices):
-        if sim.q_D[idx] < initial_qD_active[i] - 1e-10:
+        if sim.q[idx] < initial_qD_active[i] - 1e-10:
             active_any_decreased = True
 
     passed = (not sentinel_decreased) and active_any_decreased
 
     if verbose:
-        print(f"  Sentinel q_D decreased: {sentinel_decreased}")
-        print(f"  Active q_D decreased: {active_any_decreased}")
+        print(f"  Sentinel q decreased: {sentinel_decreased}")
+        print(f"  Active q decreased: {active_any_decreased}")
         print(f"  F_QD1 {'PASSED' if passed else 'FAILED'}")
 
     return {'passed': passed, 'sentinel_decreased': sentinel_decreased,
@@ -170,7 +169,7 @@ def test_F_QD2_no_hidden_globals(verbose=True):
             # Record Jubilee in the primary packet's region (20-40)
             jubilee_trace.append(float(np.sum(sim.last_jubilee[20:40])))
 
-        return np.array(jubilee_trace), sim.q_D[20:40].copy()
+        return np.array(jubilee_trace), sim.q[20:40].copy()
 
     trace_A, qD_A = run_scenario(add_distant_packet=False)
     trace_B, qD_B = run_scenario(add_distant_packet=True)
@@ -183,7 +182,7 @@ def test_F_QD2_no_hidden_globals(verbose=True):
 
     if verbose:
         print(f"  Max Jubilee rate difference: {max_diff:.2e}")
-        print(f"  Max q_D difference: {qD_diff:.2e}")
+        print(f"  Max q difference: {qD_diff:.2e}")
         print(f"  F_QD2 {'PASSED' if passed else 'FAILED'}")
 
     return {'passed': passed, 'max_jubilee_diff': max_diff, 'max_qD_diff': qD_diff}
@@ -195,7 +194,7 @@ def test_F_QD2_no_hidden_globals(verbose=True):
 
 def test_F_QD3_no_cheap_redemption(verbose=True):
     """
-    F_QD3: In a sealed, no-flow configuration with D_i=0, q_D must NOT decrease.
+    F_QD3: In a sealed, no-flow configuration with D_i=0, q must NOT decrease.
 
     Setup: Uniform F (no gradients → no flow → no dissipation).
     Even with high agency and coherence, Jubilee should not fire.
@@ -220,23 +219,22 @@ def test_F_QD3_no_cheap_redemption(verbose=True):
 
     # Uniform F → no gradients → no flow → D=0
     sim.F[:] = 1.0
-    sim.q_D[:] = 0.8
-    sim.q_I[:] = 0.0
+    sim.q[:] = 0.8
     sim.q[:] = 0.8
     sim.a[:] = 1.0
     sim.C_R[:] = 0.9
 
-    initial_qD = sim.q_D.copy()
+    initial_qD = sim.q.copy()
 
     for t in range(500):
         sim.step()
 
-    max_decrease = float(np.max(initial_qD - sim.q_D))
+    max_decrease = float(np.max(initial_qD - sim.q))
 
     passed = max_decrease < 1e-10
 
     if verbose:
-        print(f"  Max q_D decrease: {max_decrease:.2e}")
+        print(f"  Max q decrease: {max_decrease:.2e}")
         print(f"  Total Jubilee applied: {sim.total_jubilee:.2e}")
         print(f"  F_QD3 {'PASSED' if passed else 'FAILED'}")
 
@@ -252,14 +250,14 @@ def test_F_QD4_WK_transition(verbose=True):
     """
     F_QD4: W→K Local Transition Exists
 
-    The spec says: "Construct a W-regime pocket (high q_D, low C) adjacent
+    The spec says: "Construct a W-regime pocket (high q, low C) adjacent
     to K-regime and run with Jubilee enabled. If no statistically robust
     W→K transition occurs across a declared parameter sweep → FAIL"
 
-    Strategy: Use a moderately damaged W-zone (q_D=0.35) adjacent to a
+    Strategy: Use a moderately damaged W-zone (q=0.35) adjacent to a
     strong K-zone. The K-zone provides flow and coherence at the boundary.
     Bond healing propagates coherence into W. Once C rises, Jubilee
-    activates and reduces q_D. We measure q_D decrease in the W-boundary
+    activates and reduces q. We measure q decrease in the W-boundary
     zone as the primary metric, and compare Jubilee-ON vs Jubilee-OFF.
     """
     if verbose:
@@ -294,16 +292,14 @@ def test_F_QD4_WK_transition(verbose=True):
         # K-region: healthy
         sim.C_R[K_mask] = 0.85
         sim.q[K_mask] = 0.02
-        sim.q_D[K_mask] = 0.02
-        sim.q_I[K_mask] = 0.0
+        sim.q[K_mask] = 0.02
         sim.F[K_mask] = 3.0
         sim.a[K_mask] = 0.95
 
         # W-region: damaged but not maximally
         sim.C_R[W_mask] = 0.20
         sim.q[W_mask] = 0.35
-        sim.q_D[W_mask] = 0.35
-        sim.q_I[W_mask] = 0.0
+        sim.q[W_mask] = 0.35
         sim.F[W_mask] = 0.8
         sim.a[W_mask] = 0.3
 
@@ -311,17 +307,17 @@ def test_F_QD4_WK_transition(verbose=True):
         for i in range(90, 110):
             frac = (i - 90) / 20.0
             sim.C_R[i] = 0.85 * (1 - frac) + 0.20 * frac
-            sim.q_D[i] = 0.02 * (1 - frac) + 0.35 * frac
-            sim.q[i] = sim.q_D[i]
+            sim.q[i] = 0.02 * (1 - frac) + 0.35 * frac
+            sim.q[i] = sim.q[i]
             sim.F[i] = 3.0 * (1 - frac) + 0.8 * frac
             sim.a[i] = 0.95 * (1 - frac) + 0.3 * frac
 
-        initial_qD_boundary = float(np.mean(sim.q_D[W_boundary]))
+        initial_qD_boundary = float(np.mean(sim.q[W_boundary]))
 
         for t in range(steps):
             sim.step()
 
-        final_qD_boundary = float(np.mean(sim.q_D[W_boundary]))
+        final_qD_boundary = float(np.mean(sim.q[W_boundary]))
         final_a_boundary = float(np.mean(sim.a[W_boundary]))
         final_C_boundary = float(np.mean(sim.C_R[W_boundary]))
 
@@ -337,7 +333,7 @@ def test_F_QD4_WK_transition(verbose=True):
     # Run with Jubilee OFF (baseline)
     off_result = run_with_jubilee(False)
     if verbose:
-        print(f"  Jubilee OFF: q_D {off_result['initial_qD']:.4f} → {off_result['final_qD']:.4f} "
+        print(f"  Jubilee OFF: q {off_result['initial_qD']:.4f} → {off_result['final_qD']:.4f} "
               f"(decrease={off_result['qD_decrease']:.4f})")
 
     # Run with Jubilee ON at multiple rates
@@ -346,26 +342,26 @@ def test_F_QD4_WK_transition(verbose=True):
     for dq in [0.01, 0.05, 0.10, 0.50]:
         on_result = run_with_jubilee(True, delta_q=dq)
         if verbose:
-            print(f"  Jubilee ON (dq={dq:.2f}): q_D {on_result['initial_qD']:.4f} → "
+            print(f"  Jubilee ON (dq={dq:.2f}): q {on_result['initial_qD']:.4f} → "
                   f"{on_result['final_qD']:.4f} (decrease={on_result['qD_decrease']:.4f}, "
                   f"jubilee_total={on_result['total_jubilee']:.4f})")
         if on_result['qD_decrease'] > best_decrease:
             best_decrease = on_result['qD_decrease']
             best_dq = dq
 
-    # PASS if Jubilee produces measurably more q_D decrease than baseline
+    # PASS if Jubilee produces measurably more q decrease than baseline
     jubilee_helps = best_decrease > off_result['qD_decrease'] + 1e-6
-    # Also check that q_D actually decreased (any measurable amount)
+    # Also check that q actually decreased (any measurable amount)
     qD_decreased = best_decrease > 1e-5
 
-    # The key test: Jubilee-ON must produce q_D decrease where Jubilee-OFF does not
+    # The key test: Jubilee-ON must produce q decrease where Jubilee-OFF does not
     passed = jubilee_helps and qD_decreased
 
     if verbose:
-        print(f"\n  Best q_D decrease: {best_decrease:.4f} at delta_q={best_dq}")
+        print(f"\n  Best q decrease: {best_decrease:.4f} at delta_q={best_dq}")
         print(f"  Baseline decrease: {off_result['qD_decrease']:.4f}")
         print(f"  Jubilee helps: {jubilee_helps}")
-        print(f"  q_D decreased: {qD_decreased}")
+        print(f"  q decreased: {qD_decreased}")
         print(f"  F_QD4 {'PASSED' if passed else 'FAILED'}")
 
     return {'passed': passed, 'best_decrease': best_decrease,
@@ -595,7 +591,7 @@ def test_backward_compat_jubilee_on_no_regression(verbose=True):
     P_edge = sim.P[150]
     time_dilated = P_center < P_edge
 
-    # q_D should have decreased somewhere (Jubilee is active)
+    # q should have decreased somewhere (Jubilee is active)
     jubilee_active = sim.total_jubilee > 0
 
     passed = mass_drift < 0.10 and time_dilated and jubilee_active
@@ -611,14 +607,14 @@ def test_backward_compat_jubilee_on_no_regression(verbose=True):
 
 
 # ============================================================
-# q_I IMMUTABILITY TEST
+# q MUTABILITY TEST
 # ============================================================
 
-def test_qI_immutability(verbose=True):
-    """Verify that q_I (identity debt) is never modified by Jubilee."""
+def test_q_mutability_lawful_recovery(verbose=True):
+    """Verify unified q decreases under Jubilee when lawful gating is active."""
     if verbose:
         print("\n" + "="*60)
-        print("TEST: q_I Immutability (Jubilee only affects q_D)")
+        print("TEST: q Mutability (lawful recovery in unified-q branch)")
         print("="*60)
 
     N = 200
@@ -633,45 +629,39 @@ def test_qI_immutability(verbose=True):
         boundary_enabled=True, grace_enabled=True,
         F_MIN_grace=0.05, healing_enabled=True, eta_heal=0.10,
         jubilee_enabled=True, delta_q=0.50, n_q=1, D_0=0.01,
-        q_I_fraction=0.1
     )
     sim = DETCollider1D(params)
 
-    # Set initial conditions: high coherence, moderate q_D, active flow
-    sim.q_I[:] = 0.1
-    sim.q_D[:] = 0.2
+    # Set initial conditions: high coherence, moderate q, active flow.
     sim.q[:] = 0.3
     sim.C_R[:] = 0.8
     sim.a[:] = 0.9
 
-    # Create strong flow with colliding packets
+    # Create strong flow with colliding packets.
     sim.add_packet(70, mass=10.0, width=10.0, momentum=0.5)
     sim.add_packet(130, mass=10.0, width=10.0, momentum=-0.5)
 
-    initial_qI = sim.q_I.copy()
-    initial_qD_mean = float(np.mean(sim.q_D))
+    initial_q = sim.q.copy()
+    initial_q_mean = float(np.mean(sim.q))
 
     for _ in range(5000):
         sim.step()
 
-    # q_I should only increase (from q-locking), never decrease from Jubilee
-    qI_decreased_from_jubilee = np.any(sim.q_I < initial_qI - 1e-10)
-
-    # q_D should have decreased somewhere (Jubilee is active)
-    final_qD_mean = float(np.mean(sim.q_D))
+    q_decreased_somewhere = np.any(sim.q < initial_q - 1e-10)
+    final_q_mean = float(np.mean(sim.q))
     jubilee_active = sim.total_jubilee > 0.01
+    mean_reduced = final_q_mean < initial_q_mean
 
-    passed = (not qI_decreased_from_jubilee) and jubilee_active
+    passed = q_decreased_somewhere and jubilee_active and mean_reduced
 
     if verbose:
-        print(f"  q_I decreased below initial: {qI_decreased_from_jubilee}")
-        print(f"  Mean q_I: {np.mean(sim.q_I):.4f} (initial: {np.mean(initial_qI):.4f})")
-        print(f"  Mean q_D: {final_qD_mean:.4f} (initial: {initial_qD_mean:.4f})")
+        print(f"  q decreased somewhere: {q_decreased_somewhere}")
+        print(f"  Mean q: {final_q_mean:.4f} (initial: {initial_q_mean:.4f})")
         print(f"  Total Jubilee: {sim.total_jubilee:.4f}")
         print(f"  Jubilee active: {jubilee_active}")
-        print(f"  q_I Immutability {'PASSED' if passed else 'FAILED'}")
+        print(f"  q Mutability {'PASSED' if passed else 'FAILED'}")
 
-    return {'passed': passed, 'qI_decreased': qI_decreased_from_jubilee,
+    return {'passed': passed, 'q_decreased_somewhere': q_decreased_somewhere,
             'jubilee_active': jubilee_active}
 
 
@@ -702,8 +692,8 @@ def run_v65_falsifier_suite():
     results['Compat_OFF'] = test_backward_compat_jubilee_off()
     results['Compat_ON'] = test_backward_compat_jubilee_on_no_regression()
 
-    # q_I immutability
-    results['q_I_immutable'] = test_qI_immutability()
+    # q mutability (unified-q branch)
+    results['q_mutable'] = test_q_mutability_lawful_recovery()
 
     elapsed = time.time() - start_time
 

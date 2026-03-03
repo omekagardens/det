@@ -20,17 +20,14 @@ def test_f_a4_frozen_will_long_run():
         boundary_enabled=False,
         q_enabled=False,
         coherence_weighted_H=False,
-        lambda_IP=25.0,
-        lambda_DP=5.0,
+        lambda_P=25.0,
         beta_a=0.1,
         a0=1.0,
         epsilon_a=0.0,
     )
     sim = DETCollider1D(params)
 
-    # Extreme immutable debt -> extreme drag, but agency remains primitive.
-    sim.q_I[:] = 1.0
-    sim.q_D[:] = 0.0
+    # Extreme debt -> extreme drag, but agency remains primitive.
     sim.q[:] = 1.0
     sim.a[:] = 1.0
     baseline = sim.a.copy()
@@ -44,4 +41,3 @@ def test_f_a4_frozen_will_long_run():
                 break
 
     assert max_dev <= 0.01
-

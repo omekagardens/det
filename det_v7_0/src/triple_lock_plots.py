@@ -1,5 +1,5 @@
 """
-Generate Triple Lock resolution plots from the q_D sweep data.
+Generate Triple Lock resolution plots from the q sweep data.
 """
 import numpy as np
 import matplotlib
@@ -10,7 +10,7 @@ import os
 OUT = "/home/ubuntu/det_app_results/triple_lock"
 os.makedirs(OUT, exist_ok=True)
 
-# Data from the q_D sweep (10,000 steps, delta_q=1.0, n_q=1, D_0=0.01)
+# Data from the q sweep (10,000 steps, delta_q=1.0, n_q=1, D_0=0.01)
 qD_init = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
 drag_W_initial = [0.7692, 0.5970, 0.4545, 0.3478, 0.2703, 0.2139, 0.1724, 0.1413, 0.1176]
 final_qD = [0.0409, 0.0821, 0.1378, 0.1997, 0.2543, 0.3014, 0.3462, 0.3901, 0.4336]
@@ -18,7 +18,7 @@ delta_qD = [0.0591, 0.0679, 0.0622, 0.0503, 0.0457, 0.0486, 0.0538, 0.0599, 0.06
 final_K_W = [0.4886, 0.4402, 0.3822, 0.3256, 0.2809, 0.2503, 0.2259, 0.2051, 0.1867]
 total_jub = [5.0787, 3.7439, 2.4779, 1.6171, 1.1353, 0.8712, 0.7148, 0.6137, 0.5452]
 
-# Baseline (no Jubilee): K_W ≈ 0.107 for all q_D levels
+# Baseline (no Jubilee): K_W ≈ 0.107 for all q levels
 baseline_K = 0.107
 
 # Plot 1: Triple Lock Resolution Overview
@@ -26,14 +26,14 @@ fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 fig.suptitle("DET v6.5: Triple Lock Resolution — Jubilee Operator Impact",
              fontsize=14, fontweight='bold')
 
-# q_D reduction
+# q reduction
 ax = axes[0, 0]
-ax.bar(range(len(qD_init)), qD_init, alpha=0.3, color='red', label='Initial q_D')
-ax.bar(range(len(qD_init)), final_qD, alpha=0.7, color='green', label='Final q_D')
+ax.bar(range(len(qD_init)), qD_init, alpha=0.3, color='red', label='Initial q')
+ax.bar(range(len(qD_init)), final_qD, alpha=0.7, color='green', label='Final q')
 ax.set_xticks(range(len(qD_init)))
 ax.set_xticklabels([f'{q:.2f}' for q in qD_init])
-ax.set_xlabel('Initial q_D')
-ax.set_ylabel('q_D')
+ax.set_xlabel('Initial q')
+ax.set_ylabel('q')
 ax.set_title('Damage Debt Reduction by Jubilee')
 ax.legend()
 ax.grid(True, alpha=0.3)
@@ -43,7 +43,7 @@ ax = axes[0, 1]
 ax.plot(qD_init, final_K_W, 'o-', color='green', linewidth=2, markersize=8, label='With Jubilee')
 ax.axhline(y=baseline_K, color='red', linestyle='--', linewidth=2, label=f'Without Jubilee (K≈{baseline_K})')
 ax.axhline(y=0.5, color='blue', linestyle=':', alpha=0.5, label='K=0.5 (K-regime threshold)')
-ax.set_xlabel('Initial q_D')
+ax.set_xlabel('Initial q')
 ax.set_ylabel('Final K in W-boundary')
 ax.set_title('Regime Index Improvement')
 ax.legend()
@@ -55,15 +55,15 @@ pct_reduction = [d/q * 100 for d, q in zip(delta_qD, qD_init)]
 ax.bar(range(len(qD_init)), pct_reduction, color='teal', alpha=0.7)
 ax.set_xticks(range(len(qD_init)))
 ax.set_xticklabels([f'{q:.2f}' for q in qD_init])
-ax.set_xlabel('Initial q_D')
-ax.set_ylabel('% q_D Reduction')
+ax.set_xlabel('Initial q')
+ax.set_ylabel('% q Reduction')
 ax.set_title('Percentage Damage Healed')
 ax.grid(True, alpha=0.3)
 
 # Total Jubilee applied
 ax = axes[1, 1]
 ax.plot(qD_init, total_jub, 's-', color='purple', linewidth=2, markersize=8)
-ax.set_xlabel('Initial q_D')
+ax.set_xlabel('Initial q')
 ax.set_ylabel('Total Jubilee Applied')
 ax.set_title('Jubilee Activity vs Initial Damage')
 ax.grid(True, alpha=0.3)
@@ -77,14 +77,14 @@ fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 fig.suptitle("The Jubilee Cascade: How the Triple Lock Breaks",
              fontsize=14, fontweight='bold')
 
-# Show the feedback loop: lower q_D -> higher drag multiplier D -> more participation
+# Show the feedback loop: lower q -> higher drag multiplier D -> more participation
 lambda_dp = 3.0
 final_drag = [1.0 / (1.0 + lambda_dp * q) for q in final_qD]
 
 ax.plot(qD_init, drag_W_initial, 'o--', color='red', linewidth=2, label='Initial drag D (locked)')
 ax.plot(qD_init, final_drag, 's-', color='green', linewidth=2, label='Final drag D (after Jubilee)')
 ax.fill_between(qD_init, drag_W_initial, final_drag, alpha=0.2, color='green')
-ax.set_xlabel('Initial q_D', fontsize=12)
+ax.set_xlabel('Initial q', fontsize=12)
 ax.set_ylabel('Structural Drag Multiplier D', fontsize=12)
 ax.set_title('Participation Recovery via Jubilee', fontsize=13)
 ax.legend(fontsize=11)
@@ -101,7 +101,7 @@ ax.bar(range(len(qD_init)), improvement_factor, color='green', alpha=0.7)
 ax.axhline(y=1.0, color='red', linestyle='--', linewidth=2, label='Baseline (no Jubilee)')
 ax.set_xticks(range(len(qD_init)))
 ax.set_xticklabels([f'{q:.2f}' for q in qD_init])
-ax.set_xlabel('Initial q_D', fontsize=12)
+ax.set_xlabel('Initial q', fontsize=12)
 ax.set_ylabel('K Improvement Factor (vs baseline)', fontsize=12)
 ax.set_title('DET v6.5 Jubilee: Regime Index Improvement Factor', fontsize=13)
 ax.legend(fontsize=11)

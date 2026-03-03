@@ -1,78 +1,86 @@
-# DET v7 Migration and Deprecation Map
+# DET v7 Migration and Deprecation Map (Mutable Combined-`q`)
 
-**Date:** 2026-02-28  
-**Scope reviewed:** `/docs`, `/src`, `/tests`, `/validation`, `/reports`
+**Date:** March 3, 2026
+**Scope reviewed:** `/docs`, `/core`, `/src`, `/tests`, `/validation`, `/calibration`
 
-## 1. Canonical Docs
-- `det_theory_card_7_0.md`: **Single canonical DET v7.0 model card**.
-- `det_theory_card_6_5_1.md`: **Legacy patch card**, superseded as canonical reference by `det_theory_card_7_0.md`.
-- `det_theory_card_6_3.md`: **Legacy/superseded** for core law; keep as historical reference.
-- `det_theory_card_6_5.md`: **Legacy/superseded** historical iteration.
+## 1) Canonical Documentation
 
-## 2. Docs to Treat as Historical/Contextual (Not Canonical Dynamics)
-The following are retained as domain/application narrative and should not be used as canonical core laws:
-- `det_aging_as_structural_debt.md`
-- `det_debt_aging_spirit_synthesis.md`
-- `det_spirit_debt_applications.md`
-- `det_structural_debt.md`
-- `det_structural_debt_applications.md`
-- `det_resurrection_dual_mode.md`
-- `theological_implications_of_det_6_3.md`
-- `afterlife_and_spirit_agency_in_det.md`
-- `coexisting_kingdom_in_det.md`
-- `merging_worlds_technology.md`
+- **Canonical card:** `det_v7_0/docs/det_theory_card_7_0.md`
+- **Alias redirect:** `det_v7_0/docs/det_model_v7_0.md`
 
-These documents include pre-v6.5.1 agency-ceiling language and should be read as non-canonical unless explicitly updated.
+Legacy historical cards (superseded for active core law):
+- `det_theory_card_6_3.md`
+- `det_theory_card_6_5.md`
+- `det_theory_card_6_5_1.md`
 
-## 3. Core Source Status
-- `det_v6_3_1d_collider.py` in `det_v7_0/src`: **Updated to v6.5.1/v7 canonical laws**.
-- `det_v6_3_2d_collider.py` in `det_v7_0/src`: **Updated to v6.5.1/v7 canonical laws**.
-- `det_v6_3_3d_collider.py` in `det_v7_0/src`: **Updated to v6.5.1/v7 canonical laws**.
-- `det_v6_3_collider_torch.py` in `det_v7_0/src`: **Updated to v6.5.1/v7 canonical laws**.
-- `det_em/det_em_v6_3.py` in `det_v7_0/src`: updated with drag-aware presence helper.
+## 2) Canonical Core Law Status
 
-## 3.1 Second-Pass Cleanup Status
-Second-pass rewrites removed legacy `lambda_a` callsites and ceiling-era agency logic from
-app/demo/test artifacts in `det_v7_0/src` and `det_v7_0/tests`.
+Active v7 canonical model now uses:
+- single mutable `q in [0,1]`
+- drag coupling `lambda_P`
+- structure accumulation `alpha_q`
+- lawful local recovery/Jubilee on total `q`
+- no structural agency ceiling
 
-Remaining compatibility-only legacy alias:
-- `lambda_a` field in collider parameter dataclasses (`det_v6_3_1d/2d/3d_collider.py`, `det_v6_3_collider_torch.py`) is retained only as a backward-compatible no-op.
+## 3) Removed from Canonical Path
 
-## 4. New Core Architecture Layer (v7)
-Added under `det_v7_0/core`:
-- `presence.py`
-- `gravity.py`
-- `agency.py`
-- `structure.py`
-- `flow.py`
-- `boundary.py`
-- `update_loop.py`
+- dual debt state (`q_I`, `q_D`)
+- dual drag couplings (`lambda_IP`, `lambda_DP`)
+- split accumulation (`alpha_qI`, `alpha_qD`)
+- `lambda_a`-driven structural ceiling logic (`a_max` path)
 
-This separates canonical equations from calibration/readout modules.
+## 4) Codebase Consistency Summary
 
-## 5. Test/Falsifier Status
-New mandatory v6.5.1/v7 falsifier tests were added under `det_v7_0/tests`:
-- `test_f_a2_prime_no_structural_suppression.py`
-- `test_f_a4_frozen_will.py`
-- `test_f_a5_runaway_agency_sweep.py`
-- `test_gtd5_prime_drag_clock_ratio.py`
-- `test_bh_drag_scaling_3d.py`
-- Runner: `det_v651_falsifiers.py`
+### 4.1 Core/Source
+`det_v7_0/core` and `det_v7_0/src` colliders are aligned with mutable combined-`q` law:
+- 1D, 2D, 3D, Torch colliders updated
+- EM helper updated to unified drag input
+- unified parameter schema updated to `lambda_P` + `alpha_q`
 
-Legacy `det_v6_3/tests` suites remain for historical continuity and compatibility checks.
+### 4.2 Calibration
+Readout modules remain active and aligned with unified `q`:
+- `black_hole_thermodynamics.py`
+- `quantum_classical_transition.py`
+- gravity/lensing/rotation/cosmology calibration modules
 
-## 5.1 Legacy Test Artifacts
-The following tests/harnesses remain useful for regression archaeology but are not canonical v7 falsifier gates:
+### 4.3 Tests and Falsifiers
+Mandatory gates include:
+- `F_A2'`, `F_A4`, `F_A5`
+- `F_QM1`..`F_QM5`
+- `F_GTD5'`
+- `F_BH-Drag-3D`
+
+Regression/historical suites retained:
 - `det_v65_falsifiers.py`
 - `det_v65b_falsifiers.py`
 - `det_comprehensive_falsifiers.py`
-- `test_quantum_classical_transition.py`
-- `analyze_parameters.py`
 
-## 6. Validation and Reports
-- Validation harnesses under `/validation` and legacy reports under `/reports` are retained as historical outputs.
-- For canonical claims, use the new falsifier set above plus calibration outputs generated from `det_v7_0` colliders.
+## 5) Validation/Physics Readout Status
 
-## 7. Calibration Module Status
-- Canonical readout modules remain active: `extract_g_calibration.py`, `galaxy_rotation_curves.py`, `gravitational_lensing.py`, `cosmological_scaling.py`, `black_hole_thermodynamics.py`.
-- `quantum_classical_transition.py` was updated to drag-era agency analysis (`q_I/q_D` drag readouts, no structural ceiling).
+Validation harness (`det_validation_harness.py --all`) remains passing with gravity/Kepler/Bell checks.
+Bell and gravity-focused pytest slices remain passing under unified mutable-`q` implementation.
+
+## 6) Documentation Classification
+
+### Canonical operational docs
+- `det_theory_card_7_0.md`
+- `det_v7_applications_review.md`
+- `det_v7_battery_storage_recovery_review.md`
+
+### Historical/contextual docs (non-canonical dynamics)
+Narrative/theological/legacy-interpretive documents remain archived for traceability and must not override canonical equations.
+
+## 7) Migration Rule for Legacy Saved States
+
+If legacy split states are encountered:
+- map `q <- clip(q_I + q_D, 0, 1)`
+- drop split channels in canonical runtime state
+
+## 8) Acceptance Gate Snapshot (March 3, 2026)
+
+- mandatory mutable-`q` falsifiers: pass
+- legacy/comprehensive falsifiers: pass
+- full `pytest det_v7_0/tests -q`: pass
+- validation harness: pass
+
+Repository is aligned with mutable combined-`q` DET v7 canonical model.

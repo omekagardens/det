@@ -19,9 +19,8 @@ def run_sweep_case(beta_a: float):
         floor_enabled=False,
         boundary_enabled=False,
         q_enabled=True,
-        alpha_qD=0.0,
-        lambda_IP=2.0,
-        lambda_DP=3.0,
+        alpha_q=0.0,
+        lambda_P=3.0,
         beta_a=beta_a,
         a0=1.0,
         epsilon_a=0.0,
@@ -33,9 +32,7 @@ def run_sweep_case(beta_a: float):
     center = params.N // 2
     r2 = (x - center) ** 2 + (y - center) ** 2
     sim.F[:] = 0.2 + 4.0 * np.exp(-r2 / 40.0)
-    sim.q_I[:] = 0.2 * (r2 > 80)
-    sim.q_D[:] = 0.2 * (r2 <= 80)
-    sim.q = np.clip(sim.q_I + sim.q_D, 0, 1)
+    sim.q[:] = np.where(r2 > 80, 0.3, 0.1)
     sim.C_E[:] = 0.9
     sim.C_S[:] = 0.9
     sim.a[:] = 0.6
@@ -58,4 +55,3 @@ def test_f_a5_runaway_agency_sweep():
     beta_sweep = [0.1, 0.2, 0.4, 0.8, 1.2, 2.0]
     outcomes = [run_sweep_case(beta) for beta in beta_sweep]
     assert all(outcomes), f"Failed sweep cases: {beta_sweep}"
-

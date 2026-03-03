@@ -15,8 +15,7 @@ Base Parameters:
 - κ_base: Coupling scale
 - C_0: Coherence scale
 - φ_L: Angular/momentum ratio (default: 1/2)
-- λ_DP: Drag coupling on q_D
-- λ_IP: Drag coupling on q_I
+- λ_P: Drag coupling on q
 - a_0: Agency attractor
 - τ_eq: Equilibration time ratio (α/λ)
 - p_floor: Floor exponent
@@ -95,8 +94,7 @@ class DETUnifiedParams:
     # === MODULE-SPECIFIC TUNING ===
 
     # Presence drag + agency
-    lambda_DP: float = 3.0
-    lambda_IP: float = 1.0
+    lambda_P: float = 3.0
     a0: float = 1.0
     epsilon_a: float = 0.0
     gamma_v: float = 1.0
@@ -163,9 +161,7 @@ class DETUnifiedParams:
         self.floor_power = self.mu_base  # 2.0
 
         # === STRUCTURE ===
-        self.alpha_q = self.sigma_base / 10.0  # Deprecated alias
-        self.alpha_qD = self.alpha_q
-        self.alpha_qI = 0.0
+        self.alpha_q = self.sigma_base / 10.0
 
         # === AGENCY ===
         self.beta_a = 10.0 * self.tau_base  # 10 * 0.02 = 0.2
@@ -222,13 +218,7 @@ class DETUnifiedParams:
 
             q_enabled=self.q_enabled,
             alpha_q=self.alpha_q,
-            alpha_qD=self.alpha_qD,
-            alpha_qI=self.alpha_qI,
-            q_I_fraction=0.0,
-            identity_locking_enabled=False,
-            legacy_q_maps_to_identity=True,
-            lambda_DP=self.lambda_DP,
-            lambda_IP=self.lambda_IP,
+            lambda_P=self.lambda_P,
             gamma_v=self.gamma_v,
 
             agency_dynamic=self.agency_dynamic,
@@ -276,8 +266,7 @@ class DETUnifiedParams:
         print(f"  κ_base (coupling scale) = {self.kappa_base}")
         print(f"  C_0 (coherence scale)   = {self.C_0}")
         print(f"  φ_L (angular ratio)     = {self.phi_L}")
-        print(f"  λ_DP (drag, q_D)        = {self.lambda_DP}")
-        print(f"  λ_IP (drag, q_I)        = {self.lambda_IP}")
+        print(f"  λ_P (drag, q)           = {self.lambda_P}")
         print(f"  a_0 (agency attractor)  = {self.a0}")
         print(f"  τ_eq_C (C eq. ratio)    = {self.tau_eq_C}")
         print(f"  π_max                   = {self.pi_max}")
@@ -305,8 +294,7 @@ class DETUnifiedParams:
         print(f"  floor_power = μ_base = {self.floor_power}")
 
         print("\nStructure (from σ_base):")
-        print(f"  α_qD = σ_base / 10 = {self.alpha_qD}")
-        print(f"  α_qI = {self.alpha_qI}")
+        print(f"  α_q = σ_base / 10 = {self.alpha_q}")
 
         print("\nAgency (from τ_base, C_0, μ_base):")
         print(f"  β_a = 10 × τ_base = {self.beta_a}")

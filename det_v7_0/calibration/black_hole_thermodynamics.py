@@ -20,7 +20,7 @@ In DET, a "black hole" is characterized by:
 DET Black Hole Properties
 -------------------------
 1. **Time Dilation:** P = (a*sigma / (1+F) / (1+H) / gamma_v) * D
-2. **Structural Drag:** D = 1/(1 + lambda_DP*q_D + lambda_IP*q_I)
+2. **Structural Drag:** D = 1/(1 + lambda_P*q)
 3. **Radiation Mechanism:** F-flux escaping from high-q region via:
    - Quantum fluctuations (coherence dynamics)
    - Grace injection at boundaries
@@ -194,9 +194,8 @@ class BlackHoleConfigurator:
 
             # Structure
             q_enabled=True,
-            alpha_qD=0.005,  # Slow q_D evolution to maintain BH
-            lambda_DP=4.0,
-            lambda_IP=1.5,
+            alpha_q=0.005,  # Slow q evolution to maintain BH
+            lambda_P=4.0,
 
             # Momentum for dynamics
             momentum_enabled=True,
@@ -242,10 +241,6 @@ class BlackHoleConfigurator:
 
                     # q profile: high in core, decaying outward
                     q_val = q_core * np.exp(-(r / radius)**2)
-                    if hasattr(sim, "q_I") and hasattr(sim, "q_D"):
-                        sim.q_I[i, j, k] = max(sim.q_I[i, j, k], q_val)
-                        # Keep dissipative debt low for controlled scaling sweeps.
-                        sim.q_D[i, j, k] = min(sim.q_D[i, j, k], q_val * 0.05)
                     sim.q[i, j, k] = max(sim.q[i, j, k], q_val)
 
                     # F profile: concentrated mass
@@ -303,9 +298,8 @@ class BlackHoleConfigurator:
         a_center = sim.a[cx, cy, cz]
         sigma_center = sim.sigma[cx, cy, cz]
         H_center = sigma_center  # Simplified coordination load
-        qI_center = sim.q_I[cx, cy, cz] if hasattr(sim, "q_I") else sim.q[cx, cy, cz]
-        qD_center = sim.q_D[cx, cy, cz] if hasattr(sim, "q_D") else 0.0
-        drag_center = 1.0 / (1.0 + sim.p.lambda_DP * qD_center + sim.p.lambda_IP * qI_center)
+        q_center = sim.q[cx, cy, cz]
+        drag_center = 1.0 / (1.0 + sim.p.lambda_P * q_center)
         gamma_v = getattr(sim.p, "gamma_v", 1.0)
         P_central = a_center * sigma_center / (1 + F_center) / (1 + H_center) / gamma_v * drag_center
 

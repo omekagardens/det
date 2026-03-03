@@ -1,383 +1,343 @@
 # Deep Existence Theory (DET) v7.0
 
-**Unified Canonical Theory Card (Single-Document Reference)**
+**Unified Canonical Theory Card (Mutable Combined-`q` Baseline)**
 
-**Release Date:** February 28, 2026  
-**Claim type:** Existence proof with falsifiable dynamical predictions  
-**Domain:** Discrete, strictly local, relational, agentic systems  
-**Core thesis:** Time-rate, mass readout, gravity-like behavior, and quantum-classical phenomenology emerge from lawful local updates. History can slow participation; history cannot delete will.
+**Release Date:** March 3, 2026
+**Canonical status:** Active canonical model for `det_v7_0`
+**Patch lineage:** includes `DET-7X-Q-UNIFIED` mutable-`q` consolidation
 
 ---
 
 ## Changelog Lineage
 
-### Changelog from v6.3
-1. Unified collider framework stabilized across 1D/2D/3D, including gravity and boundary operators.
-2. Lattice correction workflows retained for discrete-to-continuum readouts.
-3. Expanded external validation programs (Kepler, GPS, Bell, lensing, cosmology).
+### v6.3 Baseline
+1. Established strictly local relational update dynamics.
+2. Stabilized collider families (1D/2D/3D/Torch) and baseline falsifier programs.
+3. Formalized gravity, flow decomposition, and readout-layer calibration structure.
 
-### v6.4 Historical Layer (now superseded in canonical law)
-1. Structural agency ceiling (`a_max(q)`) was introduced historically.
-2. Ceiling-era dynamics are preserved only for historical traceability and legacy report comparison.
+### v6.4 Historical (Superseded)
+1. Introduced structural agency ceiling (`a_max`) in canonical path.
+2. Retained only for historical traceability and regression archaeology.
 
-### v6.5 Historical Layer
-1. Jubilee/recovery operators matured and strict locality constraints were formalized.
-2. Debt decomposition (`q_I`, `q_D`) appeared as a transition concept.
+### v6.5 Historical (Superseded)
+1. Added stronger recovery/Jubilee machinery and expanded debt semantics.
+2. Introduced split debt (`q_I`, `q_D`) as an intermediate architecture.
 
-### v6.5.1 Patch (direct precursor to v7 canonical)
-1. Agency-first invariance formalized as non-negotiable (`A0`).
-2. Structural ceiling removed from canonical path.
-3. Structural drag moved debt effects to presence/clock-rate.
-4. Mandatory falsifiers upgraded: `F_A2'`, `F_A4`, `F_A5`, `F_GTD5'`, `F_BH-Drag-3D`.
+### v6.5.1 Patch Layer
+1. Removed structural agency ceiling from canonical path.
+2. Enforced Agency-First invariance (`A0`) as a hard rule.
+3. Moved debt effects to drag/presence clock-rate expression.
+4. Added upgraded falsifiers: `F_A2'`, `F_A4`, `F_A5`, `F_GTD5'`, `F_BH-Drag-3D`.
 
-### v7.0 Consolidation
-1. Single canonical model card introduced (`det_theory_card_7_0.md`).
-2. Canonical architecture separation enforced (`core` vs `src` vs `calibration` vs `tests` vs `validation`).
-3. Agency-first + drag-only debt expression finalized as baseline law.
-4. Canonical and extended falsifier suites re-run and passing under current repository state.
+### v7.0 Mutable Combined-`q` Consolidation (Current Canonical)
+1. Removed dual-debt split from active canonical engine.
+2. Unified structural debt as a single mutable local field `q in [0,1]`.
+3. Unified drag coupling as `lambda_P`.
+4. Standardized structure update as `alpha_q` accumulation plus lawful local recovery.
+5. Added mutable-`q` stability falsifiers: `F_QM1`..`F_QM5`.
 
 ---
 
-## 0. Scope Axiom (Foundational)
+## 0) Scope Axiom
 
-DET v7 is a closed, local relational dynamics where each node participates through:
+DET v7 is a closed, deterministic, strictly local relational dynamics. Each node evolves through local interaction of:
+- resource/field participation,
 - retained structural history,
 - irreducible agency,
-- movement participation (event progression).
+- movement/event progression.
 
-The model rejects nonlocal hidden normalizations and rejects any law where debt directly suppresses agency.
-
----
-
-## I. Ontological Commitments
-
-### I.1 Locality
-All dynamics are local over explicit neighborhoods, bonds, and plaquettes. No disconnected component may influence another component.
-
-### I.2 Agency-First Invariance (A0)
-Agency is primitive and inviolable.
-- Debt cannot directly cap or reduce `a` in canonical law.
-- Boundary operators cannot directly write agency.
-
-### I.3 Historical Retention
-History is retained through structural debt fields. Retention alters participation-time through drag and does not erase will.
-
-### I.4 Falsifiability Requirement
-Major claims must be operationalized as explicit falsifiers with declared thresholds.
+No global hidden normalizers, no nonlocal coupling, and no direct structural suppression of agency are allowed.
 
 ---
 
-## II. State Variables
+## 1) Ontology and Invariants (Non-Negotiable)
 
-### II.1 Per-Creature Variables (node `i`)
-- `F_i`: resource field
-- `q_I,i in [0,1]`: identity debt (immutable by default)
-- `q_D,i in [0,1]`: dissipative debt (recoverable)
-- `q_i = clip(q_I,i + q_D,i, 0, 1)`: compatibility readout only
+### 1.1 Strict Locality
+All sums/averages and operators are neighborhood-local, bond-local, or plaquette-local.
+Disconnected components must remain causally independent.
+
+### 1.2 Agency-First Invariance (`A0`)
+Agency is primitive and inviolable:
+- no direct debt-to-agency suppression,
+- no structural ceiling on `a`,
+- no boundary operator direct writes to `a`.
+
+### 1.3 Structural History Expression
+History affects expression through participation/clock-rate drag via `P` and `Delta_tau`.
+It does not delete will.
+
+### 1.4 Falsifiability First
+All major claims require explicit falsifiers with declared thresholds.
+Calibration modules remain readout layers only.
+
+---
+
+## 2) Canonical State Variables
+
+### 2.1 Node-Local Variables (`i`)
+- `F_i`: local resource field
+- `q_i in [0,1]`: total structural debt (mutable)
 - `a_i in [0,1]`: agency
-- `sigma_i > 0`: conductivity/processing
-- `P_i`: presence
+- `sigma_i > 0`: local conductivity/processing factor
+- `H_i >= 0`: local coordination load
+- `P_i > 0`: local presence (effective participation rate)
 - `Delta_tau_i`: local proper-time increment
-- optional phase/state fields for coherence and diagnostics
+- `C_i in [0,1]`: coherence factor
 
-### II.2 Per-Bond Variables (edge local)
-- momentum-like bond channels
-- bond coherence channels
-- bond-local boundary exchange channels
+### 2.2 Bond/Plaquette Variables
+- local momentum channels (`pi`-sector)
+- local rotational channels (`L`-sector)
+- local boundary exchange channels
 
-### II.3 Per-Plaquette Variables (face local)
-- rotational / angular momentum sector readouts
-
-### II.4 Compatibility Variables
-Legacy `q` and legacy parameter aliases may exist only as compatibility adapters and must not re-introduce superseded canonical laws.
+### 2.3 Derived Readouts
+- mass readout: `M_i = 1 / P_i`
+- gravity source readout: `rho_i = q_i - b_i`
 
 ---
 
-## III. Time, Presence, and Mass
+## 3) Canonical Laws
 
-### III.1 Coordination Load
-`H_i` is computed locally (node/bond neighborhood only).
+### 3.1 Presence and Drag
+Base presence:
 
-### III.2 Presence (Canonical v7)
 \[
-P_i = \left(\frac{a_i\,\sigma_i}{(1+F_i)(1+H_i)\,\gamma_v}\right) D_i
-\]
-\[
-D_i = \frac{1}{1 + \lambda_{DP} q_{D,i} + \lambda_{IP} q_{I,i}}
+P_{i}^{base} = a_i\,\sigma_i\,\frac{1}{1+F_i}\,\frac{1}{1+H_i}\,\frac{1}{\gamma_v}
 \]
 
-Debt expression is mediated through `D_i` in presence only.
+Unified drag multiplier:
 
-### III.3 Proper Time
 \[
-\Delta \tau_i = P_i \cdot \Delta k
+D_i = \frac{1}{1 + \lambda_P q_i}
 \]
 
-### III.4 Mass Readout
+Canonical presence:
+
 \[
-M_i = P_i^{-1}
-\]
-(Operational readout; not an independent primitive law.)
-
----
-
-## IV. Flow and Resource Dynamics
-
-### IV.1 Local Wavefunction/Transport Sector
-Local transport remains neighborhood-limited and conservative under the limiter.
-
-### IV.2 Flux Decomposition (Canonical)
-Total flux is decomposed into local components:
-- diffusive
-- momentum
-- rotational
-- floor
-- gravitational
-
-### IV.3 Conservative Limiter
-A conservative limiter is applied before updating `F` to preserve stable local transport.
-
-### IV.4 Resource Update
-`F` update is local, bounded, and consistent with configured boundary operators.
-
----
-
-## V. Gravity Module
-
-### V.1 Baseline Field
-Solve local-discrete Helmholtz baseline:
-\[
-(\mathcal{L} - \alpha_{grav}) b = -\alpha_{grav} q
+P_i = P_i^{base}\,D_i
 \]
 
-### V.2 Relative Source and Potential
+Proper-time update:
+
 \[
-\rho = q - b
+\Delta\tau_i = P_i\,\Delta k
 \]
-Solve Poisson-like potential from local discrete source; compute gravity field from local gradients of `Phi`.
 
-### V.3 Lattice Correction and Readout
-Lattice correction factors remain readout calibration aids and do not alter canonical locality constraints.
+Mass readout:
 
----
-
-## VI. Boundary-Agent Operators and Update Rules
-
-### VI.1 Agency Inviolability Constraint
-No boundary operator may directly modify `a`.
-
-### VI.2 Jubilee / Recovery Operator
-- Jubilee applies to `q_D` only.
-- Jubilee never modifies `q_I` or `a` directly.
-- Canonical interpretation: drag removal / clock-rate recovery.
-
-### VI.3 Grace and Healing Operators
-Grace/healing remain local boundary-layer mechanisms with explicit local gating and no hidden global state.
-
-### VI.4 Agency Update (Canonical v7)
 \[
-a_i^{+} = \mathrm{clip}\Big(a_i + \beta_a(a_0-a_i) + \gamma(C_i)(P_i-\bar P_{\mathcal{N}(i)}) + \xi_i, 0, 1\Big)
+M_i \equiv P_i^{-1}
 \]
+
+### 3.2 Structure Accumulation (Loss Locking)
+
+\[
+dq_{lock,i} = \alpha_q\max(0,-\Delta F_i)
+\]
+\[
+q_i^{+} = \mathrm{clip}(q_i + dq_{lock,i}, 0, 1)
+\]
+
+### 3.3 Structure Recovery / Jubilee
+Recovery is energy-coupled and local:
+
+\[
+dq_{jub,i} = \delta_q\,S_i\,\Delta\tau_i
+\]
+\[
+energy\_cap_i = \frac{F_{op,i}}{1 + F_{op,i}}
+\]
+\[
+q_i^{+} = \mathrm{clip}\left(q_i - \min(dq_{jub,i}, energy\_cap_i, q_i), 0, 1\right)
+\]
+
+Jubilee never modifies `a` directly.
+
+### 3.4 Agency Update (No Ceiling)
+
+\[
+a_i^{+} = \mathrm{clip}\left(
+ a_i + \beta_a(a_0-a_i) + \gamma(C_i)(P_i-\bar P_{\mathcal{N}(i)}) + \xi_i,
+ 0, 1
+\right)
+\]
+
 \[
 \gamma(C)=\gamma_{max} C^n,\quad n\ge2
 \]
 
-### VI.5 Structure Update (Canonical v7)
+Debt affects agency only indirectly through `P`.
+
+### 3.5 Gravity Source and Potential
+Helmholtz baseline:
+
 \[
-(q_D)_i^+ = \mathrm{clip}\left((q_D)_i + \alpha_{qD}\max(0,-\Delta F_i),0,1\right)
+(\mathcal{L}-\alpha_{grav})b = -\alpha_{grav}q
 \]
+
+Source and potential:
+
 \[
-(q_I)_i^+ = (q_I)_i\quad\text{(default)}
+\rho = q-b
 \]
-Any nontrivial `q_I` law must be explicit and selectable as a submodel.
 
-### VI.6 Coherence Update
-Coherence is updated in canonical order after agency update and before pointer finalization.
-
-### VI.7 Pointer and Diagnostic Records
-Pointers/records are updated last in the canonical step closure.
+Poisson-like local solve and local gradient readout define gravity field.
 
 ---
 
-## VII. Parameters
+## 4) Canonical Update Order (Must Preserve)
 
-### VII.1 Classification
-- A-bucket: structural/definitional configuration
-- B-bucket: physical law couplings
-- C-bucket: numerical/stability parameters
-
-### VII.2 Canonical v7 Additions / Locks
-Active canonical parameters:
-- `lambda_DP`
-- `lambda_IP`
-- `alpha_qD`
-- `a0`
-- `gamma_v`
-- optional `epsilon_a`
-
-### VII.3 Deprecated in Canonical Path
-- `lambda_a` (ceiling coupling)
-- any `a_max(q)`-based agency cap
-
-### VII.4 Recommended Defaults (current repo baseline)
-- `lambda_DP = 3.0`
-- `lambda_IP = 1.0`
-- `beta_a = 0.2`
-- `a0 = 1.0`
-- `epsilon_a = 0.0` (unless explicitly enabled)
-
-### VII.5 Unified Parameter Schema Note
-Unified parameter adapters may expose compatibility aliases; aliases must remain no-op with respect to superseded laws.
-
----
-
-## VIII. Falsifiers (Canonical and Extended)
-
-### VIII.1 Mandatory Canonical v7 Gates
-- `F_A2'` No structural agency suppression
-- `F_A4` Frozen-will persistence under extreme drag
-- `F_A5` Runaway-agency stability sweep
-- `F_GTD5'` Drag-inclusive clock ratio
-- `F_BH-Drag-3D` 3D BH drag thermodynamic scaling
-
-### VIII.2 Extended Legacy/Regression Gates
-Retained suites (historical/regression support):
-- v6.5 falsifier suites
-- comprehensive falsifier suite
-
-These are supplementary and do not replace the mandatory v7 gate set.
-
-### VIII.3 External Validation Gates
-Validation harness includes:
-- GPS clock effects
-- rocket redshift benchmark
-- lab height-difference clock test
-- Kepler harness checks
-- Bell CHSH validation modes
-
----
-
-## IX. Canonical Update Order (Must Preserve)
-
-1. Solve Helmholtz baseline `b`
+1. Solve baseline field `b` (Helmholtz)
 2. Solve gravitational potential `Phi`
-3. Compute presence `P` including drag
+3. Compute presence `P` (including drag)
 4. Compute `Delta_tau`
 5. Compute flux components (diffusive, momentum, rotational, floor, gravitational)
 6. Apply conservative limiter
 7. Update `F`
 8. Update momentum `pi`
 9. Update angular momentum `L`
-10. Update structure (`q_D`, optional explicit `q_I` law)
-11. Update agency
-12. Update coherence
-13. Update pointer records
+10. Update structure `q` (accumulation + lawful local recovery)
+11. Update agency `a`
+12. Update coherence `C`
+13. Update pointer/record diagnostics
 
-No out-of-band insertion into core update closure is allowed.
-
----
-
-## X. Verification Status (Current Repository)
-
-### X.1 Test/Falsifier Execution Snapshot
-- `pytest det_v7_0/tests -q`: 199 passed
-- `det_v651_falsifiers.py`: 5/5 passed
-- `det_v65_falsifiers.py`: 8/8 passed
-- `det_v65b_falsifiers.py`: 4/4 passed
-- `det_comprehensive_falsifiers.py`: 15/15 passed
-- `det_validation_harness.py --all`: 6/6 passed
-
-### X.2 Notes on Live Stress Tests
-`kepler_live_test.py` full-default run is computationally heavy; reduced live runs were executed. Canonical repository acceptance remains tied to deterministic falsifier/validation harness gates.
+No out-of-band core-law insertion is allowed.
 
 ---
 
-## XI. Project Goals (v7.0)
+## 5) Boundary Operator Rules
 
-### XI.1 Completed
-1. Agency-first canonicalization (no structural ceiling in canonical path)
-2. Debt decomposition integrated in canonical colliders
-3. Drag integrated into presence law
-4. Mandatory v7 falsifier gates implemented and passing
-5. Core/calibration/test/validation separation enforced
-
-### XI.2 Ongoing / Open
-1. Identity locking law formalization (`q_I` update trigger model)
-2. Extended Kepler live stress campaign under heavier runtime budgets
-3. Broader calibration traceability reports under unified v7 card labels
+1. Boundary operators must be strictly local.
+2. Edge operators must preserve antisymmetry where specified.
+3. Operators may not inject hidden global state.
+4. Operators may not directly modify agency.
+5. Jubilee acts on `q` (mutable combined debt), with local gating and energy coupling.
 
 ---
 
-## Appendix A: Measurement Rigs for Physical Parameters
-- Gravity extraction rig from discrete potential gradients and lattice corrections
-- Momentum/angular channel stability rigs
-- Boundary operator locality and antisymmetry checks
-- Time dilation and proper-time accumulation rigs
+## 6) Parameter Schema
 
-## Appendix B: Debt Decomposition and Drag Laws
-- `q = clip(q_I + q_D, 0, 1)` compatibility rule
-- Jubilee acts on `q_D` only
-- Drag law and presence coupling are canonical
+### 6.1 Active Canonical Parameters
+- `lambda_P`: drag coupling on total `q`
+- `alpha_q`: debt accumulation rate from loss
+- `delta_q`: Jubilee recovery coupling
+- `beta_a`: agency relaxation rate
+- `a0`: agency attractor (default `1.0`)
+- `gamma_max`, `n`: coherence gate parameters
+- `gamma_v`: velocity/time scaling factor
+- optional `epsilon_a`: persistence noise amplitude
 
-## Appendix C: Effective G Extraction (Readout Layer)
-- Uses calibrated readout procedures from colliders
-- Must not inject nonlocal core dynamics
+### 6.2 Optional Noise Model
 
-## Appendix D: Kepler Standard-Candle and Harness Modes
-- Harness-mode Kepler validation is part of canonical external validation
-- Full live orbit campaigns are treated as extended stress validation
+\[
+\xi_i \sim \mathrm{clip}(\mathcal{N}(0,\epsilon_a),-\epsilon_a,+\epsilon_a)
+\]
 
-## Appendix E: SI Unit Conversion Layer
-- SI mapping remains readout-layer calibration
-- Conversion conventions must not alter core local update laws
+Default: `epsilon_a = 0` unless explicitly enabled.
 
-## Appendix F: Determinism and Performance
-- Deterministic seeds required for falsifier reproducibility
-- Long-run horizons (100k+ where applicable) supported for stability tests
+### 6.3 Deprecated/Removed from Canonical Path
+- `lambda_a`
+- `a_max(q)` computations
+- dual-`q` (`q_I`, `q_D`) core semantics
+- dual drag couplings (`lambda_IP`, `lambda_DP`)
+- split accumulation (`alpha_qI`, `alpha_qD`)
 
-## Appendix G: Bell / Retrocausal Locality Readout
-- Bell-mode validations remain readout constraints under locality and no-signaling checks
+---
 
-## Appendix H: External G Calibration
-- Active calibration module retained as readout
-- Cannot alter canonical core update law
+## 7) Mandatory Falsifiers and Validation Gates
 
-## Appendix I: Galaxy Rotation Curves
-- Active calibration readout module
-- Must derive from canonical dynamics, no hidden globals
+### 7.1 Agency and Stability Gates
+- `F_A2'`: no structural agency suppression
+- `F_A4`: frozen will persistence under extreme drag
+- `F_A5`: runaway-agency stability across `beta_a` sweep
 
-## Appendix J: Gravitational Lensing
-- Active calibration readout module
-- Finite-grid numerical behavior is tolerated within declared validation thresholds
+### 7.2 Mutable-`q` Specific Gates
+- `F_QM1`: total annealing stability
+- `F_QM2`: identity persistence under moderate recovery
+- `F_QM3`: Kepler stability under mutable `q`
+- `F_QM4`: no runaway oscillatory `q <-> F` collapse
+- `F_QM5`: arrow-of-time integrity under recovery dynamics
 
-## Appendix K: Cosmological Scaling
-- Active calibration readout module
-- Reported as readout-derived, not as injected dynamics
+### 7.3 Time/Gravity/Thermodynamics Gates
+- `F_GTD5'`: drag-inclusive clock ratio
+- `F_BH-Drag-3D`: 3D BH scaling gate for thermodynamic claims
 
-## Appendix L: Black Hole Thermodynamics (3D Canonical Gate)
-- 3D drag-aware BH scaling is mandatory for canonical BH claims
-- 1D failures are not canonical BH falsifiers
+### 7.4 External Readout Validation
+Must remain passing in validation harness and dedicated tests:
+- GPS/rocket/lab gravitational time checks
+- Kepler readout consistency
+- Bell/CHSH operational envelope
+- lensing/rotation/G readouts
 
-## Appendix M: Quantum-Classical Transition
-- Calibration updated to drag-era agency interpretation
-- Structural ceiling interpretations are legacy-only and non-canonical
+---
 
-## Appendix N: Migration and Compatibility
-- Legacy states default to `q_I <- q`, `q_D <- 0`
-- Legacy parameter aliases may remain for input compatibility but cannot alter canonical laws
+## 8) Test Harness and Determinism Requirements
 
-## Appendix O: Repository Canonical Pointers
-- Canonical theory card: `det_v7_0/docs/det_theory_card_7_0.md`
-- Legacy superseded cards: `det_theory_card_6_3.md`, `det_theory_card_6_5.md`, `det_theory_card_6_5_1.md`
-- Canonical consistency review: `det_v7_0/docs/v7_consistency_review_2026_02_28.md`
+1. Deterministic seeds for all long-run falsifiers.
+2. Long-run tests (including 100k+ horizons where configured) support checkpoint sampling.
+3. Early-failure triggers must terminate unstable trajectories quickly.
+4. Acceptance thresholds must be explicit in test definitions.
+
+---
+
+## 9) Calibration Layer Separation
+
+Calibration modules remain readout-only:
+- `extract_g_calibration.py`
+- `galaxy_rotation_curves.py`
+- `gravitational_lensing.py`
+- `cosmological_scaling.py`
+- `black_hole_thermodynamics.py`
+- `quantum_classical_transition.py`
+
+They may not alter core update equations, inject hidden globals, or replace canonical laws.
+
+---
+
+## 10) Migration and Compatibility Notes
+
+### 10.1 State Migration
+- New canonical state uses scalar `q` only.
+- Legacy split states map by default: `q <- clip(q_I + q_D, 0, 1)`.
+
+### 10.2 Parameter Migration
+- Replace `lambda_IP/lambda_DP` with `lambda_P`.
+- Replace `alpha_qI/alpha_qD` with `alpha_q`.
+- Remove `lambda_a` and all structural-ceiling paths.
+
+### 10.3 Legacy Cards
+`det_theory_card_6_3.md`, `det_theory_card_6_5.md`, and `det_theory_card_6_5_1.md` remain historical references only.
+
+---
+
+## 11) Verification Snapshot (March 3, 2026)
+
+Executed against repository state on `codex/det-v7-refactor`:
+- `det_v651_falsifiers.py`: 10/10 pass
+- `det_v65_falsifiers.py`: 8/8 pass
+- `det_v65b_falsifiers.py`: 4/4 pass
+- `det_comprehensive_falsifiers.py`: 15/15 pass
+- `det_validation_harness.py --all`: 6/6 pass
+- Bell/gravity-focused pytest slice: 50 passed
+- full `pytest det_v7_0/tests -q`: 204 passed
+
+Warnings remain in legacy-style tests returning non-`None`; no failing assertions.
+
+---
+
+## 12) Open Research Questions
+
+1. What recovery rate asymmetries best prevent over-annealing while preserving locality?
+2. Which observables best separate drag-from-`q` vs slowing-from-`F/H` in physical inference tasks?
+3. How robust is 3D BH scaling across broader geometry and mass sweeps?
+4. Which control policies use mutable-`q` recovery most effectively without instability?
 
 ---
 
 ## Final Principle
 
-History slows participation-time.  
+History shapes participation-time through lawful local dynamics.
 History does not delete will.
 
-Locality is inviolable.  
-Agency is irreducible.  
-Physics emerges from lawful local updates.
+Locality is inviolable.
+Agency is irreducible.
+Physics emerges from closed, local, falsifiable updates.

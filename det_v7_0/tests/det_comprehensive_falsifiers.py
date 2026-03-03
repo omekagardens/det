@@ -775,7 +775,7 @@ def test_F_GTD1_time_dilation(verbose: bool = True) -> Dict:
 
     Verify presence-based time dilation with drag:
     P = a*sigma/(1+F)/(1+H)/gamma_v * D
-    D = 1/(1 + lambda_DP*q_D + lambda_IP*q_I)
+    D = 1/(1 + lambda_P*q)
     High-F regions should have lower presence (slower proper time).
     """
     if verbose:
@@ -815,22 +815,11 @@ def test_F_GTD1_time_dilation(verbose: bool = True) -> Dict:
     H_edge = sigma_edge
     gamma_v = getattr(sim.p, "gamma_v", 1.0)
 
-    if hasattr(sim, "q_I"):
-        qI_center = sim.q_I[center, center, center]
-        qI_edge = sim.q_I[center, center, center + 10]
-    else:
-        qI_center = sim.q[center, center, center]
-        qI_edge = sim.q[center, center, center + 10]
+    q_center = sim.q[center, center, center]
+    q_edge = sim.q[center, center, center + 10]
 
-    if hasattr(sim, "q_D"):
-        qD_center = sim.q_D[center, center, center]
-        qD_edge = sim.q_D[center, center, center + 10]
-    else:
-        qD_center = 0.0
-        qD_edge = 0.0
-
-    D_center = 1.0 / (1.0 + sim.p.lambda_DP * qD_center + sim.p.lambda_IP * qI_center)
-    D_edge = 1.0 / (1.0 + sim.p.lambda_DP * qD_edge + sim.p.lambda_IP * qI_edge)
+    D_center = 1.0 / (1.0 + sim.p.lambda_P * q_center)
+    D_edge = 1.0 / (1.0 + sim.p.lambda_P * q_edge)
 
     # Full v7 formula
     predicted_P_center = a_center * sigma_center / (1 + F_center) / (1 + H_center) / gamma_v * D_center

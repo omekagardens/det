@@ -119,8 +119,7 @@ class TestAgencyAnalyzer:
     def test_analyzer_creation(self):
         """Test basic analyzer creation."""
         analyzer = AgencyAnalyzer(verbose=False)
-        assert analyzer.lambda_DP == 3.0
-        assert analyzer.lambda_IP == 1.0
+        assert analyzer.lambda_P == 3.0
 
     def test_structural_drag_computation(self):
         """Test structural drag formula."""
@@ -128,13 +127,13 @@ class TestAgencyAnalyzer:
 
         # Test at q = 0: drag should be 1
         q_zero = np.zeros((4, 4, 4))
-        drag = analyzer.compute_structural_drag(q_I=q_zero, q_D=q_zero)
+        drag = analyzer.compute_structural_drag(q=q_zero)
         assert np.allclose(drag, 1.0)
 
-        # Test at q_I=q_D=1: drag should be reduced by lambda_IP/lambda_DP
+        # Test at q=1: drag should be reduced by lambda_P
         q_one = np.ones((4, 4, 4))
-        drag = analyzer.compute_structural_drag(q_I=q_one, q_D=q_one)
-        expected = 1.0 / (1.0 + analyzer.lambda_DP + analyzer.lambda_IP)
+        drag = analyzer.compute_structural_drag(q=q_one)
+        expected = 1.0 / (1.0 + analyzer.lambda_P)
         assert np.allclose(drag, expected)
 
     def test_measure_agency_state(self):
@@ -436,8 +435,6 @@ class TestPhysicsConsistency:
         params = DETParams3D(N=16, agency_dynamic=True, beta_a=0.2, a0=1.0)
         sim = DETCollider3D(params)
         sim.q[:] = 1.0
-        sim.q_I[:] = 1.0
-        sim.q_D[:] = 0.0
         sim.a[:] = 0.95
 
         # Run some steps
@@ -445,7 +442,7 @@ class TestPhysicsConsistency:
             sim.step()
 
         analyzer = AgencyAnalyzer(verbose=False)
-        drag = analyzer.compute_structural_drag(sim.q_I, sim.q_D)
+        drag = analyzer.compute_structural_drag(sim.q)
         assert np.mean(sim.a) > 0.7, "Agency should remain high under drag-only suppression"
         assert np.mean(drag) < 0.6, "Drag should meaningfully reduce participation rate"
 

@@ -1,12 +1,12 @@
 """
-DET v7.0 1D Collider (Agency-First + Structural Drag)
-=====================================================
+DET v7.x 1D Collider (Unified Mutable Structural Debt)
+======================================================
 
-Canonical updates integrated from DET v6.5.1 patch:
-- Debt decomposition: q = q_I + q_D
-- Structural drag in presence law
+Patch alignment:
+- Unified structural debt: q only
+- Structural drag in presence law: D = 1/(1 + lambda_P*q)
 - Agency-first update without structural ceiling
-- Jubilee reduces q_D only
+- Jubilee reduces total q (lawful recovery)
 """
 
 import numpy as np
@@ -45,18 +45,12 @@ class DETParams1D:
     mu_pi: float = 0.30
     pi_max: float = 3.0
 
-    # Structure (q-locking)
+    # Structure (q-locking / mutable recovery)
     q_enabled: bool = True
-    alpha_q: float = 0.015  # Deprecated alias for alpha_qD
-    alpha_qD: Optional[float] = None
-    alpha_qI: float = 0.0
-    q_I_fraction: float = 0.0    # Legacy split control for alpha_qD
-    identity_locking_enabled: bool = False
-    legacy_q_maps_to_identity: bool = True  # q -> q_I mapping for legacy writes
+    alpha_q: float = 0.015
 
-    # Presence drag (v6.5.1 / v7)
-    lambda_DP: float = 3.0
-    lambda_IP: float = 1.0
+    # Presence drag (unified-q patch)
+    lambda_P: float = 3.0
     gamma_v: float = 1.0
 
     # Agency dynamics (v7 canonical)
@@ -95,7 +89,7 @@ class DETParams1D:
     # H_i = Σ_{j ∈ N_R(i)} √C_ij * σ_ij
     coherence_weighted_H: bool = False
 
-    # v6.5: Jubilee / Forgiveness operator (q-decay)
+    # Jubilee / Forgiveness operator (q-decay)
     jubilee_enabled: bool = False
     delta_q: float = 0.001       # Jubilee decay rate
     n_q: float = 2.0             # Coherence exponent for Jubilee activation
@@ -105,8 +99,7 @@ class DETParams1D:
     eta_RJ: float = 0.5          # Relational Jubilee coupling
     m_q: float = 2.0             # Coherence exponent for relational term
     J_0: float = 0.05            # Flow saturation constant
-    # v6.5b: Energy coupling (mandatory per thermodynamic consistency review)
-    # Jubilee cost: dq_D is capped by min(q_D, F_op/(1+F_op))
+    # Energy coupling: dq is capped by min(q, F_op/(1+F_op))
     # This binds forgiveness to available free resource.
     jubilee_energy_coupling: bool = True  # Default ON for thermodynamic safety
     # Numerical stability
@@ -116,8 +109,7 @@ class DETParams1D:
     # or boundary operators, not through hidden global scaling or normalization.
 
     def __post_init__(self):
-        if self.alpha_qD is None:
-            self.alpha_qD = self.alpha_q
+        self.alpha_q = float(self.alpha_q)
 
 
 def periodic_local_sum_1d(x: np.ndarray, radius: int) -> np.ndarray:
@@ -148,8 +140,6 @@ class DETCollider1D:
         # Per-node state
         self.F = np.ones(N) * self.p.F_VAC
         self.q = np.zeros(N)
-        self.q_I = np.zeros(N)  # v6.5: Identity debt (irreversible)
-        self.q_D = np.zeros(N)  # v6.5: Damage debt (recoverable)
         self.a = np.ones(N)
 
         # Per-bond state
@@ -247,21 +237,12 @@ class DETCollider1D:
         self.g = -0.5 * (R(self.Phi) - L(self.Phi))
 
     def _sync_legacy_q_field(self):
-        """Map legacy direct writes to q into canonical (q_I, q_D)."""
-        q_split = np.clip(self.q_I + self.q_D, 0, 1)
-        if np.max(np.abs(self.q - q_split)) > 1e-12:
-            q_legacy = np.clip(self.q, 0, 1)
-            if self.p.legacy_q_maps_to_identity:
-                self.q_I = q_legacy.copy()
-                self.q_D = np.zeros_like(q_legacy)
-            else:
-                self.q_D = q_legacy.copy()
-                self.q_I = np.zeros_like(q_legacy)
-        self.q = np.clip(self.q_I + self.q_D, 0, 1)
+        """Clip externally-written q to physical bounds."""
+        self.q = np.clip(self.q, 0, 1)
 
     def _compute_drag_factor(self) -> np.ndarray:
-        """Structural drag multiplier D = 1/(1 + λ_DP*q_D + λ_IP*q_I)."""
-        return 1.0 / (1.0 + self.p.lambda_DP * self.q_D + self.p.lambda_IP * self.q_I)
+        """Structural drag multiplier D = 1/(1 + lambda_P*q)."""
+        return 1.0 / (1.0 + self.p.lambda_P * self.q)
 
     def compute_grace_injection(self, D: np.ndarray) -> np.ndarray:
         """Grace Injection per DET VI.5"""
@@ -284,10 +265,10 @@ class DETCollider1D:
         return dC_heal
 
     def compute_jubilee(self, D: np.ndarray) -> np.ndarray:
-        """Jubilee / Forgiveness operator (v6.5): reduces damage debt q_D.
+        """Jubilee / Forgiveness operator: reduces total structural debt q.
 
         S_i = a_i * C_i^n_q * D_i/(D_i + D_0)
-        dq_D = -delta_q * S_i * Delta_tau_i
+        dq = -delta_q * S_i * Delta_tau_i
 
         Optional Relational Jubilee adds bond-consensual term.
         """
@@ -304,14 +285,14 @@ class DETCollider1D:
         # Node-local Jubilee
         dq = p.delta_q * S_i * self.Delta_tau
 
-        # v6.5b: Energy coupling — cap forgiveness by available free resource
-        # Δq_D ≤ min(q_D, F_op/(1+F_op))
+        # Energy coupling — cap forgiveness by available free resource
+        # Δq ≤ min(q, F_op/(1+F_op))
         # This prevents free entropy reduction and preserves thermodynamic arrow.
         if p.jubilee_energy_coupling:
             F_op = np.maximum(self.F - p.F_VAC, 0.0)  # operational resource
             energy_cap = F_op / (1.0 + F_op)
             dq = np.minimum(dq, energy_cap)
-            dq = np.minimum(dq, self.q_D)  # can't forgive more than exists
+            dq = np.minimum(dq, self.q)  # can't forgive more than exists
 
         # Optional: Relational Jubilee (bond-consensual)
         if p.relational_jubilee:
@@ -343,22 +324,14 @@ class DETCollider1D:
 
         if initial_q > 0:
             q_add = initial_q * envelope
-            if self.p.q_I_fraction > 0:
-                self.q_D += q_add * (1.0 - self.p.q_I_fraction)
-                self.q_I += q_add * self.p.q_I_fraction
-            elif self.p.legacy_q_maps_to_identity:
-                self.q_I += q_add
-            else:
-                self.q_D += q_add
-            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            self.q += q_add
+            self.q = np.clip(self.q, 0, 1)
 
         self._clip()
 
     def _clip(self):
         self.F = np.clip(self.F, self.p.F_MIN, 1000)
-        self.q_I = np.clip(self.q_I, 0, 1)
-        self.q_D = np.clip(self.q_D, 0, 1)
-        self.q = np.clip(self.q_I + self.q_D, 0, 1)
+        self.q = np.clip(self.q, 0, 1)
         self.a = np.clip(self.a, 0, 1)
         self.pi_R = np.clip(self.pi_R, -self.p.pi_max, self.p.pi_max)
 
@@ -485,14 +458,10 @@ class DETCollider1D:
                 dpi_grav = 0
             self.pi_R = decay_R * self.pi_R + dpi_diff + dpi_grav
 
-        # STEP 10: Structure update (q_D accumulation + optional q_I locking)
+        # STEP 10: Structure update (q accumulation)
         if p.q_enabled:
-            dq_damage = p.alpha_qD * np.maximum(0, -dF)
-            self.q_D = np.clip(self.q_D + dq_damage * (1.0 - p.q_I_fraction), 0, 1)
-            self.q_I = np.clip(self.q_I + dq_damage * p.q_I_fraction, 0, 1)
-            if p.identity_locking_enabled and p.alpha_qI > 0:
-                self.q_I = np.clip(self.q_I + p.alpha_qI * np.maximum(0, -dF), 0, 1)
-            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            dq_lock = p.alpha_q * np.maximum(0, -dF)
+            self.q = np.clip(self.q + dq_lock, 0, 1)
 
         # Boundary operator: Bond healing
         if p.boundary_enabled and p.healing_enabled:
@@ -502,11 +471,10 @@ class DETCollider1D:
         else:
             self.last_healing = np.zeros(N)
 
-        # Boundary operator: Jubilee / Forgiveness (q_D only)
+        # Boundary operator: Jubilee / Forgiveness (q)
         if p.jubilee_enabled:
             dq_jubilee = self.compute_jubilee(D)
-            self.q_D = np.clip(self.q_D - dq_jubilee, 0, 1)
-            self.q = np.clip(self.q_I + self.q_D, 0, 1)
+            self.q = np.clip(self.q - dq_jubilee, 0, 1)
             self.last_jubilee = dq_jubilee.copy()
             self.total_jubilee += float(np.sum(dq_jubilee))
         else:

@@ -19,7 +19,7 @@ In DET, the quantum-classical transition is governed by:
 
 3. **Presence (P):** Effective clock rate
    - P = base_presence * D
-   - D = 1 / (1 + lambda_DP*q_D + lambda_IP*q_I)
+   - D = 1 / (1 + lambda_P*q)
 
 Reference: DET Theory Card v6.5.1
 """
@@ -271,44 +271,37 @@ class AgencyAnalyzer:
     Debt enters through the drag multiplier D in presence.
     """
 
-    def __init__(self, lambda_DP: float = 3.0, lambda_IP: float = 1.0, verbose: bool = True):
+    def __init__(self, lambda_P: float = 3.0, verbose: bool = True):
         """
         Initialize agency analyzer.
 
         Parameters
         ----------
-        lambda_DP : float
-            Drag coupling on dissipative debt q_D
-        lambda_IP : float
-            Drag coupling on identity debt q_I
+        lambda_P : float
+            Drag coupling on total structural debt q
         verbose : bool
             Print progress
         """
-        self.lambda_DP = lambda_DP
-        self.lambda_IP = lambda_IP
+        self.lambda_P = lambda_P
         self.verbose = verbose
 
-    def compute_structural_drag(self, q_I: np.ndarray, q_D: Optional[np.ndarray] = None) -> np.ndarray:
+    def compute_structural_drag(self, q: np.ndarray) -> np.ndarray:
         """
-        Compute drag multiplier from decomposed debt.
+        Compute drag multiplier from unified mutable debt.
 
-        D = 1 / (1 + lambda_DP*q_D + lambda_IP*q_I)
+        D = 1 / (1 + lambda_P*q)
 
         Parameters
         ----------
-        q_I : np.ndarray
-            Identity debt
-        q_D : np.ndarray, optional
-            Dissipative debt
+        q : np.ndarray
+            Structural debt field
 
         Returns
         -------
         np.ndarray
             Drag multiplier field
         """
-        if q_D is None:
-            q_D = np.zeros_like(q_I)
-        return 1.0 / (1.0 + self.lambda_DP * q_D + self.lambda_IP * q_I)
+        return 1.0 / (1.0 + self.lambda_P * q)
 
     def measure_agency_state(self, sim: DETCollider3D) -> AgencyState:
         """
@@ -325,12 +318,7 @@ class AgencyAnalyzer:
             Current agency statistics
         """
         a = sim.a
-        if hasattr(sim, "q_I"):
-            q_I = sim.q_I
-        else:
-            q_I = sim.q
-        q_D = sim.q_D if hasattr(sim, "q_D") else np.zeros_like(q_I)
-        drag = self.compute_structural_drag(q_I, q_D)
+        drag = self.compute_structural_drag(sim.q)
 
         a_mean = np.mean(a)
         a_peak = np.max(a)
