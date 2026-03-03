@@ -141,7 +141,13 @@ q_i^{+} = \mathrm{clip}(q_i + dq_{lock,i}, 0, 1)
 Recovery is energy-coupled and local:
 
 \[
+S_i = a_i\,C_i^{n_q}\,\frac{D_i}{D_i + D_0}
+\]
+\[
 dq_{jub,i} = \delta_q\,S_i\,\Delta\tau_i
+\]
+\[
+F_{op,i} = \max(F_i - F_{VAC}, 0)
 \]
 \[
 energy\_cap_i = \frac{F_{op,i}}{1 + F_{op,i}}
@@ -149,6 +155,9 @@ energy\_cap_i = \frac{F_{op,i}}{1 + F_{op,i}}
 \[
 q_i^{+} = \mathrm{clip}\left(q_i - \min(dq_{jub,i}, energy\_cap_i, q_i), 0, 1\right)
 \]
+
+In DET v7, there is no separate global Hamiltonian energy state in the canonical card.
+The operative local energy-like budget for Jubilee is the free-resource readout `F_{op,i}` derived from `F_i` above the vacuum floor `F_{VAC}`.
 
 Jubilee never modifies `a` directly.
 
@@ -220,6 +229,9 @@ No out-of-band core-law insertion is allowed.
 - `lambda_P`: drag coupling on total `q`
 - `alpha_q`: debt accumulation rate from loss
 - `delta_q`: Jubilee recovery coupling
+- `n_q`: Jubilee coherence exponent
+- `D_0`: Jubilee drag-activation scale
+- `F_VAC`: vacuum floor for operational free-resource readout `F_op`
 - `beta_a`: agency relaxation rate
 - `a0`: agency attractor (default `1.0`)
 - `gamma_max`, `n`: coherence gate parameters
