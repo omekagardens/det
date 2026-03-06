@@ -1,0 +1,164 @@
+{
+  "core": {
+    "mode": "core",
+    "sigma_removed": false,
+    "falsifier_comprehensive": {
+      "ok": true,
+      "runtime_s": 72.22599695785902,
+      "error": null,
+      "passed": 15,
+      "total": 15
+    },
+    "falsifier_v65": {
+      "ok": true,
+      "runtime_s": 13.28491820814088,
+      "error": null,
+      "passed": 8,
+      "total": 8
+    },
+    "falsifier_v65b": {
+      "ok": true,
+      "runtime_s": 2.6931882079225034,
+      "error": null,
+      "passed": 4,
+      "total": 4
+    },
+    "si_units": {
+      "ok": true,
+      "runtime_s": 0.00013866694644093513,
+      "error": null,
+      "passed": true
+    },
+    "qm_transition": {
+      "ok": true,
+      "runtime_s": 1.5299739590846002,
+      "error": null,
+      "quantum_count": 1,
+      "classical_count": 0,
+      "transition_count": 2
+    },
+    "g_calibration": {
+      "ok": true,
+      "runtime_s": 7.4100220000837,
+      "error": null,
+      "calibration_passed": false,
+      "G_orbital_mean": 0.0,
+      "G_potential_mean": 0.0,
+      "G_theoretical": 0.3584965093144942
+    },
+    "lensing": {
+      "ok": true,
+      "runtime_s": 7.502714541973546,
+      "error": null,
+      "mean_relative_error": 797.4718775532176,
+      "einstein_radius": 0.37370528919828105
+    },
+    "cosmology": {
+      "ok": true,
+      "runtime_s": 0.6294350000098348,
+      "error": null,
+      "growth_rate": -0.8586370572197008,
+      "spectral_index": 0.9649173356408715,
+      "correlation_length": 0.72
+    },
+    "black_hole": {
+      "ok": true,
+      "runtime_s": 4.591171917039901,
+      "error": null,
+      "agreement_temperature": 0.0,
+      "agreement_entropy": 0.0,
+      "T_exponent_det": 0.5147027323282622,
+      "entropy_exponent_det": -5.037319425591756e-16
+    },
+    "sigma_activity": {
+      "ok": true,
+      "runtime_s": 5.846603999845684,
+      "error": null,
+      "sigma_mean_mean": 1.0045547243531088,
+      "sigma_mean_std_over_time": 0.0022207492052807843,
+      "sigma_min": 1.0020004942841463,
+      "sigma_max": 1.0088535908333127
+    }
+  },
+  "sigma_removed": {
+    "mode": "sigma_removed",
+    "sigma_removed": true,
+    "falsifier_comprehensive": {
+      "ok": true,
+      "runtime_s": 70.85469858301803,
+      "error": null,
+      "passed": 15,
+      "total": 15
+    },
+    "falsifier_v65": {
+      "ok": true,
+      "runtime_s": 13.370048333192244,
+      "error": null,
+      "passed": 8,
+      "total": 8
+    },
+    "falsifier_v65b": {
+      "ok": true,
+      "runtime_s": 2.6895305830985308,
+      "error": null,
+      "passed": 4,
+      "total": 4
+    },
+    "si_units": {
+      "ok": true,
+      "runtime_s": 0.00013345899060368538,
+      "error": null,
+      "passed": true
+    },
+    "qm_transition": {
+      "ok": true,
+      "runtime_s": 1.5236971660051495,
+      "error": null,
+      "quantum_count": 1,
+      "classical_count": 0,
+      "transition_count": 2
+    },
+    "g_calibration": {
+      "ok": true,
+      "runtime_s": 7.474200666882098,
+      "error": null,
+      "calibration_passed": false,
+      "G_orbital_mean": 0.0,
+      "G_potential_mean": 0.0,
+      "G_theoretical": 0.3584965093144942
+    },
+    "lensing": {
+      "ok": true,
+      "runtime_s": 7.52087837504223,
+      "error": null,
+      "mean_relative_error": 797.4718775532176,
+      "einstein_radius": 0.37370528919828105
+    },
+    "cosmology": {
+      "ok": true,
+      "runtime_s": 0.6331974170170724,
+      "error": null,
+      "growth_rate": -0.8586370572197008,
+      "spectral_index": 0.9649173356408715,
+      "correlation_length": 0.72
+    },
+    "black_hole": {
+      "ok": true,
+      "runtime_s": 4.580492000095546,
+      "error": null,
+      "agreement_temperature": 0.0,
+      "agreement_entropy": 0.0,
+      "T_exponent_det": 0.5147385717356702,
+      "entropy_exponent_det": -4.0776235946979314e-16
+    },
+    "sigma_activity": {
+      "ok": true,
+      "runtime_s": 5.831847083987668,
+      "error": null,
+      "sigma_mean_mean": 1.0,
+      "sigma_mean_std_over_time": 0.0,
+      "sigma_min": 1.0,
+      "sigma_max": 1.0
+    }
+  }
+}
