@@ -1,0 +1,59 @@
+{
+  "diffusion": {
+    "peak_initial_3d": 15.01,
+    "peak_initial_4d": 15.01,
+    "peak_final_3d": 13.716449981161965,
+    "peak_final_4d": 13.282396164093933,
+    "half_life_3d": 150,
+    "half_life_4d": 150,
+    "decay_rate_3d": 0.0005866963753165918,
+    "decay_rate_4d": 0.0007864903281997045,
+    "rate_ratio_4d_over_3d": 1.3405406293422222
+  },
+  "binding": {
+    "pe_final_3d": -6145.441871011486,
+    "pe_final_4d": -18911.17649069662,
+    "pe_min_3d": -6145.441871011486,
+    "pe_min_4d": -18911.17649069662,
+    "pe_ratio": 3.077268793298993
+  },
+  "presence": {
+    "P_mean_3d": 0.37182671317751026,
+    "P_mean_4d": 0.43029157387740713,
+    "P_std_3d": 0.14912542372547505,
+    "P_std_4d": 0.11107939436927039,
+    "P_min_3d": 0.012643486177835403,
+    "P_min_4d": 0.012695712086435237,
+    "M_max_3d": 79.0921100347343,
+    "M_max_4d": 78.76675157657776,
+    "drag_mean_3d": 0.9371916799253386,
+    "drag_mean_4d": 0.973024178824822
+  },
+  "recovery": {
+    "q_initial_3d": 0.12102050781250002,
+    "q_final_3d": 0.12102050781250002,
+    "q_initial_4d": 0.10453948974609378,
+    "q_final_4d": 0.10453948974609378,
+    "recovery_fraction_3d": 0.0,
+    "recovery_fraction_4d": 0.0,
+    "recovery_ratio_4d_over_3d": 0.0,
+    "q_std_final_3d": 0.11946754253794052,
+    "q_std_final_4d": 0.056187506219005076
+  },
+  "projection": {
+    "slice_center_F_peak": 13.81579936919037,
+    "slice_edge_F_peak": 0.2647544776314092,
+    "proj_max_F_peak": 13.81579936919037,
+    "proj_sum_F_total": 9560.258959148145,
+    "total_mass_direct": 9560.258959148145,
+    "w_profile_peak": 13.81579936919037,
+    "w_profile_range": 13.551044891558961,
+    "dim_isotropy": {
+      "grad_X": 0.17806693308429916,
+      "grad_Y": 0.17807249265035704,
+      "grad_Z": 0.17806942597667189,
+      "grad_W": 0.17806942597667189
+    },
+    "sum_projection_error": 0.0
+  }
+}
