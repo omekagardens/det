@@ -24,5 +24,16 @@
   "eta_C_pos": 0.02,
   "eta_C_neg": 0.03,
   "eta_H": 0.04,
+  "grace_coherence_gain": 0.018,
+  "grace_load_relief": 0.028,
+  "grace_resource_gain": 0.014,
+  "bleed_work_to_kingdom": 0.04,
+  "bleed_kingdom_to_work": 0.032,
+  "future_tension_cost": 0.012,
+  "ai_audit_gain": 0.028,
+  "ai_scale_cost": 0.026,
+  "ai_false_amplification": 0.035,
+  "ai_context_loss_cost": 0.02,
+  "ai_min_governance_for_help": 0.5,
   "epsilon": 1e-08
 }
