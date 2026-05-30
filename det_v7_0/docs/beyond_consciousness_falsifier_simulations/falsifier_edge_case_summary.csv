@@ -1,0 +1,7 @@
+family,scenario,final_presence,final_selfhood_S,record_integrity,declared_spirit_channel,snapshot_identity,path_sensitive_identity,final_K_capacity,final_kappa,final_access,final_damage_q,final_coherence,direct_agency_write
+death_resurrection,death_frozen_record,0.0,0.0006203526920629741,0.4611202753943078,0.0,0.7182744191226658,0.5537978239890543,,,,,,
+death_resurrection,active_spirit_channel,0.009385480717969552,0.036522404267694715,0.4611202753943078,0.055,0.8869419913379861,0.77880958414492,,,,,,
+death_resurrection,resurrection_rehost,0.18903067156323913,0.28062704371631736,0.4680621861837046,0.0,0.48593361545173364,0.3886407520137135,,,,,,
+death_resurrection,copy_without_path,0.1885702170935786,0.279346527500034,0.4896794915066224,0.0,0.21345565926548735,0.01707645274123899,,,,,,
+utopic_boundary,utopic_disconnected,,,,,,,0.9983189708944624,0.0,0.0,0.3044032344055376,0.2132793104674257,0.0
+utopic_boundary,utopic_connected_noncoercive,,,,,,,0.9983189708944624,0.5490754339919544,0.2929363276925958,0.0,0.7776411780137739,0.0

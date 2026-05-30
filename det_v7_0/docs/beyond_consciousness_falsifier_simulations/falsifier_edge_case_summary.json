@@ -1,0 +1,78 @@
+{
+  "summary": [
+    {
+      "family": "death_resurrection",
+      "scenario": "death_frozen_record",
+      "final_presence": 0.0,
+      "final_selfhood_S": 0.0006203526920629741,
+      "record_integrity": 0.4611202753943078,
+      "declared_spirit_channel": 0.0,
+      "snapshot_identity": 0.7182744191226658,
+      "path_sensitive_identity": 0.5537978239890543
+    },
+    {
+      "family": "death_resurrection",
+      "scenario": "active_spirit_channel",
+      "final_presence": 0.009385480717969552,
+      "final_selfhood_S": 0.036522404267694715,
+      "record_integrity": 0.4611202753943078,
+      "declared_spirit_channel": 0.055,
+      "snapshot_identity": 0.8869419913379861,
+      "path_sensitive_identity": 0.77880958414492
+    },
+    {
+      "family": "death_resurrection",
+      "scenario": "resurrection_rehost",
+      "final_presence": 0.18903067156323913,
+      "final_selfhood_S": 0.28062704371631736,
+      "record_integrity": 0.4680621861837046,
+      "declared_spirit_channel": 0.0,
+      "snapshot_identity": 0.48593361545173364,
+      "path_sensitive_identity": 0.3886407520137135
+    },
+    {
+      "family": "death_resurrection",
+      "scenario": "copy_without_path",
+      "final_presence": 0.1885702170935786,
+      "final_selfhood_S": 0.279346527500034,
+      "record_integrity": 0.4896794915066224,
+      "declared_spirit_channel": 0.0,
+      "snapshot_identity": 0.21345565926548735,
+      "path_sensitive_identity": 0.01707645274123899
+    },
+    {
+      "family": "utopic_boundary",
+      "scenario": "utopic_disconnected",
+      "final_K_capacity": 0.9983189708944624,
+      "final_kappa": 0.0,
+      "final_access": 0.0,
+      "final_damage_q": 0.3044032344055376,
+      "final_coherence": 0.2132793104674257,
+      "direct_agency_write": 0.0
+    },
+    {
+      "family": "utopic_boundary",
+      "scenario": "utopic_connected_noncoercive",
+      "final_K_capacity": 0.9983189708944624,
+      "final_kappa": 0.5490754339919544,
+      "final_access": 0.2929363276925958,
+      "final_damage_q": 0.0,
+      "final_coherence": 0.7776411780137739,
+      "direct_agency_write": 0.0
+    }
+  ],
+  "tests": {
+    "F_D1_death_suppresses_embodied_participation": true,
+    "F_D2_frozen_record_not_active_observer": true,
+    "F_D3_path_sensitive_copy_control": true,
+    "F_D5_active_consciousness_requires_channel": true,
+    "F_K1_disconnected_utopic_no_present_coupling": true,
+    "F_K2_boundary_channel_no_agency_override": true,
+    "F_K3_noncoercive_growth": true
+  },
+  "images": {
+    "death_resurrection": "/home/ubuntu/det/det_v7_0/docs/beyond_consciousness_falsifier_simulations/death_resurrection_edge_cases.png",
+    "utopic_boundary": "/home/ubuntu/det/det_v7_0/docs/beyond_consciousness_falsifier_simulations/utopic_boundary_edge_cases.png",
+    "continuity_controls": "/home/ubuntu/det/det_v7_0/docs/beyond_consciousness_falsifier_simulations/continuity_controls.png"
+  }
+}
