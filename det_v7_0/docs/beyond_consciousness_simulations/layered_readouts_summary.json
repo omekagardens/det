@@ -1,0 +1,81 @@
+{
+  "summary": [
+    {
+      "scenario": "agency_only",
+      "S_onset_step": null,
+      "B_onset_step": null,
+      "I_self": 0.7999999999999999,
+      "identity_components": {
+        "I_self": 0.7999999999999999,
+        "sim_S": 1.0,
+        "sim_C": 1.0,
+        "overlap_B": 0.0,
+        "sim_P": 0.9999999999999999
+      },
+      "final_selfhood_S": 0.0,
+      "final_boundary_B": 0.0,
+      "final_presence": 0.03731402160213116,
+      "final_coherence": 0.08049999999999999,
+      "final_q": 0.504
+    },
+    {
+      "scenario": "identity_without_observer",
+      "S_onset_step": null,
+      "B_onset_step": null,
+      "I_self": 0.7999999999999999,
+      "identity_components": {
+        "I_self": 0.7999999999999999,
+        "sim_S": 1.0,
+        "sim_C": 1.0,
+        "overlap_B": 0.0,
+        "sim_P": 0.9999999999999999
+      },
+      "final_selfhood_S": 0.0,
+      "final_boundary_B": 0.0,
+      "final_presence": 0.13583963925096718,
+      "final_coherence": 0.41200000000000003,
+      "final_q": 0.21600000000000003
+    },
+    {
+      "scenario": "observer_development",
+      "S_onset_step": 783,
+      "B_onset_step": null,
+      "I_self": 0.31901083951493203,
+      "identity_components": {
+        "I_self": 0.31901083951493203,
+        "sim_S": 0.0,
+        "sim_C": 0.7710515857880103,
+        "overlap_B": 0.0,
+        "sim_P": 0.6312397153396474
+      },
+      "final_selfhood_S": 0.8144186777841671,
+      "final_boundary_B": 0.0,
+      "final_presence": 0.06743160736631162,
+      "final_coherence": 0.8215,
+      "final_q": 0.12000000000000005
+    },
+    {
+      "scenario": "boundary_participation",
+      "S_onset_step": 783,
+      "B_onset_step": null,
+      "I_self": 0.3189835537500922,
+      "identity_components": {
+        "I_self": 0.3189835537500922,
+        "sim_S": 0.0,
+        "sim_C": 0.7710411001948002,
+        "overlap_B": 0.0,
+        "sim_P": 0.6311163935069607
+      },
+      "final_selfhood_S": 0.817141945115282,
+      "final_boundary_B": 0.024622076426869487,
+      "final_presence": 0.06743160736631162,
+      "final_coherence": 0.8215432789709234,
+      "final_q": 0.11955181964505637
+    }
+  ],
+  "images": {
+    "timeseries": "/home/ubuntu/det/det_v7_0/docs/beyond_consciousness_simulations/layered_readouts_timeseries.png",
+    "summary": "/home/ubuntu/det/det_v7_0/docs/beyond_consciousness_simulations/layer_separation_summary.png"
+  },
+  "csv": "/home/ubuntu/det/det_v7_0/docs/beyond_consciousness_simulations/layered_readouts_timeseries.csv"
+}
