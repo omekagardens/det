@@ -1,0 +1,127 @@
+{
+  "scenarios": {
+    "deeper_boundary_lead": {
+      "final_B_addr": 0.7452000000000001,
+      "final_B_cap": 0.27625500528899444,
+      "final_B_act": 0.37999999962,
+      "final_B_align": 0.5,
+      "final_B_path": 0.19009498208851155,
+      "final_B_scalar": 0.3899811074741174,
+      "final_observer_S": 0.83,
+      "active_spirit_channel": true
+    },
+    "copy_control": {
+      "final_B_addr": 0.15897599999999998,
+      "final_B_cap": 0.2223454743069728,
+      "final_B_act": 0.029999999969999996,
+      "final_B_align": 0.5,
+      "final_B_path": 0.015011112993491199,
+      "final_B_scalar": 0.10323373740027207,
+      "final_observer_S": 0.7,
+      "active_spirit_channel": false
+    },
+    "ordinary_observer_no_boundary": {
+      "final_B_addr": 0.7452000000000001,
+      "final_B_cap": 0.24196419262817628,
+      "final_B_act": 0.0,
+      "final_B_align": 0.5,
+      "final_B_path": 0.0,
+      "final_B_scalar": 0.0,
+      "final_observer_S": 0.82,
+      "active_spirit_channel": false
+    },
+    "resurrection_path": {
+      "final_B_addr": 0.7452000000000001,
+      "final_B_cap": 0.2957480427843374,
+      "final_B_act": 0.41999999957999995,
+      "final_B_align": 0.5,
+      "final_B_path": 0.20923129758435047,
+      "final_B_scalar": 0.4105707795536625,
+      "final_observer_S": 0.8200000000000001,
+      "active_spirit_channel": true
+    },
+    "record_only_death": {
+      "final_B_addr": 0.7452000000000001,
+      "final_B_cap": 2.847766322180271e-06,
+      "final_B_act": 0.0,
+      "final_B_align": 0.5,
+      "final_B_path": 0.0,
+      "final_B_scalar": 0.0,
+      "final_observer_S": 0.03,
+      "active_spirit_channel": false
+    },
+    "boundary_recovery": {
+      "final_B_addr": 0.7452000000000001,
+      "final_B_cap": 0.3062452429301393,
+      "final_B_act": 0.5537399994462601,
+      "final_B_align": 0.5,
+      "final_B_path": 0.2649075706621105,
+      "final_B_scalar": 0.4534781692993662,
+      "final_observer_S": 0.9199999999999999,
+      "active_spirit_channel": true
+    },
+    "coercive_order_control": {
+      "final_B_addr": 0.7452000000000001,
+      "final_B_cap": 0.15076873193061244,
+      "final_B_act": 0.5999999993999999,
+      "final_B_align": 6.825602910446286e-08,
+      "final_B_path": 5.2189265066304875e-05,
+      "final_B_scalar": 0.010023851222658451,
+      "final_observer_S": 0.6199999999999999,
+      "active_spirit_channel": false
+    }
+  },
+  "falsifier_checks": {
+    "record_only_does_not_imply_active_channel": true,
+    "ordinary_observer_decouples_S_from_B_act": true,
+    "boundary_recovery_has_active_B_path": true,
+    "coercive_order_penalizes_B_alignment": true,
+    "copy_control_breaks_path_despite_similarity": true,
+    "resurrection_restores_capacity_and_path": true,
+    "deeper_boundary_lead_has_B_predictive_signal": true
+  },
+  "predictive_power": [
+    {
+      "scenario": "boundary_recovery",
+      "r2_baseline": 0.9940646502277759,
+      "r2_with_B": 0.9986454000710271,
+      "delta_r2_B": 0.004580749843251186
+    },
+    {
+      "scenario": "coercive_order_control",
+      "r2_baseline": 0.9912154814745043,
+      "r2_with_B": 0.9925870049246731,
+      "delta_r2_B": 0.0013715234501687767
+    },
+    {
+      "scenario": "copy_control",
+      "r2_baseline": 0.9805828137196868,
+      "r2_with_B": 0.9955256034722155,
+      "delta_r2_B": 0.014942789752528718
+    },
+    {
+      "scenario": "deeper_boundary_lead",
+      "r2_baseline": 0.8621560659573257,
+      "r2_with_B": 0.9707491754771234,
+      "delta_r2_B": 0.10859310951979761
+    },
+    {
+      "scenario": "ordinary_observer_no_boundary",
+      "r2_baseline": 0.9933055956564413,
+      "r2_with_B": 0.9936756039892467,
+      "delta_r2_B": 0.0003700083328054271
+    },
+    {
+      "scenario": "record_only_death",
+      "r2_baseline": 1.0,
+      "r2_with_B": 1.0,
+      "delta_r2_B": 0.0
+    },
+    {
+      "scenario": "resurrection_path",
+      "r2_baseline": 0.9963082924461234,
+      "r2_with_B": 0.9980281296082262,
+      "delta_r2_B": 0.0017198371621027775
+    }
+  ]
+}
