@@ -1,0 +1,134 @@
+{
+  "scenarios": {
+    "nonlocal_override_claim": {
+      "final_B_addr": 0.76986,
+      "final_P_body": 0.004,
+      "final_P_spirit": 0.0,
+      "final_B_body_cap": 0.0012039576765210626,
+      "final_B_spirit_cap": 0.0,
+      "final_B_cap_total": 0.0012039576765210391,
+      "final_B_act_spirit": 0.0,
+      "final_B_path": 0.0,
+      "active_spirit_participation": false
+    },
+    "resurrection_body_only": {
+      "final_B_addr": 0.76986,
+      "final_P_body": 0.76,
+      "final_P_spirit": 0.0,
+      "final_B_body_cap": 0.2616145383808748,
+      "final_B_spirit_cap": 0.0,
+      "final_B_cap_total": 0.2616145383808748,
+      "final_B_act_spirit": 0.0,
+      "final_B_path": 0.3306272091385825,
+      "active_spirit_participation": false
+    },
+    "frozen_record": {
+      "final_B_addr": 0.76986,
+      "final_P_body": 0.003,
+      "final_P_spirit": 0.0,
+      "final_B_body_cap": 1.690482561464459e-06,
+      "final_B_spirit_cap": 0.0,
+      "final_B_cap_total": 1.6904825614894037e-06,
+      "final_B_act_spirit": 0.0,
+      "final_B_path": 0.0,
+      "active_spirit_participation": false
+    },
+    "embodied_death_null": {
+      "final_B_addr": 0.76986,
+      "final_P_body": 0.004,
+      "final_P_spirit": 0.0,
+      "final_B_body_cap": 0.0012039576765210626,
+      "final_B_spirit_cap": 0.0,
+      "final_B_cap_total": 0.0012039576765210391,
+      "final_B_act_spirit": 0.0,
+      "final_B_path": 0.0,
+      "active_spirit_participation": false
+    },
+    "coercive_pseudo_spirit": {
+      "final_B_addr": 0.76986,
+      "final_P_body": 0.004,
+      "final_P_spirit": 0.0,
+      "final_B_body_cap": 0.0012039576765210626,
+      "final_B_spirit_cap": 0.0,
+      "final_B_cap_total": 0.0012039576765210391,
+      "final_B_act_spirit": 0.0,
+      "final_B_path": 0.0006114930111308217,
+      "active_spirit_participation": false
+    },
+    "active_spirit_declared": {
+      "final_B_addr": 0.76986,
+      "final_P_body": 0.004,
+      "final_P_spirit": 0.40827372334849255,
+      "final_B_body_cap": 2.5739115327708977e-05,
+      "final_B_spirit_cap": 0.40827372334849255,
+      "final_B_cap_total": 0.4082889538593697,
+      "final_B_act_spirit": 0.53999999946,
+      "final_B_path": 0.530765662225121,
+      "active_spirit_participation": true
+    },
+    "copy_channel_claim": {
+      "final_B_addr": 0.142848,
+      "final_P_body": 0.73,
+      "final_P_spirit": 0.0,
+      "final_B_body_cap": 0.2197222759650939,
+      "final_B_spirit_cap": 0.0,
+      "final_B_cap_total": 0.21972227596509386,
+      "final_B_act_spirit": 0.0,
+      "final_B_path": 0.19938245766531507,
+      "active_spirit_participation": false
+    }
+  },
+  "falsifier_checks": {
+    "frozen_record_has_address_without_spirit_activity": true,
+    "death_null_collapses_body_not_total_by_theorem": true,
+    "declared_spirit_channel_survives_body_collapse_when_gates_pass": true,
+    "copy_claim_fails_path_despite_host_capacity": true,
+    "coercive_pseudo_spirit_fails_noncoercion_gate": true,
+    "resurrection_can_restore_body_capacity_without_spirit_channel": true,
+    "nonlocal_override_rejected_even_with_channel_claim": true
+  },
+  "predictive_power": [
+    {
+      "scenario": "active_spirit_declared",
+      "r2_without_spirit_terms": 0.996384033980594,
+      "r2_with_spirit_terms": 0.9963843111936417,
+      "delta_r2_spirit": 2.7721304762806653e-07
+    },
+    {
+      "scenario": "coercive_pseudo_spirit",
+      "r2_without_spirit_terms": 0.04520356256329672,
+      "r2_with_spirit_terms": 0.31290868800765903,
+      "delta_r2_spirit": 0.2677051254443623
+    },
+    {
+      "scenario": "copy_channel_claim",
+      "r2_without_spirit_terms": 0.9815193674850249,
+      "r2_with_spirit_terms": 0.9858235634966444,
+      "delta_r2_spirit": 0.0043041960116194655
+    },
+    {
+      "scenario": "embodied_death_null",
+      "r2_without_spirit_terms": 1.0,
+      "r2_with_spirit_terms": 1.0,
+      "delta_r2_spirit": 0.0
+    },
+    {
+      "scenario": "frozen_record",
+      "r2_without_spirit_terms": 1.0,
+      "r2_with_spirit_terms": 1.0,
+      "delta_r2_spirit": 0.0
+    },
+    {
+      "scenario": "nonlocal_override_claim",
+      "r2_without_spirit_terms": 1.0,
+      "r2_with_spirit_terms": 1.0,
+      "delta_r2_spirit": 0.0
+    },
+    {
+      "scenario": "resurrection_body_only",
+      "r2_without_spirit_terms": 0.956683546940696,
+      "r2_with_spirit_terms": 0.956683546940696,
+      "delta_r2_spirit": 0.0
+    }
+  ]
+}

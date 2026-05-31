@@ -1,0 +1,8 @@
+scenario,r2_without_spirit_terms,r2_with_spirit_terms,delta_r2_spirit
+active_spirit_declared,0.996384033980594,0.9963843111936417,2.7721304762806653e-07
+coercive_pseudo_spirit,0.04520356256329672,0.31290868800765903,0.2677051254443623
+copy_channel_claim,0.9815193674850249,0.9858235634966444,0.0043041960116194655
+embodied_death_null,1.0,1.0,0.0
+frozen_record,1.0,1.0,0.0
+nonlocal_override_claim,1.0,1.0,0.0
+resurrection_body_only,0.956683546940696,0.956683546940696,0.0
